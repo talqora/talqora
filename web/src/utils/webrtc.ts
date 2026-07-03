@@ -763,8 +763,13 @@ export class WebRTCManager {
   }
 
   reset(): void {
+    // 保留「接受前对端已 trickle 过来、但因本端还没 setRemoteDescription 而暂存的 ICE 候选」。
+    // cleanup() 会清空 pendingIceCandidates;若不保留,被叫 accept 时 reset() 新建 PC 就丢了主叫的早到候选,
+    // 导致被叫不知道往哪发 → 媒体单向、通话建不起来(实测根因:直接接受打不通,刷新走 rejoin 重协商才通)。
+    const preservedCandidates = this.pendingIceCandidates;
     this.cleanup();      // 先清理
     this.initialize();   // 再初始化
+    this.pendingIceCandidates = preservedCandidates; // 还原,待 handleOffer 里 setRemoteDescription 后应用
   }
 
   /**
