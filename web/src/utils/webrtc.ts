@@ -9,13 +9,26 @@ import { getIceServers } from './iceServers';
  * 不再硬编码 Google STUN——国内基本连不上、且无 TURN 兜底,异网络/对称 NAT(手机流量)会打不通。
  * 调用方须在建连前 `await ensureIceServers()`,本函数同步读取其缓存结果。
  */
-function buildRtcConfiguration(): RTCConfiguration {
-  return {
-    iceServers: getIceServers(),
+function buildRtcConfiguration(forceRelay: boolean): RTCConfiguration {
+  const iceServers = getIceServers();
+  const config: RTCConfiguration = {
+    iceServers,
     // 不预取候选池:池会为每个 PeerConnection 预分配一批 TURN relay,叠加通话内 reset 重建,
     // 单用户短时间分配数暴涨、撞 coturn user-quota → 486 Allocation Quota Reached,真正通话的 relay 反而分配不到。
     iceCandidatePoolSize: 0,
   };
+  // forceRelay(自适应升级后):强制只走 relay。
+  //  ① 丢掉 host/srflx 的垃圾候选 —— VPN/代理 TUN 虚拟网卡的 198.18.x、10.x 等死地址会污染 ICE、拖垮收敛;
+  //  ② 让媒体稳定落到 TURN over TCP/TLS —— 这条路能穿 VPN/对称 NAT/严格防火墙,而 UDP 直连做不到。
+  //  (为何这样修见 docs/技术方案/音视频-开着VPN也能通-可行性研究与方案.md)
+  // 默认(forceRelay=false)走 all,正常网络优先 P2P 直连、低延迟省带宽;失败才升级 relay-only。
+  // 仅在确有 TURN 时才强制 relay,否则(如本地开发降级为空)退回 all,至少同网 host 可用。
+  const hasTurn = iceServers.some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    return urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
+  });
+  if (forceRelay && hasTurn) config.iceTransportPolicy = 'relay';
+  return config;
 }
 
 /**
@@ -49,6 +62,10 @@ export class WebRTCManager {
   
   // 状态标志
   private isNegotiating = false;  // 是否正在协商中
+
+  // 自适应传输:false=默认(all,P2P 优先);ICE 失败后由上层置 true → 只走 relay(穿 VPN/对称NAT/严格防火墙)。
+  // iceTransportPolicy 只能在建 PeerConnection 时确定,故改此标志后需 reset() 重建才生效。
+  private forceRelay = false;
   
   // 收到远程媒体流时触发
   public onRemoteStream?: (stream: MediaStream) => void;
@@ -131,7 +148,7 @@ export class WebRTCManager {
       console.log('初始化WebRTC连接');
       
       // 创建PeerConnection实例，传入配置
-      this.peerConnection = new RTCPeerConnection(buildRtcConfiguration());
+      this.peerConnection = new RTCPeerConnection(buildRtcConfiguration(this.forceRelay));
       
       // 设置所有必要的事件监听器
       this.setupEventHandlers();
@@ -735,6 +752,16 @@ export class WebRTCManager {
    * 1. 会触发所有状态回调
    * 2. 媒体权限需要重新获取
    */
+  /** 自适应升级:置为只走 relay。下次 reset()/initialize() 重建 PeerConnection 时生效。 */
+  setForceRelay(value: boolean): void {
+    this.forceRelay = value;
+  }
+
+  /** 当前是否已升级为 relay-only。 */
+  get isForceRelay(): boolean {
+    return this.forceRelay;
+  }
+
   reset(): void {
     this.cleanup();      // 先清理
     this.initialize();   // 再初始化

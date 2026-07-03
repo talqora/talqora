@@ -62,6 +62,10 @@ export const useCall = () => {
   const reconnectGraceRef = useRef<NodeJS.Timeout | null>(null);
   // 刷新重载后只尝试一次 rejoin 的标记
   const rejoinAttemptedRef = useRef(false);
+  // 自适应传输:本通话是否已从 P2P 升级到 relay-only(每通只升一次)
+  const relayEscalatedRef = useRef(false);
+  // 持有最新的「升级到 relay」闭包,供 mount 期的 onConnectionStateChange 拿到新 callState(避免闭包陷阱)
+  const escalateRef = useRef<(() => void) | null>(null);
 
   // 初始化WebRTC管理器
   useEffect(() => {
@@ -113,6 +117,12 @@ export const useCall = () => {
       } else if (state === 'failed' || state === 'disconnected') {
         // 中断不立即结束:进入 reconnecting 等对端 rejoin / 本端恢复;宽限超时仍未恢复才兜底结束。
         console.warn('WebRTC连接中断,进入重连等待:', state);
+        // 自适应升级:首次 failed(而非临时 disconnected)且尚未升级过 → 升级为 relay-only 重连,
+        // 强制媒体走能穿 VPN/对称NAT/严格防火墙的 TURN over TCP/TLS。grace 定时器仍作最终兜底。
+        if (state === 'failed' && !relayEscalatedRef.current && webrtcRef.current && !webrtcRef.current.isForceRelay) {
+          console.warn('P2P/直连失败,升级为 relay-only 重连');
+          escalateRef.current?.();
+        }
         dispatch(reconnectingCall());
         if (!reconnectGraceRef.current) {
           reconnectGraceRef.current = setTimeout(() => {
@@ -279,6 +289,12 @@ export const useCall = () => {
       try {
         dispatch(reconnectingCall());
         currentCallIdRef.current = event.callId;
+        // 对端因直连失败升级到 relay:本端同步切 relay-only —— 双方都只走中继才建得起来。
+        // relay 是客户端内部信令提示(服务端原样转发),未进 IDL,故就地窄化读取。
+        if ((event as CallRejoinEvent & { relay?: boolean }).relay) {
+          relayEscalatedRef.current = true;
+          webrtcRef.current.setForceRelay(true);
+        }
         // 建连前确保有最新 ICE servers(coturn STUN + 短期凭据 TURN);reset() 会用它重建 PeerConnection。
         await ensureIceServers();
         webrtcRef.current.reset();
@@ -430,6 +446,9 @@ export const useCall = () => {
 
       // 2. 重置WebRTC状态，确保干净开始
       console.log('重置WebRTC状态，确保干净的连接开始');
+      // 新通话从默认(P2P 优先)开始;清掉上一通可能残留的 relay 升级标志。
+      relayEscalatedRef.current = false;
+      webrtcRef.current.setForceRelay(false);
       // 建连前确保有最新 ICE servers(coturn STUN + 短期凭据 TURN);reset() 会用它重建 PeerConnection。
       await ensureIceServers();
       webrtcRef.current.reset();
@@ -482,10 +501,15 @@ export const useCall = () => {
 
   // 刷新/重载后重新入会:新建 PC、重取媒体、发新 offer,请对端重协商恢复连接。
   // 重连方永远是「发 offer」的一方(无论原先是主叫还是被叫),对端收到 call:rejoin 后回 answer。
-  const rejoinCall = useCallback(async (persisted: PersistedCall) => {
+  const rejoinCall = useCallback(async (persisted: PersistedCall, relayOnly = false) => {
     if (!webrtcRef.current || !currentUser) return;
     try {
       currentCallIdRef.current = persisted.callId;
+      // relayOnly:直连失败后的升级重连,本端切 relay-only 并让对端也切(穿 VPN/对称NAT/防火墙)。
+      if (relayOnly) {
+        relayEscalatedRef.current = true;
+        webrtcRef.current.setForceRelay(true);
+      }
       await ensureIceServers();
       webrtcRef.current.reset();
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -502,6 +526,7 @@ export const useCall = () => {
         },
         to: persisted.peer,
         offer,
+        relay: relayOnly,
       });
     } catch (error) {
       console.error('重新入会失败:', error);
@@ -509,6 +534,33 @@ export const useCall = () => {
       cleanup();
     }
   }, [currentUser, dispatch, cleanup]);
+
+  // 直连失败 → 升级为 relay-only 重连。只有主叫重发 offer(带 relay 标记让对端也切 relay);
+  // 被叫只本地切 relay,等主叫的 relay:rejoin 到来。每通只升一次。
+  const escalateToRelay = useCallback(() => {
+    if (relayEscalatedRef.current || !webrtcRef.current || !callState.callId || !callState.remoteUser) return;
+    const callerId = Number(callState.callId.split('_')[1]);
+    const isCaller = callState.localUser?.id === callerId;
+    relayEscalatedRef.current = true;
+    webrtcRef.current.setForceRelay(true);
+    if (isCaller) {
+      void rejoinCall({
+        callId: callState.callId,
+        peer: callState.remoteUser,
+        callType: callState.callType,
+        role: 'caller',
+        status: 'connected',
+        startTime: callState.startTime,
+        isMuted: callState.isMuted,
+        savedAt: Date.now(),
+      }, true);
+    }
+  }, [callState.callId, callState.localUser, callState.remoteUser, callState.callType, callState.startTime, callState.isMuted, rejoinCall]);
+
+  // 把最新 escalateToRelay 挂到 ref,供 mount 期 onConnectionStateChange 调用时拿到最新 callState。
+  useEffect(() => {
+    escalateRef.current = escalateToRelay;
+  }, [escalateToRelay]);
 
   // 接受通话
   const acceptCall = useCallback(async () => {
@@ -538,6 +590,9 @@ export const useCall = () => {
 
       // 1. 重置WebRTC状态，确保干净的开始
       console.log('重置WebRTC状态，确保干净的连接开始');
+      // 接听方也从默认开始;若随后直连失败,由主叫驱动升级 relay。
+      relayEscalatedRef.current = false;
+      webrtcRef.current.setForceRelay(false);
       await ensureIceServers();
       webrtcRef.current.reset();
       
