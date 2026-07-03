@@ -101,24 +101,23 @@ pkey=/etc/letsencrypt/live/tujiang.tech/privkey.pem
 no-tlsv1
 no-tlsv1_1
 
-# 安全硬化(重要):禁止把 TURN 当跳板中继到内网/回环/元数据,防 SSRF 式滥用
+# 安全硬化:禁止把 TURN 当跳板中继到内网/回环/云元数据,防 SSRF 式滥用。
+# ⚠ denied-peer-ip 必须"外科式"收敛,只封敏感目标;若整段封私网/CGNAT/链路本地,会把合法 peer 候选
+#   (手机 CGNAT srflx、家庭 LAN、iOS 链路本地等)拒成 403 Forbidden IP → relay 建不起来。
+#   (踩坑复盘见 docs/debug/音视频异网络打不通-coturn配额与denied-peer-ip排障复盘.md)
 no-cli
 no-multicast-peers
-no-loopback-peers
-denied-peer-ip=0.0.0.0-0.255.255.255
-denied-peer-ip=10.0.0.0-10.255.255.255
-denied-peer-ip=100.64.0.0-100.127.255.255
-denied-peer-ip=127.0.0.0-127.255.255.255
-denied-peer-ip=169.254.0.0-169.254.255.255
-denied-peer-ip=172.16.0.0-172.31.255.255
-denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255        # 回环(host 网络与宿主共享 loopback)
 denied-peer-ip=::1
-denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
-denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=169.254.169.254-169.254.169.254  # 云元数据单 IP(不封整段链路本地)
+denied-peer-ip=10.0.0.0-10.0.3.255              # 本机 VPC(eth0=10.0.0.5/22)
+denied-peer-ip=172.17.0.0-172.20.255.255        # docker 网桥(内部服务在此)
 
-# 限流(防带宽被打爆)
-user-quota=12
-total-quota=100
+# 限流(防带宽被打爆)。⚠ user-quota 不能太小:前端每建 PeerConnection 会预取候选池、通话内又 reset 重建,
+# 单用户瞬时 allocation 很容易撞上限 → 486 Allocation Quota Reached 拒掉真正通话的 relay(同上复盘)。
+# 治本:前端 iceCandidatePoolSize 设 0(不预取池),配额只作兜底。
+user-quota=100
+total-quota=500
 ```
 
 **为什么用 host 网络**:TURN relay 会动态在一段 UDP 端口上开中继,Docker bridge 的端口映射 + NAT 会把 relay 地址搞乱(客户端拿到的地址连不上)。`network_mode: host` 让 coturn 直接绑宿主端口、看到真实网络,是自建 TURN 的标准做法(单租户机可接受不隔离)。

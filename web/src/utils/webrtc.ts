@@ -12,7 +12,9 @@ import { getIceServers } from './iceServers';
 function buildRtcConfiguration(): RTCConfiguration {
   return {
     iceServers: getIceServers(),
-    iceCandidatePoolSize: 10, // 预生成 ICE 候选池
+    // 不预取候选池:池会为每个 PeerConnection 预分配一批 TURN relay,叠加通话内 reset 重建,
+    // 单用户短时间分配数暴涨、撞 coturn user-quota → 486 Allocation Quota Reached,真正通话的 relay 反而分配不到。
+    iceCandidatePoolSize: 0,
   };
 }
 
