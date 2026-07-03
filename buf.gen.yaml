@@ -5,7 +5,7 @@ managed:
     - file_option: go_package_prefix
       value: github.com/our-chat/gateway/internal/contracts/gen
 plugins:
-  - remote: buf.build/community/stephenh-ts-proto
+  - remote: buf.build/community/stephenh-ts-proto:v2.11.8
     out: server/src/contracts/gen
     opt:
       - onlyTypes=true
@@ -13,7 +13,7 @@ plugins:
       - useDate=string
       - useOptionals=messages
       - esModuleInterop=true
-  - remote: buf.build/community/stephenh-ts-proto
+  - remote: buf.build/community/stephenh-ts-proto:v2.11.8
     out: web/src/contracts/gen
     opt:
       - onlyTypes=true
@@ -21,7 +21,7 @@ plugins:
       - useDate=string
       - useOptionals=messages
       - esModuleInterop=true
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.11
     out: gateway/internal/contracts/gen
     opt:
       - paths=source_relative

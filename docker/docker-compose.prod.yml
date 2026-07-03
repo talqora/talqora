@@ -1,4 +1,5 @@
-# our-chat 生产部署编排（只拉取镜像，不在服务器构建）。
+# our-chat 生产部署编排（镜像在服务器本地构建，不跨墙拉/推）。
+# 应用镜像(server/gateway/web)用 build: 就地构建；基础镜像(postgres/redis)仍走 daemon 镜像加速拉取。
 #
 # 配置分层（重要）：
 #   ① 通用、非机密、哪都一样 → 本文件 environment: 里用 ${VAR:-默认值}，无需任何 env 文件即可跑。
@@ -11,7 +12,7 @@
 #   S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_PUBLIC_BASE_URL/S3_ACCESS_KEY/S3_SECRET_KEY
 # OAuth 私钥同样由 Action 写到 ./keys/oauth-private-prod.pem。
 #
-# 镜像 tag（SERVER_IMAGE 等）由 Action 以 shell env 注入（精确 commit sha）。
+# web 的 VITE_SERVER_ORIGIN/VITE_AGENT_API_BASE 由 WEB_PUBLIC_ORIGIN 派生(部署脚本 export 后注入 build)。
 name: our-chat
 
 services:
@@ -49,8 +50,12 @@ services:
     networks: [our-chat]
 
   server:
-    # tag 由 CI 注入（github.sha）；默认 latest 仅手动兜底。
-    image: ${SERVER_IMAGE:-docker.io/fdahk/our-chat-server:latest}
+    # 服务器本地构建(镜像不跨墙)。compose 在 docker/ 运行,上下文 = ../server(CI scp 同步的源码)。
+    build:
+      context: ../server
+      args:
+        NPM_REGISTRY: https://registry.npmmirror.com
+    image: our-chat-server:local
     container_name: our-chat-server
     restart: unless-stopped
     depends_on:
@@ -88,7 +93,12 @@ services:
     networks: [our-chat, oc-shared]
 
   gateway:
-    image: ${GATEWAY_IMAGE:-docker.io/fdahk/our-chat-gateway:latest}
+    # 服务器本地构建(镜像不跨墙)。compose 在 docker/ 运行,上下文 = ../gateway(CI scp 同步的源码)。
+    build:
+      context: ../gateway
+      args:
+        GOPROXY_URL: 'https://goproxy.cn,direct'
+    image: our-chat-gateway:local
     container_name: our-chat-gateway
     restart: unless-stopped
     depends_on:
@@ -109,20 +119,58 @@ services:
     networks: [our-chat]
 
   web:
-    image: ${WEB_IMAGE:-docker.io/fdahk/our-chat-web:latest}
+    # 服务器本地构建(镜像不跨墙)。上下文 = ../web；VITE_* 在编译期内联进 bundle。
+    # VITE_SERVER_ORIGIN/VITE_AGENT_API_BASE 由 WEB_PUBLIC_ORIGIN 派生(部署脚本 export 后注入 build)。
+    build:
+      context: ../web
+      args:
+        NPM_REGISTRY: https://registry.npmmirror.com
+        VITE_SERVER_ORIGIN: ${WEB_PUBLIC_ORIGIN:?WEB_PUBLIC_ORIGIN 未设置（应由 CI export）}
+        VITE_AGENT_API_BASE: ${WEB_PUBLIC_ORIGIN}/agent/api
+    image: our-chat-web:local
     container_name: our-chat-web
     restart: unless-stopped
     depends_on:
       - server
       - gateway
     ports:
-      - '${WEB_PORT:-8080}:80'
+      - '80:80'
+      - '443:443'
     # 边缘路由策略外置：改代理/限额无需重建前端镜像，只改挂载文件后 reload。
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # TLS：certbot 证书目录整挂(live 下是软链,必须挂 /etc/letsencrypt 整体)只读给 nginx；
+      # certbot-www 是续期 HTTP-01 的 webroot(certbot 写挑战文件,nginx 在 80 端口读)。
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certbot-www:/var/www/certbot:ro
     # 加入 oc-shared，让 nginx 能同源反代到 agent-node-server:3101（/agent/）
     networks: [our-chat, oc-shared]
+
+  # ── coturn:STUN/TURN,给 WebRTC 音视频做 NAT 穿透(异网络/对称 NAT 的兜底中继)──
+  #   · host 网络:relay 要在真实网络上动态开一段 UDP 端口,bridge 的 NAT 会把 relay 地址搞乱 → 必须 host。
+  #   · 机密与环境项(secret / 公网IP / 私网IP)经 command 以 ${} 从 .env 注入,不落进只读挂载的 conf。
+  #   · 复用 nginx 的 Let's Encrypt 证书做 TURNS(5349,只读挂载 /etc/letsencrypt)。
+  #   · 需在云防火墙放行入站:3478 udp+tcp、5349 tcp、49160-49200 udp(见技术方案文档)。
+  #   · 覆盖默认 CMD 时要保留 --log-file=stdout,否则 docker logs 看不到日志。
+  #   · listening-ip/relay-ip 必须锁到真实私网网卡:host 网络下 coturn 会把 docker 网桥(172.x)、
+  #     回环也当 listener/relay 地址,中继若落在 172.x → 对外不可达、通话打不通。external-ip=公网/私网。
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    container_name: our-chat-coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    command:
+      - --log-file=stdout
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET:?TURN_SECRET 未设置（应由 CI 写入 .env）}
+      - --listening-ip=${TURN_LISTENING_IP:?TURN_LISTENING_IP 未设置（服务器私网 IP,应由 CI 写入 .env）}
+      - --relay-ip=${TURN_LISTENING_IP}
+      - --external-ip=${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP 未设置（服务器公网 IP,应由 CI 写入 .env）}/${TURN_LISTENING_IP}
 
 volumes:
   postgres_data:

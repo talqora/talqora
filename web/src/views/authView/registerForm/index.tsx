@@ -38,7 +38,7 @@ function RegisterForm({ switchModel }: { switchModel: () => void }) {
   function validateLocal(): FieldErr {
     const e: FieldErr = {};
     if (!username) e.username = t('auth.validate.usernameRequired');
-    else if (username.length < 3) e.username = t('auth.validate.usernameMin');
+    else if (username.length < 2) e.username = t('auth.validate.usernameMin');
     else if (!usernameRule.test(username)) e.username = t('auth.validate.usernameRule');
 
     if (!email) e.email = t('auth.validate.emailRequired');

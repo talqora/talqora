@@ -1,6 +1,9 @@
 # 构建阶段:静态编译 Go 二进制
 FROM golang:1.22-alpine AS builder
 WORKDIR /src
+# 依赖源:默认官方;服务器本地 build 时由 compose 传 GOPROXY_URL=goproxy.cn(国内快)。
+ARG GOPROXY_URL=https://proxy.golang.org,direct
+ENV GOPROXY=$GOPROXY_URL
 # 先拷依赖清单,利用层缓存
 COPY go.mod go.sum ./
 RUN go mod download

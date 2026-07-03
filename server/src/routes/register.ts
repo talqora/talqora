@@ -12,8 +12,8 @@ router.post('/register', async (req, res) => {
     if (!username || !email || !password) {
       return res.status(400).json({ success: false, message: '用户名、邮箱和密码不能为空' });
     }
-    if (username.length < 3 || username.length > 50) {
-      return res.status(400).json({ success: false, message: '用户名长度必须在3-50个字符之间' });
+    if (username.length < 2 || username.length > 50) {
+      return res.status(400).json({ success: false, message: '用户名长度必须在2-50个字符之间' });
     }
     if (email.length > 100) {
       return res.status(400).json({ success: false, message: '邮箱地址不能超过100个字符' });
@@ -119,8 +119,8 @@ router.get('/check-username', async (req, res) => {
     if (!username) {
       return res.status(400).json({ exists: false, message: '用户名不能为空' });
     }
-    if (username.length < 3 || username.length > 50) {
-      return res.json({ exists: false, message: '用户名长度必须在3-50个字符之间' });
+    if (username.length < 2 || username.length > 50) {
+      return res.json({ exists: false, message: '用户名长度必须在2-50个字符之间' });
     }
     const found = await prisma.user.findUnique({
       where: { username },

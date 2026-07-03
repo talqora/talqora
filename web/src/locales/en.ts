@@ -57,7 +57,7 @@ const en: LocaleSchema = {
 
     works: {
       title: 'Works',
-      subtitle: 'Four projects I shipped end-to-end. Each card is the specific problem I picked, and what I decided.',
+      subtitle: '',
       more: 'More on GitHub @fdahk',
     },
 
@@ -66,7 +66,7 @@ const en: LocaleSchema = {
       track: 'Track',
       award: 'Award',
       online: 'Online',
-      targetingRoles: 'Targeting 2026 front-end / full-stack roles',
+      targetingRoles: 'Mobile / front-end full-stack roles',
       nationalLevel: 'National level',
       githubJuejin: 'GitHub · Juejin',
       email: 'Email',
@@ -107,7 +107,7 @@ const en: LocaleSchema = {
 
     validate: {
       usernameRequired: 'Username required',
-      usernameMin: 'At least 3 characters',
+      usernameMin: 'At least 2 characters',
       usernameRule: 'Only letters / digits / underscore / CJK allowed',
       usernameTaken: 'Username already taken',
       emailRequired: 'Email required',
@@ -139,6 +139,18 @@ const en: LocaleSchema = {
       record: 'History',
       voice: 'Voice call',
       video: 'Video call',
+    },
+    holdToTalk: 'Hold to talk',
+    panel: {
+      album: 'Album',
+      camera: 'Camera',
+      videoCall: 'Video call',
+      voiceCall: 'Voice call',
+      location: 'Location',
+      redPacket: 'Red packet',
+      gift: 'Gift',
+      transfer: 'Transfer',
+      voiceInput: 'Voice input',
     },
     errors: {
       noActiveConversation: 'No conversation selected',
@@ -193,6 +205,12 @@ const en: LocaleSchema = {
     menu: {
       setting: 'Settings',
       logout: 'Sign out',
+    },
+    tab: {
+      chat: 'Chats',
+      directory: 'Contacts',
+      agent: 'Agent',
+      me: 'Me',
     },
   },
 

@@ -1,24 +1,20 @@
 import { type ICECandidate } from '../globalType/call';
+import { getIceServers } from './iceServers';
 
 /**
- * WebRTC 配置对象：ICE服务器配置和连接参数
- * @property {Array} iceServers - ICE服务器列表，用于NAT穿透
- * @property {number} iceCandidatePoolSize - 预生成的ICE候选数量
- * ICE：Interactive Connectivity Establishment，即交互式连接建立
-  一种NAT穿透协议，整合了STUN和TURN两种协议的框架。ICE通过收集候选地址、进行连通性检查等，
-  来确定可用于双端通信的传输地址对，解决异构网络环境下的终端连通性问题
-  STUN：Session Traversal Utilities for NAT，即会话穿越NAT的工具
-  TURN：Traversal Using Relays around NAT，即使用中继穿越NAT
- *  - 较大的值会增加连接成功率但会消耗更多资源
+ * 构建 RTCConfiguration。
+ * ICE(Interactive Connectivity Establishment):整合 STUN/TURN 的 NAT 穿透框架,收集 host/srflx/relay
+ * 候选并做连通性检查,确定双端可用的传输地址对。
+ * iceServers 改为**运行时从服务端动态拉取**(见 utils/iceServers):自建 coturn 的 STUN + 带短期凭据的 TURN。
+ * 不再硬编码 Google STUN——国内基本连不上、且无 TURN 兜底,异网络/对称 NAT(手机流量)会打不通。
+ * 调用方须在建连前 `await ensureIceServers()`,本函数同步读取其缓存结果。
  */
-const rtcConfiguration: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-  iceCandidatePoolSize: 10, // 预生成ICE候选池
-};
+function buildRtcConfiguration(): RTCConfiguration {
+  return {
+    iceServers: getIceServers(),
+    iceCandidatePoolSize: 10, // 预生成 ICE 候选池
+  };
+}
 
 /**
  * WebRTC 管理器类
@@ -133,7 +129,7 @@ export class WebRTCManager {
       console.log('初始化WebRTC连接');
       
       // 创建PeerConnection实例，传入配置
-      this.peerConnection = new RTCPeerConnection(rtcConfiguration);
+      this.peerConnection = new RTCPeerConnection(buildRtcConfiguration());
       
       // 设置所有必要的事件监听器
       this.setupEventHandlers();

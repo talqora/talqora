@@ -68,7 +68,7 @@ const zh = {
 
     works: {
       title: '作品集',
-      subtitle: '四个我自己从零写完的项目。下面是写它们时遇到的具体问题与决定。',
+      subtitle: '',
       more: '更多在 GitHub @fdahk',
     },
 
@@ -77,7 +77,7 @@ const zh = {
       track: '方向',
       award: '荣誉',
       online: '在线',
-      targetingRoles: '面向 2026 届前端 / 全栈岗位',
+      targetingRoles: '移动端/前端的全栈岗位',
       nationalLevel: '全国级别',
       githubJuejin: 'GitHub · 稀土掘金',
       email: '邮箱',
@@ -118,7 +118,7 @@ const zh = {
 
     validate: {
       usernameRequired: '请输入用户名',
-      usernameMin: '至少 3 个字符',
+      usernameMin: '至少 2 个字符',
       usernameRule: '仅允许字母 / 数字 / 下划线 / 中文',
       usernameTaken: '用户名已存在',
       emailRequired: '请输入邮箱',
@@ -150,6 +150,18 @@ const zh = {
       record: '聊天记录',
       voice: '语音聊天',
       video: '视频聊天',
+    },
+    holdToTalk: '按住 说话',
+    panel: {
+      album: '相册',
+      camera: '拍摄',
+      videoCall: '视频通话',
+      voiceCall: '语音通话',
+      location: '位置',
+      redPacket: '红包',
+      gift: '礼物',
+      transfer: '转账',
+      voiceInput: '语音输入',
     },
     errors: {
       noActiveConversation: '没有选择聊天对象',
@@ -204,6 +216,12 @@ const zh = {
     menu: {
       setting: '设置',
       logout: '退出登录',
+    },
+    tab: {
+      chat: '聊天',
+      directory: '通讯录',
+      agent: '智能体',
+      me: '我',
     },
   },
 

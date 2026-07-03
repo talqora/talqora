@@ -1,27 +1,27 @@
-import { useDispatch, useSelector } from 'react-redux';
-import { logout } from '@/store/userStore';
-import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import layoutStyle from './style.module.scss';
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
 import SettingView from '@/views/settingView';
 import type { RootState } from '@/store/rootStore';
 import useGlobalMessageListener from '@/hooks/useGlobalMessageListener';
+import { useLogout } from '@/hooks/useLogout';
 import CallModal from '@/globalComponents/callModal';
 import { buildServerUrl } from '@/utils/runtime';
 import { defaultAvatar } from '@/assets/images';
-import { post } from '@/utils/http';
 import { useLang } from '@/i18n';
 import ProfileCard from '@/globalComponents/profileCard';
 import PopoverMenu from '@/globalComponents/popoverMenu';
 
 function Layout() {
-    const dispatch = useDispatch();
-    const navigate = useNavigate();
     const user = useSelector((state: RootState) => state.user);
     const { t } = useLang();
+    const handleLogout = useLogout();
+    const { pathname } = useLocation();
+    // 进入具体会话(/chat/:id)时,移动端隐藏底部 Tab 栏,聊天页全屏(微信交互)
+    const inChatDetail = /^\/chat\/.+/.test(pathname);
     useGlobalMessageListener(); // 全局消息监听
-    // 导航栏选项列表
+    // 导航栏选项列表(桌面竖栏 / 移动底栏共用)
     const itemList = [
         {
             name: 'chat',
@@ -30,13 +30,20 @@ function Layout() {
         },
         {
             name: 'directory',
-            icon: 'icon-user',
+            icon: 'icon-contacts-fill',
             path: '/directory'
         },
         {
             name: 'agent',
             icon: 'icon-robot-fill',
             path: '/agent'
+        },
+        {
+            // 「我」仅移动端底栏显示;桌面侧栏用头像/☰ 提供同等功能
+            name: 'me',
+            icon: 'icon-user',
+            path: '/me',
+            mobileOnly: true,
         }
     ]
 
@@ -74,18 +81,6 @@ function Layout() {
         };
     }, [profileVisible]);
 
-    // 点击退出登录
-    const handleLogout = async () => {
-        // 通知后端清除 HttpOnly 鉴权 cookie（失败也不阻塞前端登出）
-        try {
-            await post('/api/logout');
-        } catch {
-            // 网络异常时忽略，本地仍照常清理并跳转
-        }
-        dispatch(logout()); // 清空用户信息
-        localStorage.removeItem('persist:root'); // 清空持久化的根状态
-        navigate('/auth'); //注：跳转到登录页，layout组件销毁会触发useEffect，断开socket连接
-    };
     // 关闭设置中心(给子组件)
     const handleCloseSetting = () => {
         setSettingVisible(false);
@@ -118,7 +113,7 @@ function Layout() {
 
 
     return (
-        <div className={layoutStyle.layout_container}>
+        <div className={`${layoutStyle.layout_container} ${inChatDetail ? layoutStyle.no_tabbar : ''}`}>
             {/* 左导航栏 */}
             <div className={layoutStyle.left_nav}>
                 {/* 头像 */}
@@ -143,14 +138,15 @@ function Layout() {
                 {
                     itemList.map(item => {
                         return (
-                            <NavLink 
-                                key={item.name} 
-                                to={item.path} 
-                                className={({isActive}) => 
-                                    `${layoutStyle.left_nav_item} ${isActive ? layoutStyle.active : ''}`
+                            <NavLink
+                                key={item.name}
+                                to={item.path}
+                                className={({isActive}) =>
+                                    `${layoutStyle.left_nav_item} ${item.mobileOnly ? layoutStyle.mobile_only : ''} ${isActive ? layoutStyle.active : ''}`
                                 }
                             >
                                 <i className={`iconfont ${layoutStyle.my_iconfont} ${item.icon}`}></i>
+                                <span className={layoutStyle.tab_label}>{t(`layout.tab.${item.name}`)}</span>
                             </NavLink>
                         )
                     })

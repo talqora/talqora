@@ -14,6 +14,7 @@ import userRouter from './routes/user.js';
 import friendRouter from './routes/friend.js';
 import uploadAdvancedRouter from './routes/uploadAdvanced.js';
 import internalRouter from './routes/internal.js';
+import turnRouter from './routes/turn.js';
 
 const app = express(); //Express监听（http）服务器
 
@@ -68,6 +69,7 @@ app.use('/api/login', authRateLimiter);
 app.use('/api/register', authRateLimiter);
 app.use('/api', registerRouter);
 app.use('/api', loginRouter);
+app.use('/api', turnRouter);
 app.use('/user', conversationRouter);
 app.use('/user', syncRouter);
 app.use('/user/uploads', uploadRouter);

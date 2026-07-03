@@ -3,9 +3,11 @@
 FROM node:22 AS builder
 WORKDIR /app
 RUN npm install -g pnpm@10
+# 依赖源:默认官方;服务器本地 build 时由 compose 传 NPM_REGISTRY=npmmirror(国内快)。
+ARG NPM_REGISTRY=https://registry.npmjs.org
 # 先拷依赖清单,利用层缓存
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
 COPY . .
 # 生产构建期注入「用户实际访问的公开 origin」(经 nginx 同源反代到 server/gateway)。
 # Vite 把 VITE_* 内联进 bundle;不传则回退到 当前主机:3007(生产不暴露,会请求失败),故 CI 必传。

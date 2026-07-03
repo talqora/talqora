@@ -30,6 +30,11 @@ function Works() {
                 <p className={styles.tagline}>{pick(lang, p.tagline)}</p>
               </div>
               <p className={styles.detail}>{pick(lang, p.detail)}</p>
+              {p.highlights && (
+                <ul className={styles.points}>
+                  {p.highlights[lang].map((h, j) => <li key={j}>{h}</li>)}
+                </ul>
+              )}
               <div className={styles.stack}>
                 {p.stack.map((s) => <span key={s} className={styles.chip}>{s}</span>)}
               </div>

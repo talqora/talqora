@@ -1,6 +1,8 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { prisma } from '../database/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { emitToUser, persistAndBroadcastMessage } from '../realtime/push.js';
 
 const router = express.Router();
 
@@ -104,6 +106,28 @@ router.put('/addFriend', authenticateToken, async (req, res) => {
         { userId: BigInt(Number(friendId)), friendId: BigInt(Number(userId)), status: 'pending' },
       ],
     });
+    // 服务端驱动:即时把好友请求推给接收方(带发起人资料,供其请求卡片渲染,不再依赖客户端 emit)。
+    // 载荷形状对齐 getFriendReqs 的条目(接收方视角:userId=自己,friendId=发起人)。best-effort,失败不影响已写入。
+    try {
+      const requester = await prisma.user.findUnique({
+        where: { id: BigInt(Number(userId)) },
+        select: { username: true, avatar: true },
+      });
+      const now = new Date().toISOString();
+      emitToUser(Number(friendId), 'receiveFriendReq', {
+        id: 0,
+        userId: Number(friendId),
+        friendId: Number(userId),
+        status: 'pending',
+        remark: null,
+        createdAt: now,
+        updatedAt: now,
+        username: requester?.username ?? '',
+        avatar: requester?.avatar ?? '',
+      });
+    } catch (e) {
+      console.error('推送好友请求失败:', e);
+    }
     res.json({
       success: true,
       message: '发起好友请求成功',
@@ -193,6 +217,42 @@ router.put('/replyFriendReq', authenticateToken, async (req, res) => {
       where: { userId: BigInt(Number(friendId)), friendId: BigInt(Number(userId)) },
       data: { status },
     });
+
+    // 副作用(best-effort,失败只记日志,不影响已完成的回复):通知双方刷新好友列表 + 微信式自动消息。
+    if (status === 'accepted') {
+      try {
+        const conversationId = `single_${Math.min(userId, friendId)}_${Math.max(userId, friendId)}`;
+        // 双方好友列表变化 → 前端重拉 getFriendList(A 的旧列表即时刷新)。
+        emitToUser(Number(userId), 'friendListChanged', { peerId: Number(friendId) });
+        emitToUser(Number(friendId), 'friendListChanged', { peerId: Number(userId) });
+        // 建立关系即自动互发一条消息(和微信一致),经统一管线落库+广播 → 即时进双方对话列表。
+        // 发起方(friendId=A)发「我是【A】」;接收方(userId=B,即本次回复者)发「我通过了…」。
+        const requester = await prisma.user.findUnique({
+          where: { id: BigInt(Number(friendId)) },
+          select: { username: true },
+        });
+        await persistAndBroadcastMessage({
+          conversationId,
+          senderId: BigInt(Number(friendId)),
+          clientMsgId: randomUUID(),
+          content: `我是${requester?.username ?? ''}`,
+          type: 'text',
+        });
+        await persistAndBroadcastMessage({
+          conversationId,
+          senderId: BigInt(Number(userId)),
+          clientMsgId: randomUUID(),
+          content: '我通过了你的朋友验证请求，现在我们可以开始聊天了',
+          type: 'text',
+        });
+      } catch (e) {
+        console.error('好友通过后推送/自动消息失败:', e);
+      }
+    } else {
+      // 拒绝/拉黑等:通知发起方刷新,使其"已发送"状态收敛。
+      emitToUser(Number(friendId), 'friendListChanged', { peerId: Number(userId) });
+    }
+
     res.json({ success: true, message: '回复好友请求成功' });
   } catch (error) {
     console.log(error);

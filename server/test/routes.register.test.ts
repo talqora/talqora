@@ -27,7 +27,7 @@ describe('POST /api/register 参数校验', () => {
   it('用户名过短 → 400', async () => {
     const res = await request(app)
       .post('/api/register')
-      .send({ username: 'ab', email: 'a@b.com', password: '123456' });
+      .send({ username: 'a', email: 'a@b.com', password: '123456' });
     expect(res.status).toBe(400);
     expect(res.body.message).toContain('用户名长度');
   });

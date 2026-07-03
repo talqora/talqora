@@ -90,6 +90,7 @@
         flex-direction: column;
         overflow-y: auto;
         padding: 0 80px;
+        min-height: 0;
         .friendReqItem {
             width: 100%;
             display: flex;
@@ -99,7 +100,7 @@
             padding: 10px 0;
             border-bottom: 1px solid var(--border);
             .rightBox {
-                height: 100%; 
+                height: 100%;
                 display: flex;
                 align-items: center;
                 .rightBox_btn {
@@ -130,8 +131,65 @@
                         justify-content: center;
                     }
                 }
-            }            
+            }
         }
 
+    }
+}
+
+// 返回按钮:桌面端隐藏,仅移动端单屏时显示(下方 @media 开启)。
+// 微信式细角标 "<"(边框旋转绘制)
+.back_btn {
+    display: none;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: $z-sticky;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-1);
+    cursor: pointer;
+    &::before {
+        content: '';
+        width: 11px;
+        height: 11px;
+        border-left: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(45deg);
+    }
+}
+
+// ─── 移动端(≤768px):列表↔详情单屏切换(微信手机布局) ───
+// 桌面端好友列表与详情左右并排;移动端窄屏改为单屏:
+// 默认显示好友列表,选中好友/查看新朋友时整屏显示详情并露出返回按钮。
+@include mobile {
+    .container {
+        position: relative;
+    }
+    .left {
+        width: 100%;
+        border-right: none;
+    }
+    // 详情默认收起(列表占满);选中时由容器 .has_active 覆盖到整屏
+    .right {
+        position: absolute;
+        inset: 0;
+        z-index: $z-base;
+        display: none;
+        background-color: var(--surface);
+    }
+    .has_active {
+        .left { display: none; }
+        .right { display: flex; }
+    }
+    .back_btn {
+        display: inline-flex;
+        align-items: center;
+    }
+    // 给新朋友标题腾出返回按钮的位置
+    .friendReqHeader .title {
+        margin-left: 44px;
     }
 }

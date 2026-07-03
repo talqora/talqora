@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Modal } from 'antd';
 import { useCall } from '../../hooks/useCall';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import VoiceCallPanel from './voiceCallPanel';
 import VideoCallPanel from './videoCallPanel';
 import styles from './style.module.scss';
@@ -10,6 +11,7 @@ import styles from './style.module.scss';
 export const CallModal: React.FC = () => {
   const { callState, acceptCall, rejectCall, terminateCall, toggleMute } = useCall();
   const isVideo = callState.callType === 'video';
+  const isMobile = useIsMobile(); // antd Modal 宽度是内联 style,CSS 改不动,只能从 prop 走
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
@@ -35,7 +37,7 @@ export const CallModal: React.FC = () => {
         footer={null}
         closable={false}
         centered
-        width={isVideo ? 420 : 400}
+        width={isMobile ? '100vw' : isVideo ? 420 : 400}
         className={styles.callModal}
         maskClosable={false}
       >

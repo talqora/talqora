@@ -47,6 +47,7 @@
         flex-shrink: 0;
         display: flex;
         align-items: center;
+        gap: 8px;
         padding: 0 20px;
         font-size: 1.0625rem;
         font-weight: 500;
@@ -210,5 +211,92 @@
             background-color: var(--warning-color);
             color: var(--text-color);
         }
+    }
+}
+
+// 返回按钮:桌面端隐藏,仅移动端单屏时显示(下方 @media 开启)。
+// 微信式细角标 "<"(iconfont 无纯 chevron,用边框旋转绘制)
+.back_btn {
+    display: none;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-1);
+    cursor: pointer;
+    &::before {
+        content: '';
+        width: 11px;
+        height: 11px;
+        border-left: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(45deg);
+    }
+}
+// 标题:桌面左对齐占位;移动端三段栏里居中(下方 @media)
+.chat_title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+// ⋯ 更多:桌面隐藏,仅移动端头部栏显示
+.more_btn {
+    display: none;
+    flex-shrink: 0;
+    font-size: 1.3rem;
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+// ─── 移动端(≤768px):列表↔详情单屏切换(微信手机布局) ───
+// 桌面端会话列表与聊天窗左右并排;移动端窄屏改为单屏:
+// 无选中会话(/chat)显示列表,选中(/chat/:id)整屏显示聊天并露出返回按钮。
+@include mobile {
+    .chat_view_container {
+        position: relative;
+    }
+    .chat_view_left {
+        width: 100%;
+        border-right: none;
+    }
+    // 聊天窗默认收起(列表占满);选中会话时由 .has_active 覆盖到整屏
+    .chat_view_right {
+        position: absolute;
+        inset: 0;
+        z-index: $z-base;
+        display: none;
+    }
+    .has_active {
+        .chat_view_left { display: none; }
+        .chat_view_right { display: flex; }
+    }
+    .back_btn {
+        display: inline-flex;
+    }
+    // 头部三段栏:返回 / 居中标题 / ⋯,顶部留状态栏安全区
+    .chat_header {
+        height: auto;
+        min-height: 48px;
+        padding-top: env(safe-area-inset-top);
+        justify-content: space-between;
+    }
+    .chat_title {
+        text-align: center;
+    }
+    .more_btn {
+        display: inline-flex;
+        align-items: center;
+    }
+    // 文件上传弹层:固定 270 → 近全宽(留边距)
+    .file_uploader_container {
+        width: min(92vw, 320px);
+    }
+    // 好友资料卡:JS 按头像位置内联定位,移动端窄屏改为水平居中避免溢出
+    .friend_card {
+        left: 50% !important;
+        right: auto;
+        transform: translateX(-50%);
     }
 }

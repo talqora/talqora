@@ -9,9 +9,11 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache openssl bash
 RUN npm install -g pnpm@10
+# 依赖源:默认官方;服务器本地 build 时由 compose 传 NPM_REGISTRY=npmmirror(国内快)。
+ARG NPM_REGISTRY=https://registry.npmjs.org
 COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
 
 # ---- dev:热重载,本地 docker compose dev 用 ----
 FROM deps AS dev

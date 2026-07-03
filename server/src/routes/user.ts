@@ -19,6 +19,12 @@ const ALLOWED_FIELDS: Record<string, string> = {
   lastSeen: 'lastSeen',
 };
 
+// 当前登录用户的资料。authenticateToken 已按 token 身份从库里取到现值并挂在 req.user
+// (id/username/nickname/avatar/status),这里直接回。原生端启动后只持有 token,靠此接口拉资料。
+router.get('/profile', authenticateToken, (req, res) => {
+  res.json({ success: true, data: req.user });
+});
+
 router.post('/update', authenticateToken, async (req, res) => {
   const { id, ...data } = req.body as Record<string, unknown>;
 

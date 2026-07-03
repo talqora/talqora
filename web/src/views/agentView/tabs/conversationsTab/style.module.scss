@@ -176,3 +176,52 @@
   &:focus { border-color: var(--primary-color); }
   &:disabled { background: var(--surface-2); color: var(--text-3); }
 }
+
+// 返回按钮:桌面隐藏,仅移动端单屏时露出(见 @include mobile)。
+// 微信式细角标 "<"(边框旋转绘制)
+.backBtn {
+  display: none;
+  align-items: center;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 $space-4;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+  cursor: pointer;
+  &::before {
+    content: '';
+    width: 11px;
+    height: 11px;
+    border-left: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+  }
+}
+
+// ─── 移动端(≤768px):对话列表↔消息流单屏切换 ───
+@include mobile {
+  .wrap {
+    position: relative;
+  }
+  .convList {
+    width: 100%;
+    border-right: none;
+  }
+  // 消息流默认收起(列表占满);选中对话时由 .has_active 覆盖整屏
+  .chat {
+    position: absolute;
+    inset: 0;
+    z-index: $z-base;
+    display: none;
+    background: var(--surface);
+  }
+  .has_active {
+    .convList { display: none; }
+    .chat { display: flex; }
+  }
+  .backBtn {
+    display: inline-flex;
+  }
+}

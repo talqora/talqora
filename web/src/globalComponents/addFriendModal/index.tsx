@@ -3,7 +3,6 @@ import styles from './style.module.scss';
 import { addFriend } from '@/globalApi/friendApi';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '@/store/rootStore';
-import SocketService from '@/utils/socket';
 import { addFriendReq } from '@/store/friendStore';
 
 interface AddFriendModalProps {
@@ -16,25 +15,13 @@ interface AddFriendModalProps {
 
 const AddFriendModal = forwardRef<HTMLDivElement, AddFriendModalProps>(
   ({ avatar, username, wxid, region, gender }, ref) => {
-    const socket = SocketService.getInstance();
     const dispatch = useDispatch();
     const userId = useSelector((state: RootState) => state.user.id);
-    const userInfo = useSelector((state: RootState) => state.user);
     const [isSent, setIsSent] = useState(false);
     // 发起好友请求
     const handleAddFriend = async () => {
         addFriend({userId, friendId: Number(wxid)});
-        // 注意视角切换，别搞反了
-        socket.emit('sendFriendReq', {
-          id: 0,
-          friendId: userId, 
-          userId: Number(wxid),
-          status: 'pending', 
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          username: userInfo.username,
-          avatar: userInfo.avatar,
-      });  
+        // 好友请求的实时推送改由服务端在 addFriend 路由里驱动(见 server routes/friend.ts),前端不再 emit。
       dispatch(addFriendReq({
         id: 0,
         friendId: Number(wxid),

@@ -54,7 +54,9 @@ const router = createBrowserRouter([
                 element: <Navigate to="/chat" replace/>
             },
             {
-                path: "chat",
+                // 可选参数:/chat 显示会话列表,/chat/:conversationId 进入具体会话。
+                // 选中态进入 URL,浏览器/移动端硬件返回天然可用(单屏列表↔详情)。
+                path: "chat/:conversationId?",
                 lazy: lazyComponent(() => import("@/views/chatView/index.tsx")),
             },
             {
@@ -64,6 +66,11 @@ const router = createBrowserRouter([
             {
                 path: "agent",
                 lazy: lazyComponent(() => import("@/views/agentView/index.tsx")),
+            },
+            {
+                // 移动端「我」个人中心(底部 Tab);桌面端不展示该 Tab,但直链可达。
+                path: "me",
+                lazy: lazyComponent(() => import("@/views/meView/index.tsx")),
             }
         ]
     },

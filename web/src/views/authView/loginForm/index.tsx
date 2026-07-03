@@ -30,7 +30,7 @@ function LoginForm({ switchModel }: { switchModel: () => void }) {
   function validate(values: LoginFormModel): FieldErr {
     const e: FieldErr = {};
     if (!values.username)            e.username = t('auth.validate.usernameRequired');
-    else if (values.username.length < 3) e.username = t('auth.validate.usernameMin');
+    else if (values.username.length < 2) e.username = t('auth.validate.usernameMin');
     if (!values.password)            e.password = t('auth.validate.passwordRequired');
     else if (values.password.length < 6) e.password = t('auth.validate.passwordRule');
     return e;

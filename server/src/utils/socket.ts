@@ -5,11 +5,11 @@ import jwt from 'jsonwebtoken';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Prisma } from '../generated/prisma/index.js';
 import { config } from '../config/config.js';
-import { TOKEN_COOKIE } from './authCookies.js';
+import { extractHandshakeToken } from './socketAuth.js';
 import { sendMessageInput, readReportInput } from '../contracts/message.js';
-import { persistMessage, getConversationMembers, markMentions } from '../services/message.js';
 import { isConversationMember, advanceLastRead } from '../services/read.js';
-import { register, refresh, remove, filterOnline, REPLICA_ID } from '../realtime/presence.js';
+import { register, refresh, remove, REPLICA_ID } from '../realtime/presence.js';
+import { setIo, room, persistAndBroadcastMessage } from '../realtime/push.js';
 import { redis } from '../database/redis.js';
 import {
   tryCreateSession,
@@ -36,39 +36,11 @@ interface TokenPayload {
   username: string;
 }
 
-// socket.io 的 Room 类型标注为 string，但本项目历史上一直用数字房间号（join 与 emit 两侧一致）。
-// 为保持运行时行为完全不变，这里仅做类型层面的桥接，不改动实际传入的数值。
-const room = (id: number): string => id as unknown as string;
+// room(用户数字房间)统一从 realtime/push 导入,socket 与 HTTP 路由共用同一寻址。
 
 // 设备级房间:用于把通话信令(accept/rejoin)精确投递到「拥有这通话的那台设备/标签页」,
 // 而非用户的所有在线连接。deviceId 由客户端在握手自报(每标签页一个稳定 id)。
 const deviceRoom = (deviceId: string): string => `device:${deviceId}`;
-
-// 从消息 mentions(客户端上报的被 @ userId 列表)解析出「确实是本会话成员」的 bigint 集合。
-// 客户端可能传非法/越权 id,只保留与会话成员的交集,杜绝跨会话伪造 @提醒。
-const parseMentionIds = (raw: unknown, participants: bigint[]): bigint[] => {
-  if (!Array.isArray(raw)) return [];
-  const memberSet = new Set(participants.map((p) => p.toString()));
-  const out: bigint[] = [];
-  for (const v of raw) {
-    const s = String(v);
-    if (/^\d+$/.test(s) && memberSet.has(s)) out.push(BigInt(s));
-  }
-  return out;
-};
-
-// 从握手请求的 Cookie 头里取出指定 cookie 的值
-const parseCookie = (header: string | undefined, name: string): string | null => {
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx === -1) continue;
-    if (part.slice(0, idx).trim() === name) {
-      return decodeURIComponent(part.slice(idx + 1).trim());
-    }
-  }
-  return null;
-};
 
 const allowedOrigins = (
   process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173'
@@ -97,11 +69,14 @@ export const initSocket = (server: HttpServer): Server => {
   // pub/sub 各用一条独立连接(订阅态连接不能再发普通命令),与 presence 的命令连接隔离。
   io.adapter(createAdapter(redis.duplicate(), redis.duplicate()));
 
-  // 握手鉴权：从 cookie 解析并验签 JWT，身份由服务端派生，绝不信任客户端自报的 userId。
-  // 校验不过直接拒绝连接，杜绝匿名 socket 加入任意房间收发他人消息。
+  // 把 io 注入统一推送器,让 HTTP 路由等非 socket 上下文也能推送(emitToUser / persistAndBroadcastMessage)。
+  setIo(io);
+
+  // 握手鉴权:cookie(Web)或 handshake.auth.token(原生端)取 JWT 验签,身份由服务端派生,绝不信任客户端自报的 userId。
+  // 校验不过直接拒绝连接,杜绝匿名 socket 加入任意房间收发他人消息。
   io.use((socket, next) => {
     try {
-      const token = parseCookie(socket.handshake.headers.cookie, TOKEN_COOKIE);
+      const token = extractHandshakeToken(socket.handshake);
       if (!token) return next(new Error('未认证：缺少登录凭据'));
       const decoded = jwt.verify(token, config.jwtSecret) as TokenPayload;
       socket.userId = decoded.id;
@@ -145,49 +120,7 @@ export const initSocket = (server: HttpServer): Server => {
       console.log(`用户 ${socket.userId} 加入房间`);
     });
 
-    // 落库 + 读扩散扇出的公共逻辑。clientMsgId 由调用方保证(新协议来自客户端,旧协议服务端兜底生成)。
-    // 落库成功后:向会话在线成员广播 receiveMessage(携带 seq),并把首次/去重结果交给调用方决定是否 ack。
-    const persistAndBroadcast = async (input: {
-      conversationId: string;
-      senderId: bigint;
-      clientMsgId: string;
-      content: string;
-      type?: string;
-      mentions?: Prisma.InputJsonValue;
-      extra?: Prisma.InputJsonValue;
-      fileInfo?: Prisma.InputJsonValue;
-    }) => {
-      const participantIds = await getConversationMembers(input.conversationId, input.senderId);
-      const { message, deduped } = await persistMessage({ ...input, participantIds });
-      // 去重命中时不重复广播(对方已收到过首次广播),仅给发送方回 ack 收敛本地状态。
-      if (!deduped) {
-        // 读扩散扇出:消息只落 1 份,实时只推在线成员,离线成员靠 /sync 按各自 synced 补拉。
-        // 单聊直推双方(成员仅 2 人,省一次 presence 往返);群聊先 filterOnline 收敛到在线子集,
-        // 避免给离线成员做无谓的跨副本 publish(大群下这是主要的扇出成本,docs 14 §6③)。
-        const isGroup = input.conversationId.startsWith('group_');
-        const targets = isGroup
-          ? await filterOnline(participantIds)
-          : new Set(participantIds.map(Number));
-        for (const uid of targets) {
-          io.to(room(uid)).emit('receiveMessage', message);
-        }
-
-        // @提醒旁路:与读扩散主链路解耦(docs 14 §5.3)。标记被 @ 成员的 mentionSeq(供 /mentions 单独查),
-        // 并给在线被 @ 者额外定向推一条 mention 事件高亮——不让 @我 淹没在大群的普通未读里。
-        const mentioned = parseMentionIds(input.mentions, participantIds);
-        if (mentioned.length) {
-          await markMentions(input.conversationId, message.seq, mentioned);
-          for (const uid of await filterOnline(mentioned)) {
-            io.to(room(uid)).emit('mention', {
-              conversationId: input.conversationId,
-              seq: message.seq,
-              serverMsgId: message.id,
-            });
-          }
-        }
-      }
-      return { message, deduped };
-    };
+    // 落库 + 读扩散扇出统一走 realtime/push 的 persistAndBroadcastMessage(socket 与 HTTP 路由共用同一套扩散)。
 
     // 新协议:可靠上行。zod 校验 → 落库后回 message.ack(回带 seq/serverMsgId),
     // 客户端凭 ack 把本地"发送中"替换为"已发送";收不到则按同 clientMsgId 重发,服务端幂等去重。
@@ -199,7 +132,7 @@ export const initSocket = (server: HttpServer): Server => {
       }
       const data = parsed.data;
       try {
-        const { message } = await persistAndBroadcast({
+        const { message } = await persistAndBroadcastMessage({
           conversationId: data.conversationId,
           senderId: BigInt(socket.userId as number), // 发送者以握手验签身份为准,不信任入参
           clientMsgId: data.clientMsgId,
@@ -257,7 +190,7 @@ export const initSocket = (server: HttpServer): Server => {
           socket.emit('error', { message: '非法的发送者身份' });
           return;
         }
-        await persistAndBroadcast({
+        await persistAndBroadcastMessage({
           conversationId: String(msg.conversationId),
           senderId: BigInt(Number(socket.userId)),
           clientMsgId: typeof msg.clientMsgId === 'string' && msg.clientMsgId ? msg.clientMsgId : randomUUID(),
@@ -273,15 +206,8 @@ export const initSocket = (server: HttpServer): Server => {
       }
     });
 
-    // 好友请求处理
-    socket.on('sendFriendReq', async (friendReq) => {
-      try {
-        console.log('转发好友请求:', friendReq);
-        io.to(friendReq.userId).emit('receiveFriendReq', friendReq);
-      } catch (error) {
-        console.error('转发好友请求失败:', error);
-      }
-    });
+    // 好友请求改由 HTTP 路由(routes/friend.ts)服务端驱动推送 receiveFriendReq(见 realtime/push),
+    // 不再走客户端 emit 的 sendFriendReq 中继(避免依赖前端 emit + 双推),此处不再监听。
 
     // ====== 语音通话信令(服务端权威会话:忙线裁决 / 设备属主路由 / grace 重连) ======
 

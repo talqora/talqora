@@ -128,3 +128,40 @@
 .paneHidden {
   display: none;
 }
+
+// ─── 移动端(≤768px):180px 左侧栏 → 顶部横向 Tab 条,内容区占满 ───
+@include mobile {
+  .container {
+    flex-direction: column;
+  }
+  // 侧栏改为顶部条:横排、占满宽、底边分隔
+  .sidebar {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  // 品牌/用户/退出头为桌面专属(退出已在「我」页),移动端隐藏腾出空间
+  .sidebarHead {
+    display: none;
+  }
+  .tabList {
+    flex: 1;
+    flex-direction: row;
+    padding: 0;
+  }
+  // 等分横向 Tab;预留透明下边框,避免激活时高度跳动
+  .tabBtn {
+    flex: 1;
+    justify-content: center;
+    padding: $space-3 $space-2;
+    border-bottom: 2px solid transparent;
+  }
+  // 横向 Tab:激活指示从左边框改为下边框
+  .tabBtnActive {
+    border-left: 0;
+    border-bottom: 2px solid var(--primary-color);
+    padding-left: $space-2;
+  }
+}

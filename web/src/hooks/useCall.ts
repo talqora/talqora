@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store/rootStore';
 import { WebRTCManager } from '../utils/webrtc';
+import { ensureIceServers } from '../utils/iceServers';
 import SocketService from '../utils/socket';
 // 通话状态
 import {
@@ -278,6 +279,8 @@ export const useCall = () => {
       try {
         dispatch(reconnectingCall());
         currentCallIdRef.current = event.callId;
+        // 建连前确保有最新 ICE servers(coturn STUN + 短期凭据 TURN);reset() 会用它重建 PeerConnection。
+        await ensureIceServers();
         webrtcRef.current.reset();
         await new Promise((r) => setTimeout(r, 200));
         const localStream = await webrtcRef.current.getUserMedia(callState.callType === 'video');
@@ -427,6 +430,8 @@ export const useCall = () => {
 
       // 2. 重置WebRTC状态，确保干净开始
       console.log('重置WebRTC状态，确保干净的连接开始');
+      // 建连前确保有最新 ICE servers(coturn STUN + 短期凭据 TURN);reset() 会用它重建 PeerConnection。
+      await ensureIceServers();
       webrtcRef.current.reset();
       await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -481,6 +486,7 @@ export const useCall = () => {
     if (!webrtcRef.current || !currentUser) return;
     try {
       currentCallIdRef.current = persisted.callId;
+      await ensureIceServers();
       webrtcRef.current.reset();
       await new Promise((resolve) => setTimeout(resolve, 200));
       const localStream = await webrtcRef.current.getUserMedia(persisted.callType === 'video');
@@ -532,6 +538,7 @@ export const useCall = () => {
 
       // 1. 重置WebRTC状态，确保干净的开始
       console.log('重置WebRTC状态，确保干净的连接开始');
+      await ensureIceServers();
       webrtcRef.current.reset();
       
       // 等待重置完成

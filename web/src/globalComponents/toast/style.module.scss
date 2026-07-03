@@ -16,6 +16,7 @@
   align-items: center;
   gap: $space-2;
   padding: $space-3 $space-4;
+  max-width: calc(100vw - #{$space-7}); // 窄屏不溢出视口
   background: rgba(20, 20, 22, 0.92);
   backdrop-filter: blur(0.625rem);
   border: 1px solid var(--ui-border);
@@ -26,6 +27,7 @@
   animation: toastIn $dur-base $ease-out both;
   pointer-events: auto;
   letter-spacing: 0.02em;
+  word-break: break-word;
 }
 
 .dot {

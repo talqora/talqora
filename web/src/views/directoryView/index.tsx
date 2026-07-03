@@ -142,7 +142,7 @@ function DirectoryView() {
     }, [searchValue]);
     // TSX
     return (
-        <div className={directoryViewStyle.container}>
+        <div className={`${directoryViewStyle.container} ${(activeFriend || isCheckingFriendReq) ? directoryViewStyle.has_active : ''}`}>
             {/* 左侧 */}
             <div className={directoryViewStyle.left}>
                 {/* 头部:搜索 + 切换添加好友(action 槽) */}
@@ -233,6 +233,11 @@ function DirectoryView() {
             </div>
             {/* 右侧 */}
             <div className={directoryViewStyle.right}>
+                {/* 移动端返回按钮:回到通讯录列表(桌面端 CSS 隐藏) */}
+                <i
+                    className={directoryViewStyle.back_btn}
+                    onClick={() => { setActiveFriend(null); setIsCheckingFriendReq(false); }}
+                />
                 {/* 好友信息 */}
                 {activeFriend && (
                     <FriendModal

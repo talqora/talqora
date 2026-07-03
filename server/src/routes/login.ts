@@ -84,7 +84,9 @@ router.post('/refresh', async (req, res) => {
       }
     }
 
-    if (!decoded || !decoded.id) {
+    // 用 == null 而非 !decoded.id:id 可能为 0(官方/测试号 涂将),0 是合法 id 但 falsy,
+    // 用 !decoded.id 会把它误判为缺失,导致该账号 token 永远刷新失败。
+    if (!decoded || decoded.id == null) {
       return res.status(401).json({ success: false, message: 'Token格式错误' });
     }
 

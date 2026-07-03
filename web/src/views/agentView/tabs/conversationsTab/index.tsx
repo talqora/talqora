@@ -138,7 +138,7 @@ function ConversationsTab() {
   };
 
   return (
-    <div className={styles.wrap}>
+    <div className={`${styles.wrap} ${activeId != null ? styles.has_active : ''}`}>
       {/* 对话列表 */}
       <aside className={styles.convList}>
         <div className={styles.convHead}>
@@ -175,6 +175,8 @@ function ConversationsTab() {
           ? <div className={styles.placeholder}>{t('agent.chat.pickOne')}</div>
           : (
             <>
+              {/* 移动端返回:回到对话列表(桌面端 CSS 隐藏;微信式 "<" 角标) */}
+              <button type="button" className={styles.backBtn} onClick={() => setActiveId(null)} aria-label="back" />
               <div className={styles.body} ref={bodyRef}>
                 {messages.length === 0 && (
                   <div className={styles.placeholder}>{t('agent.chat.firstMsgHint')}</div>

@@ -1,9 +1,15 @@
 name: deploy
 
-# 提交即自动部署：推送到 main → 构建 3 个镜像推 Docker Hub → SSH 到服务器生成 .env/私钥 → up。
-# 用 Docker Hub 而非 GHCR：国内服务器经 daemon registry-mirrors 能拉 docker.io，但 GHCR 的镜像层在国内被墙。
-# 配置分层：① 通用非机密在 compose 默认值；② 其余(机密 + 因环境而异的非机密)统一放 GitHub Secrets(不分 Variables)。
-# ② 由本工作流在部署时统一注入、在服务器生成 .env，服务器零手工维护。
+# 提交即自动部署（镜像在服务器本地构建，不跨墙）：
+#   推送到 main → runner checkout 源码 → scp 构建上下文到服务器 → SSH 生成 .env/私钥 → docker compose build → up。
+# 为什么源码走 runner→服务器 scp，而不在服务器 git clone：国内服务器 git clone github 会被 GFW 重置
+#   (GnuTLS recv error -110)。runner 在 GitHub 内网,checkout 极快;源码仅 ~MB,经已打通的 SSH 通道 scp 到
+#   服务器很稳(此前失败的是 runner→国内 registry 推几百 MB 镜像层,不是这点小源码)。
+# 为什么不在 CI build 再推镜像：大镜像跨墙拉/推都不稳(GHCR blob 被墙、Docker Hub 公益源大层易抖、
+#   TCR runner→国内上传大层会断)。改服务器本地 build:依赖走国内源(npmmirror/goproxy.cn,compose
+#   build-arg 注入)，基础镜像走 daemon 镜像加速，全程不跨墙传大层。
+# 配置分层：① 通用非机密在 compose 默认值；② 其余(机密 + 因环境而异的非机密)统一放 GitHub Secrets。
+#   ② 由本工作流在部署时统一注入、在服务器生成 .env，服务器零手工维护。
 # 想用 dev 触发，把 branches 改成 [dev]；workflow_dispatch 支持手动触发。
 on:
   push:
@@ -12,68 +18,18 @@ on:
 
 permissions:
   contents: read
-  packages: write
-
-env:
-  IMAGE_PREFIX: docker.io/${{ github.repository_owner }}/our-chat
 
 jobs:
-  # ── 1) 并行构建并推送三个服务镜像 ──
-  build:
-    name: 构建并推送镜像
-    runs-on: ubuntu-latest
-    # web 构建要读 environment(pro) 里的 WEB_PUBLIC_ORIGIN，故此 job 也需声明 environment
-    environment: pro
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - name: server
-            context: server
-          - name: gateway
-            context: gateway
-          - name: web
-            context: web
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 登录 Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: 构建并推送 ${{ matrix.name }}
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          push: true
-          # web 需在构建期烤入「用户实际访问的公开 origin」(构建期变量,无法用 compose 默认覆盖)。
-          # secrets 不能用于 strategy.matrix,故在此(step with,secrets 可用)按 name 条件注入。
-          # 用 | 块标量让两个 build-arg 各占一行;非 web 项每行求值为空串,被 build-push-action 忽略。
-          # VITE_AGENT_API_BASE 走方案A 同源:{公开origin}/agent/api(nginx 反代到 agent 的 /api)。
-          build-args: |
-            ${{ matrix.name == 'web' && format('VITE_SERVER_ORIGIN={0}', secrets.WEB_PUBLIC_ORIGIN) || '' }}
-            ${{ matrix.name == 'web' && format('VITE_AGENT_API_BASE={0}/agent/api', secrets.WEB_PUBLIC_ORIGIN) || '' }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}:${{ github.sha }}
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}:latest
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-
-  # ── 2) 同步部署文件 + 在服务器生成 .env/私钥 + 拉取镜像滚动重启 ──
   deploy:
-    name: 部署到服务器
-    needs: build
+    name: 部署到服务器（本地构建）
     runs-on: ubuntu-latest
-    # 读取 environment(pro) 作用域下的 Secrets/Variables（SSH 私钥等）
+    # 读取 environment(pro) 作用域下的 Secrets（SSH 私钥、机密、WEB_PUBLIC_ORIGIN 等）
     environment: pro
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
     steps:
+      # runner 在 GitHub 内网，checkout 本次提交的源码（作为待 scp 的构建上下文）
       - uses: actions/checkout@v4
 
       # 先校验 environment(pro) 里的 Secrets 是否都读到（缺啥报啥；也能验证 environment 名字配对）
@@ -94,9 +50,10 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_PUBLIC_BASE_URL: ${{ secrets.S3_PUBLIC_BASE_URL }}
+          TURN_SECRET: ${{ secrets.TURN_SECRET }}
         run: |
           miss=0
-          for v in SSH_HOST SSH_USER SSH_PRIVATE_KEY POSTGRES_PASSWORD JWT_SECRET GATEWAY_INTERNAL_TOKEN S3_ACCESS_KEY S3_SECRET_KEY OAUTH_PRIVATE_KEY_B64 WEB_PUBLIC_ORIGIN OAUTH_ACTIVE_KID S3_ENDPOINT S3_REGION S3_BUCKET S3_PUBLIC_BASE_URL; do
+          for v in SSH_HOST SSH_USER SSH_PRIVATE_KEY POSTGRES_PASSWORD JWT_SECRET GATEWAY_INTERNAL_TOKEN S3_ACCESS_KEY S3_SECRET_KEY OAUTH_PRIVATE_KEY_B64 WEB_PUBLIC_ORIGIN OAUTH_ACTIVE_KID S3_ENDPOINT S3_REGION S3_BUCKET S3_PUBLIC_BASE_URL TURN_SECRET; do
             if [ -z "${!v:-}" ]; then echo "❌ 缺少 Secret：$v"; miss=1; else echo "✓ Secret $v 已设置"; fi
           done
           if [ "$miss" -ne 0 ]; then
@@ -105,24 +62,23 @@ jobs:
           fi
           echo "✅ 所有必填 Secret 齐全（environment: pro 读取正常）"
 
-      # compose 文件与 nginx 配置同步到部署目录（strip_components 去掉 docker/ 前缀）
-      - name: 同步 compose + nginx 到服务器
+      # 把构建上下文(三服务源码 + docker/) scp 到服务器部署目录。
+      # 仅 git 跟踪的文本源码(无 node_modules/dist),~MB 级,经 SSH 通道很稳。overwrite 覆盖旧源码;
+      # 不删服务器侧专属文件(.env/keys/certbot-www 不在源码里,scp 不动它们)。
+      - name: 同步构建上下文到服务器
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          source: 'docker/docker-compose.prod.yml,docker/nginx'
+          source: 'server,gateway,web,docker'
           target: ${{ secrets.DEPLOY_PATH || '/opt/our-chat' }}
-          strip_components: 1
           overwrite: true
 
-      - name: 生成 .env/私钥 + 拉取镜像 + 滚动重启
+      - name: 生成 .env/私钥 + 本地构建 + 滚动重启
         uses: appleboy/ssh-action@v1.2.0
         env:
-          # —— 连接/镜像 ——
-          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
           GIT_SHA: ${{ github.sha }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/our-chat' }}
           # —— ② 机密 + 因环境而异的非机密,统一走 GitHub Secrets ——
@@ -140,59 +96,23 @@ jobs:
           S3_PUBLIC_BASE_URL: ${{ secrets.S3_PUBLIC_BASE_URL }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          # WebRTC TURN(coturn):server 生成短期凭据 + coturn 校验用同一 secret;external-ip = 服务器公网 IP
+          # (没单独配 TURN_EXTERNAL_IP 时用 SSH_HOST——它就是公网 IP)。
+          TURN_SECRET: ${{ secrets.TURN_SECRET }}
+          TURN_EXTERNAL_IP: ${{ secrets.TURN_EXTERNAL_IP || secrets.SSH_HOST }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          envs: IMAGE_PREFIX,GIT_SHA,DEPLOY_PATH,POSTGRES_PASSWORD,JWT_SECRET,GATEWAY_INTERNAL_TOKEN,S3_ACCESS_KEY,S3_SECRET_KEY,OAUTH_PRIVATE_KEY_B64,WEB_PUBLIC_ORIGIN,OAUTH_ACTIVE_KID,S3_ENDPOINT,S3_REGION,S3_BUCKET,S3_PUBLIC_BASE_URL,POSTGRES_USER,POSTGRES_DB
-          # 拉 3 个应用镜像 + 首次基础镜像偏慢,默认 10m 会 "Run Command Timeout",放宽到 30m。
-          command_timeout: 30m
+          envs: GIT_SHA,DEPLOY_PATH,POSTGRES_PASSWORD,JWT_SECRET,GATEWAY_INTERNAL_TOKEN,S3_ACCESS_KEY,S3_SECRET_KEY,OAUTH_PRIVATE_KEY_B64,WEB_PUBLIC_ORIGIN,OAUTH_ACTIVE_KID,S3_ENDPOINT,S3_REGION,S3_BUCKET,S3_PUBLIC_BASE_URL,POSTGRES_USER,POSTGRES_DB,TURN_SECRET,TURN_EXTERNAL_IP
+          # ssh-action 内是轮询(每 10s tail 一次,顺便给 SSH 通道喂流量防弱网空闲被重置),
+          # 实际 build+up 由 ci-deploy.sh 用 setsid 脱离本会话后台跑(断连也跑完)。放宽到 35m 覆盖轮询上限。
+          command_timeout: 35m
           script_stop: true
+          # 全部服务器侧逻辑收敛进已 scp 的 docker/ci-deploy.sh(生成 .env/私钥 → 后台 build+up → 轮询结果),
+          # 这样 drone-ssh 的逐行包裹只作用于这一条调用,不会破坏脚本里的 heredoc/循环等复合结构。
           script: |
             set -euo pipefail
-            umask 077
-            cd "${DEPLOY_PATH}"
-            mkdir -p keys
-
-            # 跨项目共享网络（与 agent-server 互通）：compose 以 external 引用，必须先存在。
-            # 幂等创建——无论 our-chat 还是 agent-server 谁先部署，都能把它建出来。
-            docker network inspect oc-shared >/dev/null 2>&1 || docker network create oc-shared
-
-            # —— 写 OAuth 生产私钥（base64 secret 解码）——
-            printf '%s' "${OAUTH_PRIVATE_KEY_B64}" | base64 -d > keys/oauth-private-prod.pem
-            # 容器内 server 以非 root 用户(app)运行,uid 与宿主 ubuntu(1000)不同;私钥需对其可读,
-            # 否则启动读 key 报 EACCES。单租户服务器 + :ro 挂载,644 可接受。
-            chmod 644 keys/oauth-private-prod.pem
-
-            # —— 生成 .env（仅 ②③；①通用默认在 compose）。CLIENT_ORIGINS/OAUTH_* 由 WEB_PUBLIC_ORIGIN 派生，三处天然一致 ——
-            {
-              echo "POSTGRES_USER=${POSTGRES_USER:-postgres}"
-              echo "POSTGRES_DB=${POSTGRES_DB:-our_chat}"
-              echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
-              echo "JWT_SECRET=${JWT_SECRET}"
-              echo "GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}"
-              echo "OAUTH_ACTIVE_KID=${OAUTH_ACTIVE_KID}"
-              echo "CLIENT_ORIGINS=${WEB_PUBLIC_ORIGIN}"
-              echo "OAUTH_ISSUER_BASE_URL=${WEB_PUBLIC_ORIGIN}"
-              echo "OAUTH_WEB_REDIRECT_URI=${WEB_PUBLIC_ORIGIN}/oauth/callback"
-              echo "S3_ENDPOINT=${S3_ENDPOINT}"
-              echo "S3_REGION=${S3_REGION}"
-              echo "S3_BUCKET=${S3_BUCKET}"
-              echo "S3_PUBLIC_BASE_URL=${S3_PUBLIC_BASE_URL}"
-              echo "S3_ACCESS_KEY=${S3_ACCESS_KEY}"
-              echo "S3_SECRET_KEY=${S3_SECRET_KEY}"
-            } > .env
-            chmod 600 .env
-
-            # 应用镜像在 Docker Hub(public)，服务器经 daemon registry-mirrors 拉取(免登录)。
-            # up --pull missing：只拉本地缺失的镜像(新 sha)，已缓存的基础镜像不再碰镜像源，避免抖动卡死
-            # (server 启动自动跑 prisma migrate deploy)。
-            export SERVER_IMAGE="${IMAGE_PREFIX}-server:${GIT_SHA}"
-            export GATEWAY_IMAGE="${IMAGE_PREFIX}-gateway:${GIT_SHA}"
-            export WEB_IMAGE="${IMAGE_PREFIX}-web:${GIT_SHA}"
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans --pull missing
-            docker image prune -f
-
-            echo "✅ 部署完成：${GIT_SHA}"
-            docker compose -f docker-compose.prod.yml ps
+            cd "${DEPLOY_PATH}/docker"
+            bash ci-deploy.sh

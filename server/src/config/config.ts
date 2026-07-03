@@ -20,14 +20,35 @@ function resolveJwtSecret(): string {
   return generated;
 }
 
+// 取正整数环境变量,非法/缺失时回退默认值
+function positiveIntEnv(raw: string | undefined, dflt: number): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : dflt;
+}
+
 export interface AppConfig {
   jwtSecret: string;
   jwtExpiresIn: string;
+  // WebRTC TURN(coturn)配置。secret 为空表示未启用(端点降级为空 iceServers,不报错)。
+  turn: {
+    secret: string;
+    host: string;
+    stunPort: number;
+    tlsPort: number;
+    ttlSec: number;
+  };
 }
 
 export const config: AppConfig = {
   jwtSecret: resolveJwtSecret(),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  turn: {
+    secret: process.env.TURN_SECRET?.trim() || '',
+    host: process.env.TURN_HOST?.trim() || '',
+    stunPort: positiveIntEnv(process.env.TURN_STUN_PORT, 3478),
+    tlsPort: positiveIntEnv(process.env.TURN_TLS_PORT, 5349),
+    ttlSec: positiveIntEnv(process.env.TURN_TTL_SEC, 86400),
+  },
 };
 
 export default config;

@@ -107,18 +107,29 @@ export default function useGlobalMessageListener() {
             // 消息提示音。注：大多数现代浏览器禁止在用户与页面交互（点击/键盘）之前自动播放音频
             audioRef.current?.play();
        };
-       // 新好友消息处理
+       // 新好友请求处理
        const handleNewFriendReq = (friendReq: FriendReq) => {
         dispatch(addFriendReq(friendReq));
         audioRef.current?.play();
        }
+       // 好友列表变化(如好友请求被同意):服务端推 friendListChanged → 重拉好友列表,即时刷新。
+       const handleFriendListChanged = () => {
+        getFriendList(userId).then(res => {
+          if (!res.data) return;
+          dispatch(initGlobalFriendList(res.data.friendId));
+          dispatch(initGlobalFriendInfoList(res.data.friendInfo));
+          globalFriendInfoListRef.current = res.data.friendInfo ?? {};
+        });
+       }
        // 仅监听 receiveMessage 事件，更新消息列表，消息派发逻辑由后端实现
         socket.on('receiveMessage', handleMessage);
         socket.on('receiveFriendReq', handleNewFriendReq);
+        socket.on('friendListChanged', handleFriendListChanged);
        return () => {
           console.log('退出登录时，移除事件监听');
           socket.off('receiveMessage', handleMessage); // 退出登录时，移除事件监听
           socket.off('receiveFriendReq', handleNewFriendReq);
+          socket.off('friendListChanged', handleFriendListChanged);
           socket.disconnect(); // 断开socket连接
           //注：在 socket.io-client 中，"disconnect" 是内置的保留事件名，内部自动管理，仅能.on 监听和使用它，不能.emit 和 .off
           // socket.emit('disconnect', { userId }); 

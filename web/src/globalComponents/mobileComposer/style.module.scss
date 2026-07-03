@@ -1,0 +1,151 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  // 贴底:避开 home 指示条安全区
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.leftIcon,
+.rightIcon {
+  flex-shrink: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  font-size: 26px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.leftIconOn {
+  color: var(--primary-color);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 100px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 1rem;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  scrollbar-width: none;
+}
+
+// 语音模式:按住说话
+.holdBtn {
+  flex: 1;
+  min-height: 36px;
+  border: none;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  &:active {
+    background: var(--hover);
+  }
+}
+
+.sendBtn {
+  flex-shrink: 0;
+  height: 34px;
+  margin-bottom: 1px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  &:active {
+    opacity: 0.85;
+  }
+}
+
+// ＋ 按钮:圆圈 + 十字(CSS 绘制,iconfont 无纯 plus)
+.plusBtn {
+  flex-shrink: 0;
+  position: relative;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 3px;
+  border: 1.5px solid var(--text-3);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform $dur-base $ease-out;
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    background: var(--text-2);
+  }
+  &::before {
+    width: 12px;
+    height: 1.5px;
+    transform: translate(-50%, -50%);
+  }
+  &::after {
+    width: 1.5px;
+    height: 12px;
+    transform: translate(-50%, -50%);
+  }
+}
+.plusBtnOpen {
+  transform: rotate(45deg); // 打开时旋成 ×
+}
+
+// ＋ 面板:2×4 功能宫格
+.panel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px 0;
+  padding: 20px 12px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  &:active .cellIcon {
+    background: var(--hover);
+  }
+}
+.cellIcon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border-radius: 14px;
+  i {
+    font-size: 27px;
+    color: var(--text-1);
+  }
+}
+.cellLabel {
+  font-size: 0.6875rem;
+  color: var(--text-3);
+}

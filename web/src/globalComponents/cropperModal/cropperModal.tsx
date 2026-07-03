@@ -3,6 +3,7 @@
 import { useState, type FC } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
 import { Modal, Slider } from 'antd';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 function getCroppedImg(imageSrc: string, croppedAreaPixels: Area): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -44,6 +45,7 @@ const CropperModal: FC<CropperModalProps> = ({ open, image, onCancel, onOk }) =>
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const isMobile = useIsMobile(); // 移动端弹窗近全宽(width 是 antd 内联 style,只能走 prop)
 
   const onCropComplete = (_croppedArea: Area, currentCroppedAreaPixels: Area) => {
     setCroppedAreaPixels(currentCroppedAreaPixels);
@@ -56,7 +58,7 @@ const CropperModal: FC<CropperModalProps> = ({ open, image, onCancel, onOk }) =>
   };
 
   return (
-    <Modal open={open} onCancel={onCancel} onOk={handleOk} width={400} destroyOnHidden>
+    <Modal open={open} onCancel={onCancel} onOk={handleOk} width={isMobile ? '92vw' : 400} destroyOnHidden>
       <div style={{ position: 'relative', width: '100%', height: 300, background: '#333' }}>
         <Cropper
           image={image}

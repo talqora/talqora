@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { Conversation } from '@/globalType/chat';
 import type { Message } from '@/globalType/message';
 import { List } from 'antd';
@@ -18,6 +19,9 @@ import { buildServerUrl } from '@/utils/runtime';
 import { defaultAvatar } from '@/assets/images';
 import type { FileItem } from '@/utils/upload';
 import ChatComposer, { type ComposerAction } from '@/globalComponents/chatComposer';
+import MobileComposer, { type PanelAction } from '@/globalComponents/mobileComposer';
+import ActionSheet from '@/globalComponents/actionSheet';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLang } from '@/i18n';
 import ProfileCard from '@/globalComponents/profileCard';
 
@@ -25,7 +29,10 @@ function ChatView() {
 
     const { t } = useLang();
     const dispatch = useDispatch();
-    const activeConversation = useSelector((state: RootState) => state.chat.activeConversation); // 当前会话id
+    const navigate = useNavigate();
+    const isMobile = useIsMobile(); // 移动端聊天页用微信式头部栏 + 输入栏
+    const { conversationId: routeConversationId } = useParams(); // 选中会话来自 URL(深链/返回可用)
+    const activeConversation = useSelector((state: RootState) => state.chat.activeConversation); // 当前会话id(由 URL 同步)
     const messages = useSelector((state: RootState) => state.chat.globalMessages); //消息列表 注：数据结构为 { [conversationId: string]: Message[] , ... }
     const userId= useSelector((state: RootState) => state.user.id) as number; // 从redux中获取用户id
     const userAvatar = useSelector((state: RootState) => state.user.avatar); // 自己头像(渲染自己消息气泡用)
@@ -40,6 +47,7 @@ function ChatView() {
     // 展示名:有备注优先备注,否则用户名
     const friendDisplayName = (friendId: number) => globalFriendList[friendId] || globalFriendInfoList[friendId]?.username;
     const socket = SocketService.getInstance(); // 获取socket实例
+    const [callSheetOpen, setCallSheetOpen] = useState(false); // 视频/语音通话选择弹层(移动端)
     const chatBodyRef = useRef<HTMLDivElement>(null); // 消息列表的ref，用来实现滚动
     // 点他人头像弹出的好友资料卡(fixed 定位 + 点击外部关闭)
     const [friendCard, setFriendCard] = useState<{ friendId: number; top: number; left: number } | null>(null);
@@ -56,13 +64,18 @@ function ChatView() {
 
     // 获取会话消息（懒加载）
     // useCallback 固定引用：作为 prop 传给 memo 化的 DisplayItem，引用稳定 memo 才不会失效。
-    const handleClickConversation = useCallback(async (conversationId: string) => {
-        dispatch(initActiveConversation(conversationId));
-        await getConversationMessages(conversationId).then((res: ApiResponse<Message[]>) => {
-            // dispatch(initGlobalMessages(res.data ?? {})); // 注： 数据结构为 { [conversationId: string]: Message[] , ... }
+    const handleClickConversation = useCallback((conversationId: string) => {
+        navigate(`/chat/${conversationId}`); // 仅改 URL,实际选中/拉取由下方 effect 统一处理
+    }, [navigate]);
+    // URL 是会话选中的单一入口:路由参数变 → 同步 Redux 当前会话 + 拉取消息。
+    // 浏览器/移动端返回改变 URL,经此 effect 回灌 Redux,列表↔详情随之切换。
+    useEffect(() => {
+        dispatch(initActiveConversation(routeConversationId ?? null));
+        if (!routeConversationId) return;
+        getConversationMessages(routeConversationId).then((res: ApiResponse<Message[]>) => {
             dispatch(initGlobalMessages(res.data ?? []));
         });
-    }, [dispatch]);
+    }, [routeConversationId, dispatch]);
     // 解析会话id，获取好友id
     const parseConversationId = (conversationId: string) => {
         const tp = conversationId.split('_');
@@ -333,8 +346,28 @@ function ChatView() {
         { label: t('chat.iconLabels.video'),      icon: 'icon-videocameraadd', method: 'handleClickVideo' },
     ];
 
+    // 移动端 ＋ 面板(微信式 2×4 宫格);只有相册/视频通话接真实功能,其余占位
+    const mobilePanelActions: PanelAction[] = [
+        { label: t('chat.panel.album'),     icon: 'icon-image',            method: 'album' },
+        { label: t('chat.panel.camera'),    icon: 'icon-camera',           method: 'camera' },
+        { label: t('chat.panel.videoCall'), icon: 'icon-videocameraadd',   method: 'videoCall' },
+        { label: t('chat.panel.location'),  icon: 'icon-location',         method: 'location' },
+        { label: t('chat.panel.redPacket'), icon: 'icon-moneycollect-fill', method: 'redPacket' },
+        { label: t('chat.panel.gift'),      icon: 'icon-gift-fill',        method: 'gift' },
+        { label: t('chat.panel.transfer'),  icon: 'icon-swap',             method: 'transfer' },
+        { label: t('chat.panel.voiceInput'), icon: 'icon-audio',           method: 'voiceInput' },
+    ];
+    const handleMobilePanel = (method: string) => {
+        switch (method) {
+            case 'album': handleClickFile(); break;
+            // 视频通话:弹出「视频通话 / 语音通话」选择,而非直接发起(微信交互)
+            case 'videoCall': setCallSheetOpen(true); break;
+            default: console.log('[chat panel]', method); // 占位:拍摄/位置/红包/礼物/转账/语音输入/表情
+        }
+    };
+
     return (
-        <div className={chatViewStyle.chat_view_container}>
+        <div className={`${chatViewStyle.chat_view_container} ${activeConversation ? chatViewStyle.has_active : ''}`}>
             {/* 左侧：对话列表 */}
             <div className={chatViewStyle.chat_view_left}>
                 <SearchHeader onSearchChange={handleSearchChange} placeholder={t('chat.searchPlaceholder')} />
@@ -359,7 +392,13 @@ function ChatView() {
             <div className={chatViewStyle.chat_view_right}>
                 {activeConversation ? (
                     <>
-                        <div className={chatViewStyle.chat_header}>{friendDisplayName(parseConversationId(activeConversation)) || ''}</div> {/* 会话标题 */}
+                        {/* 会话标题:移动端为 返回 / 居中标题 / ⋯ 三段栏(桌面端隐藏返回与⋯) */}
+                        <div className={chatViewStyle.chat_header}>
+                            <i className={chatViewStyle.back_btn} onClick={() => navigate('/chat')} />
+                            <span className={chatViewStyle.chat_title}>{friendDisplayName(parseConversationId(activeConversation)) || ''}</span>
+                            {/* ⋯ 暂不接功能,仅占位保持微信头部布局 */}
+                            <i className={`iconfont icon-ellipsis ${chatViewStyle.more_btn}`} />
+                        </div>
                         {/* 消息列表 */}
                         <div className={chatViewStyle.chat_body} ref={chatBodyRef}>
                             <List
@@ -390,16 +429,25 @@ function ChatView() {
                                 }}
                             />
                         </div>
-                        {/* 输入框（全局通用组件，隔离高频草稿态的重渲染） */}
-                        <ChatComposer
-                            onSend={sendMessage}
-                            placeholder=""
-                            leftActions={leftActions}
-                            rightActions={rightActions}
-                            onActionClick={handleClickHeaderIcon}
-                            showSend={false}
-                            inputRows={4}
-                        />
+                        {/* 输入框:移动端用微信式输入栏 + ＋面板,桌面端用工具条 Composer */}
+                        {isMobile ? (
+                            <MobileComposer
+                                onSend={sendMessage}
+                                placeholder=""
+                                panelActions={mobilePanelActions}
+                                onActionClick={handleMobilePanel}
+                            />
+                        ) : (
+                            <ChatComposer
+                                onSend={sendMessage}
+                                placeholder=""
+                                leftActions={leftActions}
+                                rightActions={rightActions}
+                                onActionClick={handleClickHeaderIcon}
+                                showSend={false}
+                                inputRows={4}
+                            />
+                        )}
                     </>
                 ) : (
                     <div className={chatViewStyle.no_chat}>{t('chat.noConversation')}</div>
@@ -420,6 +468,15 @@ function ChatView() {
                 </div>
                 }
             </div>
+            {/* 视频/语音通话选择弹层(移动端点击 ＋面板「视频通话」弹出) */}
+            <ActionSheet
+                open={callSheetOpen}
+                onClose={() => setCallSheetOpen(false)}
+                items={[
+                    { label: t('chat.panel.videoCall'), icon: 'icon-video', onClick: () => startCallWithFriend('video') },
+                    { label: t('chat.panel.voiceCall'), icon: 'icon-phone', onClick: () => startCallWithFriend('voice') },
+                ]}
+            />
             {/* 点他人头像弹出的好友资料卡 */}
             {friendCard && (
                 <div

@@ -105,9 +105,9 @@ function FriendModal({
         await getConversationMessages(conversationId).then((res: ApiResponse<Message[]>) => {
             dispatch(initGlobalMessages(res.data ?? []));
         });
-        // 设置当前会话
+        // 设置当前会话:选中态进入 URL,chatView 据此同步并展示
         dispatch(initActiveConversation(conversationId));
-        navigate(`/chat`);
+        navigate(`/chat/${conversationId}`);
     }
 
     // 发起通话(语音/视频共用同一信令,仅类型不同)

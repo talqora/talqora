@@ -123,3 +123,24 @@
 .langOff:hover {
     background: var(--hover);
 }
+
+// ─── 移动端(≤768px):520px 双栏浮层 → 全屏单列 sheet ───
+@include mobile {
+    .setting_view {
+        top: 0;
+        left: 0;
+        transform: none;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        border-radius: 0;
+    }
+    // 头像区 + 设置项由左右两栏改为上下单列
+    .setting_view_body {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .setting_view_left {
+        align-items: center;
+    }
+}

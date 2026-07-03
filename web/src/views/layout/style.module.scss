@@ -4,6 +4,7 @@
     display: flex;
     flex-direction: row;
     height: 100vh;
+    height: 100dvh; // 手机浏览器随地址栏伸缩的真实可视高度(老浏览器回退到上面的 100vh)
     width: 100%;
     background-color: var(--surface);
     overflow: hidden;
@@ -44,7 +45,16 @@
         color: var(--primary-color);
     }
 }
-// 选项  
+// Tab 文字标签:桌面竖栏图标-only,默认隐藏;移动底栏才显示(见 @include mobile)
+.tab_label {
+    display: none;
+}
+// 「我」Tab:仅移动端底栏显示,桌面隐藏。
+// 用复合选择器压过 .left_nav_item 的 display:flex(二者都在该元素上,需更高优先级)
+.left_nav_item.mobile_only {
+    display: none;
+}
+// 选项
 .left_nav_item {
     width: 40px;
     height: 40px;
@@ -79,4 +89,57 @@
     top: 16px;
     left: 64px;
     z-index: 1000;
+}
+
+// ─── 移动端(≤768px):左侧竖向导航 → 底部横向 Tab 栏(微信手机布局) ───
+@include mobile {
+    // 主容器留出底栏高度(含底部安全区),fixed 底栏不遮挡内容
+    .layout_container {
+        box-sizing: border-box;
+        padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    }
+    // 进入具体会话:隐藏底部 Tab,聊天页占满全屏(微信式全屏会话)
+    .no_tabbar {
+        padding-bottom: 0;
+        .left_nav { display: none; }
+    }
+    // 60px 竖栏 → 贴底横向栏(底部预留 home 指示条安全区)
+    .left_nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 56px;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-sizing: content-box;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+        border-top: 1px solid var(--border);
+        background-color: var(--background-color);
+        z-index: $z-sticky;
+    }
+    // 头像桌面专属(资料/设置/退出已合并进「我」页),移动端底栏不显示
+    .left_nav_item_avatar { display: none; }
+    // ☰ 菜单桌面专属,移动端不显示(其功能进「我」页)
+    .left_nav_item_menu { display: none; }
+    // 「我」Tab 在移动端显示(复合选择器,与桌面隐藏规则同优先级,靠 @media 顺序生效)
+    .left_nav_item.mobile_only { display: flex; }
+    // 每个 Tab:图标在上、文字在下,等分占位(整条 56px 高即触控热区)
+    .left_nav_item {
+        flex: 1;
+        flex-direction: column;
+        gap: 3px;
+        width: auto;
+        height: 100%;
+    }
+    .my_iconfont { font-size: 1.35rem; }
+    .tab_label {
+        display: block;
+        font-size: 0.625rem;
+        line-height: 1;
+        color: var(--icon-color);
+    }
+    .active .tab_label { color: var(--primary-color); }
 }

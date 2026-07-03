@@ -49,6 +49,11 @@ $bp-lg: 64rem;   // 1024px
 $bp-xl: 80rem;   // 1280px
 $bp-2xl: 96rem;  // 1536px
 
+// 响应式 mixin —— 移动端临界统一为 $bp-md(768px),断点单一真相源。
+// 用法:.foo { @include mobile { width: 100%; } }
+// 该文件被 vite additionalData 全局注入,故任意 *.scss 直接可用,无需 @use。
+@mixin mobile { @media (max-width: $bp-md) { @content; } } // ≤768
+
 // z-index 层级
 $z-base:    1;
 $z-sticky:  20;

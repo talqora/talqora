@@ -6,6 +6,13 @@
     flex-direction: column;
 }
 
+// ─── 移动端(≤768px):缩小过大的留白(给返回按钮腾顶部、横向更省) ───
+@include mobile {
+    .detail {
+        padding: 52px 20px 0;
+    }
+}
+
 .header {
     display: flex;
     gap: 16px;

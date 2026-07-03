@@ -1,0 +1,79 @@
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: $z-modal;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  animation: fade $dur-base $ease-out;
+}
+
+.sheet {
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: sheetUp $dur-base $ease-out;
+}
+
+.group {
+  background: var(--surface);
+}
+
+.item {
+  width: 100%;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--divider);
+  color: var(--text-1);
+  font-size: 1rem;
+  cursor: pointer;
+  &:first-child {
+    border-top: none;
+  }
+  &:active {
+    background: var(--hover);
+  }
+}
+.icon {
+  font-size: 1.25rem;
+  color: var(--text-2);
+}
+.danger {
+  color: $color-danger;
+}
+
+// 取消:与选项组隔一条灰缝
+.cancel {
+  width: 100%;
+  height: 56px;
+  margin-top: 8px;
+  background: var(--surface);
+  border: none;
+  color: var(--text-1);
+  font-size: 1rem;
+  cursor: pointer;
+  &:active {
+    background: var(--hover);
+  }
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

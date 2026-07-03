@@ -65,3 +65,13 @@
     font-weight: 400;
     background-color: var(--primary-color);
 }
+
+// ─── 移动端(≤768px):固定 250 顶角卡片 → 近全宽居中,避开顶部搜索条 ───
+@include mobile {
+    .container {
+        top: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(92vw, 320px);
+    }
+}
