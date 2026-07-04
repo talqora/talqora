@@ -54,7 +54,7 @@ extension WebRTCSession: DependencyKey {
             setMuted: { await engine.setMuted($0) },
             setCameraEnabled: { _ in },   // 视频采集后续任务补
             switchCamera: {},             // 视频采集后续任务补
-            setSpeaker: { _ in },         // 音频路由(AVAudioSession)后续任务补
+            setSpeaker: { await engine.setSpeaker($0) },
             reset: { await engine.reset() },
             close: { await engine.close() },
             events: {

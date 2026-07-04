@@ -68,11 +68,37 @@ actor RTCEngine {
 
     func startLocalMedia(video _: Bool) {
         guard let pc else { return }
+        configureAudioSession()
         let source = Self.factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
         let track = Self.factory.audioTrack(with: source, trackId: "audio0")
         audioTrack = track
         pc.add(track, streamIds: ["stream0"])
         // 视频轨在后续任务补
+    }
+
+    // 通话音频会话:playAndRecord + voiceChat 模式(启回声消除/自动增益,默认走听筒)。
+    // 用 libwebrtc 的 RTCAudioSession(它内部与 WebRTC 音频单元共享同一实例,避免与其抢占配置);
+    // 配置期加锁、结束解锁,isAudioEnabled 打开让 WebRTC 接管播放/录制。
+    private func configureAudioSession() {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        do {
+            try session.setCategory(.playAndRecord, with: [.allowBluetooth])
+            try session.setMode(.voiceChat)
+            try session.setActive(true)
+            session.isAudioEnabled = true
+        } catch {
+            // 配置失败不致命(极少见,如被系统中断):放行,后续通话可能静音但不崩。
+        }
+    }
+
+    func setSpeaker(_ on: Bool) {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        // 免提走扬声器,否则回听筒;仅 playAndRecord 生效。
+        try? session.overrideOutputAudioPort(on ? .speaker : .none)
     }
 
     func createOffer() async throws -> SessionDescriptionDTO {
@@ -145,6 +171,16 @@ actor RTCEngine {
         pc = nil
         for c in subscribers.values { c.finish() }
         subscribers.removeAll()
+        deactivateAudioSession()
+    }
+
+    // 通话结束释放音频会话:关 isAudioEnabled 并停用,让系统把音频路由/焦点交还其它 App。
+    private func deactivateAudioSession() {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        session.isAudioEnabled = false
+        try? session.setActive(false)
     }
 
     private func ingest(_ event: WebRTCEvent) {

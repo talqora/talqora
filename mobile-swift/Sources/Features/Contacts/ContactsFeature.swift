@@ -35,6 +35,12 @@ struct ContactsFeature {
         case newFriendsTapped
         case contactTapped(Contact)
         case path(StackActionOf<Path>)
+        case delegate(Delegate)
+
+        enum Delegate: Equatable {
+            // 好友资料页发起通话:上抛给 MainFeature 呈现通话。
+            case startCall(peer: CallUserDTO, type: CallType)
+        }
     }
 
     @Dependency(\.contactsClient) var contactsClient
@@ -100,6 +106,10 @@ struct ContactsFeature {
                 state.path.append(.friendSettings(FriendSettingsFeature.State(contact: contact)))
                 return .none
 
+            // 好友资料页:发起语音/视频通话 → 上抛父层呈现。
+            case let .path(.element(id: _, action: .contactDetail(.delegate(.startCall(peer, type))))):
+                return .send(.delegate(.startCall(peer: peer, type: type)))
+
             // 好友设置页:设置朋友资料 → 备注编辑。
             case let .path(.element(id: _, action: .friendSettings(.delegate(.openRemarkEdit(contact))))):
                 state.path.append(.remarkEdit(RemarkEditFeature.State(contact: contact)))
@@ -116,7 +126,7 @@ struct ContactsFeature {
                 }
                 return .none
 
-            case .path:
+            case .path, .delegate:
                 return .none
             }
         }

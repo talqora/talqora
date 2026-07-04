@@ -13,11 +13,14 @@ struct ContactDetailFeature {
     enum Action {
         case messageTapped
         case settingsTapped
+        case callTapped(CallType)
         case delegate(Delegate)
 
         enum Delegate: Equatable {
             case openChat(conversationId: String, title: String)
             case openSettings(Contact)
+            // 发起通话:把被叫方资料上抛,由通话呈现方(MainFeature)补本端资料后建会话。
+            case startCall(peer: CallUserDTO, type: CallType)
         }
     }
 
@@ -35,6 +38,16 @@ struct ContactDetailFeature {
 
             case .settingsTapped:
                 return .send(.delegate(.openSettings(state.contact)))
+
+            case let .callTapped(type):
+                // 被叫资料取自当前联系人:nickname 用展示名,avatar 用头像 URL 字符串(可能为空)。
+                let peer = CallUserDTO(
+                    id: Int(state.contact.id) ?? 0,
+                    username: state.contact.username,
+                    nickname: state.contact.name,
+                    avatar: state.contact.avatarURL?.absoluteString ?? ""
+                )
+                return .send(.delegate(.startCall(peer: peer, type: type)))
 
             case .delegate:
                 return .none

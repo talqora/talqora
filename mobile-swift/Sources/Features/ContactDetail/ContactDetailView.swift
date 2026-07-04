@@ -72,7 +72,11 @@ struct ContactDetailView: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             ActionButton(icon: "message.fill", title: "发消息") { store.send(.messageTapped) }
-            ActionButton(icon: "video.fill", title: "音视频通话") { toast.show() }
+                .accessibilityLabel("发消息")
+            ActionButton(icon: "phone.fill", title: "语音通话") { store.send(.callTapped(.voice)) }
+                .accessibilityLabel("语音通话")
+            ActionButton(icon: "video.fill", title: "视频通话") { store.send(.callTapped(.video)) }
+                .accessibilityLabel("视频通话")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
