@@ -50,6 +50,12 @@ struct CallFeature {
         // 内部
         case tick
         case failed(String)
+        // 上抛父 feature:通话已收尾,请求关闭呈现。
+        case delegate(Delegate)
+
+        enum Delegate: Equatable {
+            case finished
+        }
     }
 
     @Dependency(\.webRTCSession) var webRTC
@@ -242,6 +248,9 @@ struct CallFeature {
             case let .failed(message):
                 state.phase = .ended(reason: message)
                 return cleanup()
+
+            case .delegate:
+                return .none
             }
         }
     }
@@ -290,12 +299,14 @@ struct CallFeature {
         .cancellable(id: CancelID.events, cancelInFlight: true)
     }
 
-    // 结束通话统一清理:取消两条订阅 + 计时器,并关闭 WebRTC 会话释放媒体资源。
+    // 结束通话统一清理:取消两条订阅 + 计时器,关闭 WebRTC 会话释放媒体资源,并上抛 finished 请父层收起呈现。
+    // 所有进入 .ended 的迁移都经此,故 finished 恰好每次通话结束发一次。
     private func cleanup() -> Effect<Action> {
         .merge(
             .cancel(id: CancelID.events),
             .cancel(id: CancelID.timer),
-            .run { _ in await webRTC.close() }
+            .run { _ in await webRTC.close() },
+            .send(.delegate(.finished))
         )
     }
 }

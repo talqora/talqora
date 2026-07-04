@@ -58,6 +58,7 @@ struct CallFeatureTests {
         await store.send(.rejectTapped) {
             $0.phase = .ended(reason: "已拒绝")
         }
+        await store.receive(\.delegate)
         var sent: String?
         for await id in rejected { sent = id; break }
         #expect(sent == "c1")
@@ -78,6 +79,7 @@ struct CallFeatureTests {
         await store.send(.remoteBusy(callId: "c9")) {
             $0.phase = .ended(reason: "对方忙线中")
         }
+        await store.receive(\.delegate)
     }
 
     @Test
@@ -216,6 +218,7 @@ struct CallFeatureTests {
         await store.receive(\.failed) {
             $0.phase = .ended(reason: "通话建立失败")
         }
+        await store.receive(\.delegate)
     }
 
     // MARK: ICE 收发
@@ -277,6 +280,7 @@ struct CallFeatureTests {
         await store.send(.hangupTapped) {
             $0.phase = .ended(reason: "通话结束")
         }
+        await store.receive(\.delegate)
     }
 
     @Test
@@ -292,6 +296,7 @@ struct CallFeatureTests {
         await store.receive(\.failed) {
             $0.phase = .ended(reason: "连接失败")
         }
+        await store.receive(\.delegate)
     }
 
     // MARK: 独立迁移
@@ -348,6 +353,7 @@ struct CallFeatureTests {
             $0.webRTCSession.close = {}
         }
         await store.send(.remoteEnded) { $0.phase = .ended(reason: "通话结束") }
+        await store.receive(\.delegate)
     }
 
     @Test
@@ -360,6 +366,7 @@ struct CallFeatureTests {
             $0.webRTCSession.close = {}
         }
         await store.send(.remoteRejected) { $0.phase = .ended(reason: "对方已拒绝") }
+        await store.receive(\.delegate)
     }
 
     @Test
@@ -385,6 +392,22 @@ struct CallFeatureTests {
         var got: SessionDescriptionDTO?
         for await a in accepted { got = a; break }
         #expect(got == answer)
+    }
+
+    // MARK: 收尾委托
+
+    // 进入 .ended 时应上抛 delegate(.finished),供父层收起呈现。
+    @Test
+    func reachingEndedEmitsDelegateFinished() async {
+        var state = incomingState()
+        state.phase = .connected
+        let store = TestStore(initialState: state) {
+            CallFeature()
+        } withDependencies: {
+            $0.webRTCSession.close = {}
+        }
+        await store.send(.remoteEnded) { $0.phase = .ended(reason: "通话结束") }
+        await store.receive(\.delegate) // .finished
     }
 
     // MARK: 订阅事件流(受控 AsyncStream)驱动 inbound action

@@ -29,6 +29,10 @@ struct MainView: View {
                 .tabItem { Label("我", systemImage: "person.fill") }
         }
         .tint(WeChatColor.brand)
+        .task { store.send(.onAppear) }
+        .fullScreenCover(item: $store.scope(state: \.call, action: \.call)) { callStore in
+            CallView(store: callStore)
+        }
     }
 
     // 暗色标签栏:不透明深色底 + 未选灰、选中微信绿。用 UITabBarAppearance 全局配置。
