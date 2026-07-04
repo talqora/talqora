@@ -26,7 +26,7 @@ struct VoiceCallPanel: View {
     // 深色渐变:让白色文字/控件在语音界面始终可读。
     private var voiceBackground: some View {
         LinearGradient(
-            colors: [Color(hex: 0x1A2035), Color(hex: 0x0D1220)],
+            colors: [WeChatColor.callBackgroundTop, WeChatColor.callBackgroundBottom],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -35,7 +35,6 @@ struct VoiceCallPanel: View {
 
     private var peerInfo: some View {
         VStack(spacing: WeChatSpacing.l) {
-            // 圆形头像(语音通话使用圆形)
             let avatarURL = store.peer.flatMap { URL(string: $0.avatar) }
             VoiceAvatar(url: avatarURL, size: 96)
 
@@ -57,42 +56,6 @@ struct VoiceCallPanel: View {
                 .minimumScaleFactor(0.7)
             }
         }
-    }
-}
-
-// MARK: - 圆形头像(语音通话专用,占位显示 person 图标)
-
-struct VoiceAvatar: View {
-    let url: URL?
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        avatarPlaceholder
-                    }
-                }
-            } else {
-                avatarPlaceholder
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-    }
-
-    private var avatarPlaceholder: some View {
-        Circle()
-            .fill(WeChatColor.avatarPlaceholder)
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: size * 0.5))
-                    .foregroundStyle(WeChatColor.textTertiary)
-            )
     }
 }
 

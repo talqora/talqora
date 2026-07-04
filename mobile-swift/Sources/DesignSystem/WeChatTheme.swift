@@ -15,6 +15,16 @@ enum WeChatColor {
     static let badge = color(light: 0xFA5151, dark: 0xFA5151) // 未读红点,明暗一致
     static let avatarPlaceholder = color(light: 0xD8D8D8, dark: 0x2C2C2C) // 头像占位底
 
+    // 通话界面专用颜色 — 语音通话深色渐变背景(始终深色,与系统外观无关)
+    static let callBackgroundTop = Color(hex: 0x1A2035)
+    static let callBackgroundBottom = Color(hex: 0x0D1220)
+
+    // 通话界面专用颜色 — 视频通话始终深色,与系统外观无关
+    static let videoSurface = Color.black          // RTCVideoView track=nil 时的黑底
+    static let videoScrim = Color.black            // 顶部渐变遮罩底色(保证字幕可读)
+    static let pipFill = Color.black.opacity(0.7)  // 本地 PiP 占位填充
+    static let pipStroke = Color.white.opacity(0.3) // 本地 PiP 描边
+
     private static func color(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: weChatDynamicUIColor(light: light, dark: dark))
     }
@@ -37,6 +47,11 @@ enum WeChatFont {
     static let footnote = Font.system(size: 13) // 预览/说明
     static let caption = Font.system(size: 12) // 时间/角标
     static let caption2 = Font.system(size: 11) // 最弱提示
+
+    // 通话界面图标尺寸令牌
+    static let callIconLarge = Font.system(size: 26, weight: .medium)  // 圆形大按钮内图标
+    static let callIconMedium = Font.system(size: 22, weight: .medium) // 方形切换按钮内图标
+    static let callIconPiP = Font.system(size: 28)                     // PiP 占位图标
 }
 
 // 间距令牌(pt)。
