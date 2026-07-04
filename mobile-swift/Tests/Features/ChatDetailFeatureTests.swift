@@ -243,6 +243,58 @@ struct ChatDetailFeatureTests {
     }
 
     @Test
+    func videoCallTileEmitsStartCallWithPeerId() async {
+        // 会话 single_1_2、本端 id=1 → 对端 id=2;选「视频通话」应上抛 .startCall(peer.id=2, .video)。
+        let initial = ChatDetailFeature.State(
+            conversationId: "single_1_2", title: "段宇皓", peerAvatar: "https://cdn/x/a.jpg", currentUserId: 1
+        )
+        // 被叫资料从单聊会话 id 解出:id=对端(2),昵称/头像取会话标题与头像。
+        #expect(initial.isGroupConversation == false)
+        #expect(initial.callPeer() == CallUserDTO(id: 2, username: "", nickname: "段宇皓", avatar: "https://cdn/x/a.jpg"))
+
+        let store = TestStore(initialState: initial) {
+            ChatDetailFeature()
+        }
+        await store.send(.videoCallTileTapped) {
+            $0.callDialog = ConfirmationDialogState {
+                TextState("选择通话方式")
+            } actions: {
+                ButtonState(action: .video) { TextState("视频通话") }
+                ButtonState(action: .voice) { TextState("语音通话") }
+                ButtonState(role: .cancel) { TextState("取消") }
+            }
+        }
+        await store.send(.callDialog(.presented(.video))) {
+            $0.callDialog = nil
+        }
+        await store.receive(\.delegate) // .startCall(peer.id=2, .video)
+    }
+
+    @Test
+    func groupConversationHidesCall() async {
+        // 群聊会话 id 非 single_ 形状 → isGroupConversation=true,视频通话磁贴不出现。
+        let store = TestStore(
+            initialState: ChatDetailFeature.State(conversationId: "group_42", title: "项目群", currentUserId: 1)
+        ) {
+            ChatDetailFeature()
+        }
+        #expect(store.state.isGroupConversation == true)
+        // 防御:即便误触磁贴,群聊也不弹选择框。
+        await store.send(.videoCallTileTapped)
+    }
+
+    @Test
+    func plusTogglesFunctionPanel() async {
+        let store = TestStore(
+            initialState: ChatDetailFeature.State(conversationId: "single_1_2", title: "x", currentUserId: 1)
+        ) {
+            ChatDetailFeature()
+        }
+        await store.send(.plusTapped) { $0.showFunctionPanel = true }
+        await store.send(.plusTapped) { $0.showFunctionPanel = false }
+    }
+
+    @Test
     func imageUploadFailureShowsAlert() async {
         let store = TestStore(
             initialState: ChatDetailFeature.State(conversationId: "single_1_2", title: "x")

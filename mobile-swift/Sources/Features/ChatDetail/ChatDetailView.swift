@@ -14,7 +14,16 @@ struct ChatDetailView: View {
         // 消息区铺满 + 输入条贴底(safeAreaInset 让键盘弹出时输入条上移不遮挡);
         // 点消息空白处收键盘(§1 UIUX 硬规范)。
         messageList
-            .safeAreaInset(edge: .bottom, spacing: 0) { inputBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    inputBar
+                    if store.showFunctionPanel {
+                        ChatFunctionPanel(store: store)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.2), value: store.showFunctionPanel)
+            }
             .background(WeChatColor.background)
             .dismissKeyboardOnTap()
             .navigationTitle(store.title)
@@ -23,6 +32,7 @@ struct ChatDetailView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar) // 二级页不保留底部 tab
             .alert($store.scope(state: \.alert, action: \.alert))
+            .confirmationDialog($store.scope(state: \.callDialog, action: \.callDialog))
             .task { store.send(.onAppear) }
     }
 
@@ -63,6 +73,12 @@ struct ChatDetailView: View {
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
+            // 点消息区(面板外)收起功能面板;simultaneousGesture 不吞滚动与气泡点击。
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if store.showFunctionPanel { store.send(.plusTapped) }
+                }
+            )
             .onChange(of: store.messages.count) {
                 guard let last = store.messages.last else { return }
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -124,10 +140,23 @@ struct ChatDetailView: View {
             }
             .buttonStyle(PressableButtonStyle())
             .disabled(store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button { store.send(.plusTapped) } label: {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(WeChatColor.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityLabel("更多功能")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(WeChatColor.navBar)
+        // 输入框获得焦点(开始打字)时收起功能面板,避免键盘与面板同时占位。
+        .onChange(of: inputFocused) { _, focused in
+            if focused, store.showFunctionPanel { store.send(.plusTapped) }
+        }
     }
 }
 

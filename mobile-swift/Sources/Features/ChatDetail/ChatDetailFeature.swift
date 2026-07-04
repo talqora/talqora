@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Foundation
+import UIKit
 
 // 聊天详情:加载历史消息(REST)+ 实时收发(socket)。
 // 发送走乐观更新(先本地插一条,再 emit),服务端回显的 receiveMessage 按 clientMsgId 替换回填真实 id/seq。
@@ -9,12 +10,29 @@ struct ChatDetailFeature {
     struct State: Equatable {
         let conversationId: String
         var title: String
+        // 被叫头像 URL 串,发起通话时随信令带给对端做来电展示(单聊才有意义,best-effort 可空)。
+        var peerAvatar: String = ""
         var messages: [ChatMessage] = []
         var currentUserId: Int = 0
         var isLoading = false
         var loadFailed = false
         var draft = ""
+        // "+" 功能面板:展开时占据键盘位置,展示功能网格(当前仅视频通话)。
+        var showFunctionPanel = false
         @Presents var alert: AlertState<Action.Alert>?
+        // 视频通话入口二次选择:语音 / 视频。
+        @Presents var callDialog: ConfirmationDialogState<Action.CallChoice>?
+
+        // 单聊会话 id 约定 single_{小 id}_{大 id};群聊不满足此形状,不提供通话入口。
+        var isGroupConversation: Bool {
+            peerUserId(from: conversationId, myId: currentUserId) == nil
+        }
+
+        // 从单聊会话 id 解出被叫资料:id 必须正确(服务端按 id 路由),昵称/头像取会话标题与头像(best-effort)。
+        func callPeer() -> CallUserDTO? {
+            guard let peerId = peerUserId(from: conversationId, myId: currentUserId) else { return nil }
+            return CallUserDTO(id: peerId, username: "", nickname: title, avatar: peerAvatar)
+        }
     }
 
     enum Action: BindableAction {
@@ -29,14 +47,22 @@ struct ChatDetailFeature {
         case fileReady(url: String, fileName: String, fileSize: Int, clientMsgId: String)
         case uploadFailed(String)
         case messageReceived(ChatMessage)
+        // "+" 按钮:切换功能面板(展开时收键盘)。
+        case plusTapped
+        // 功能面板里的视频通话磁贴:弹语音/视频二次选择。
+        case videoCallTileTapped
+        case callDialog(PresentationAction<CallChoice>)
         case alert(PresentationAction<Alert>)
         case delegate(Delegate)
 
         enum Alert: Equatable { case retryLoad }
+        enum CallChoice: Equatable { case voice, video }
 
         enum Delegate: Equatable {
             // 本会话已读至 uptoSeq:父 reducer 据此清列表未读角标。
             case didRead(conversationId: String, uptoSeq: Int)
+            // 发起通话:把被叫方资料上抛,由通话呈现方(MainFeature)补本端资料后建会话。
+            case startCall(peer: CallUserDTO, type: CallType)
         }
     }
 
@@ -190,16 +216,46 @@ struct ChatDetailFeature {
                 guard message.senderId != state.currentUserId else { return .none }
                 return markRead(conversationId: state.conversationId, messages: state.messages)
 
+            case .plusTapped:
+                // 展开面板前收键盘(微信约定:面板占键盘位置);再次点击收起面板。
+                if !state.showFunctionPanel {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+                    )
+                }
+                state.showFunctionPanel.toggle()
+                return .none
+
+            case .videoCallTileTapped:
+                // 群聊不支持 1:1 通话(磁贴本就隐藏,防御性再挡一次)。
+                guard !state.isGroupConversation else { return .none }
+                state.callDialog = ConfirmationDialogState {
+                    TextState("选择通话方式")
+                } actions: {
+                    ButtonState(action: .video) { TextState("视频通话") }
+                    ButtonState(action: .voice) { TextState("语音通话") }
+                    ButtonState(role: .cancel) { TextState("取消") }
+                }
+                return .none
+
+            case let .callDialog(.presented(choice)):
+                // 选定通话方式:构造被叫资料上抛,收起面板。
+                guard let peer = state.callPeer() else { return .none }
+                state.showFunctionPanel = false
+                let type: CallType = choice == .video ? .video : .voice
+                return .send(.delegate(.startCall(peer: peer, type: type)))
+
             case .alert(.presented(.retryLoad)):
                 state.isLoading = true
                 state.loadFailed = false
                 return loadMessages(state.conversationId)
 
-            case .binding, .delegate, .alert:
+            case .binding, .delegate, .alert, .callDialog:
                 return .none
             }
         }
         .ifLet(\.$alert, action: \.alert)
+        .ifLet(\.$callDialog, action: \.callDialog)
     }
 
     // 拉历史消息;失败发 messagesFailed(弹重试),不静默当空。
@@ -220,6 +276,17 @@ struct ChatDetailFeature {
             .send(.delegate(.didRead(conversationId: conversationId, uptoSeq: uptoSeq)))
         )
     }
+}
+
+// 从单聊会话 id(single_{小}_{大})解出对端用户 id:取两端里不等于本端 id 的那个;
+// 形状不符(群聊/异常)或本端 id 不在其中,返回 nil。
+private func peerUserId(from conversationId: String, myId: Int) -> Int? {
+    let parts = conversationId.split(separator: "_")
+    guard parts.count == 3, parts[0] == "single",
+          let a = Int(parts[1]), let b = Int(parts[2]) else { return nil }
+    if a == myId { return b }
+    if b == myId { return a }
+    return nil
 }
 
 // 去重合并:优先按 clientMsgId 命中(乐观消息被服务端回显替换),否则按 serverId 命中,都不中则追加。

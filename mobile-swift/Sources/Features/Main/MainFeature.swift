@@ -78,8 +78,9 @@ struct MainFeature {
                 state.call = callState
                 return .send(.call(.presented(.startCall(peer: peer, type: type))))
 
-            case let .contacts(.delegate(.startCall(peer, type))):
-                // 好友资料页发起通话:异步取当前用户完整资料(信令要随本端资料给对端做来电展示)。
+            case let .contacts(.delegate(.startCall(peer, type))),
+                 let .chats(.delegate(.startCall(peer, type))):
+                // 好友资料页 / 聊天详情页发起通话:异步取当前用户完整资料(信令要随本端资料给对端做来电展示)。
                 return .run { send in
                     let localUser = try await sessionClient.currentUser()
                     await send(.placeCall(peer: peer, type: type, localUser: localUser))

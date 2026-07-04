@@ -111,19 +111,24 @@ private actor SocketConnection {
 
     func connect(token: String) {
         guard socket == nil else { return }
+        print("🔌[socket] connect() → \(baseURL.absoluteString) token=\(token.prefix(8))…")
         let manager = SocketManager(
             socketURL: baseURL,
             config: [
-                .log(false),
-                .forceWebsockets(true),
+                // 诊断原生端连不上:打开 socket.io 详细日志(握手/传输/错误直接进控制台)。定位后改回 .log(false)。
+                .log(true),
                 .reconnects(true),
-                // 服务端 socket 握手鉴权只从 cookie 取 JWT(server utils/socket.ts:
-                // parseCookie(handshake.headers.cookie, 'token')),原生端无 cookie,
-                // 故把 token 作为 token cookie 放进握手 HTTP 头,否则连接被拒、收不到实时消息。
+                // 服务端握手鉴权优先读 handshake.auth.token(见下 connect(withPayload:)),回落 cookie。
+                // 两个都带上:token 既进 auth 载荷,也放进 Cookie 头做兜底。
                 .extraHeaders(["Cookie": "token=\(token)"]),
             ]
         )
         let socket = manager.defaultSocket
+        // 连接生命周期诊断——定位「原生端收不到实时/通话」的连接层真因。
+        socket.on(clientEvent: .connect) { _, _ in print("🔌[socket] ✅ connected") }
+        socket.on(clientEvent: .error) { data, _ in print("🔌[socket] ❌ error: \(data)") }
+        socket.on(clientEvent: .disconnect) { data, _ in print("🔌[socket] ⚠️ disconnect: \(data)") }
+        socket.on(clientEvent: .statusChange) { data, _ in print("🔌[socket] status: \(data)") }
         // 统一在此注册所有服务端事件,解析后扇出为 ServerEvent(收发口径集中一处)。
         socket.on("receiveMessage") { [weak self] data, _ in
             guard let self, let first = data.first,

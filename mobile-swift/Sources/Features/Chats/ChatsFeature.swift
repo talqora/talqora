@@ -25,6 +25,12 @@ struct ChatsFeature {
         case searchButtonTapped
         case search(PresentationAction<SearchFeature.Action>)
         case path(StackActionOf<ChatDetailFeature>)
+        case delegate(Delegate)
+
+        enum Delegate: Equatable {
+            // 聊天详情页发起通话:上抛给 MainFeature 呈现通话。
+            case startCall(peer: CallUserDTO, type: CallType)
+        }
     }
 
     @Dependency(\.chatClient) var chatClient
@@ -55,7 +61,11 @@ struct ChatsFeature {
 
             case let .conversationTapped(conversation):
                 state.path.append(
-                    ChatDetailFeature.State(conversationId: conversation.id, title: conversation.title)
+                    ChatDetailFeature.State(
+                        conversationId: conversation.id,
+                        title: conversation.title,
+                        peerAvatar: conversation.avatarURL?.absoluteString ?? ""
+                    )
                 )
                 return .none
 
@@ -75,7 +85,11 @@ struct ChatsFeature {
                 }
                 return .none
 
-            case .binding, .path, .search:
+            // 聊天详情页发起语音/视频通话 → 上抛父层呈现。
+            case let .path(.element(id: _, action: .delegate(.startCall(peer, type)))):
+                return .send(.delegate(.startCall(peer: peer, type: type)))
+
+            case .binding, .path, .search, .delegate:
                 return .none
             }
         }
