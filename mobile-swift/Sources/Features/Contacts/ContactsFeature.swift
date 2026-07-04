@@ -143,7 +143,7 @@ struct ContactsFeature {
                     await send(.friendRequestReceived)
                 case .friendListChanged:
                     await send(.friendListChangedReceived)
-                case .message:
+                default:
                     break
                 }
             }

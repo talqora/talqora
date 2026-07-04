@@ -7,4 +7,23 @@ enum ServerEvent: Equatable, Sendable {
     case message(ChatMessage)          // receiveMessage
     case friendRequest(FriendRequest)  // receiveFriendReq(对方发来、待我验证)
     case friendListChanged             // friendListChanged(好友关系变更,需刷新)
+
+    case callIncoming(CallIncoming)                                              // call:start
+    case callAccepted(callId: String, answer: SessionDescriptionDTO)             // call:accept
+    case callRejected(callId: String)                                            // call:reject
+    case callEnded(callId: String)                                               // call:end
+    case callIce(callId: String, candidate: IceCandidateDTO)                    // call:ice
+    case callRejoin(CallRejoin)                                                  // call:rejoin
+    case callBusy(callId: String)                                                // call:busy
+    case callHandled(callId: String, status: String)                             // call:handled
+    case callPeerReconnecting(callId: String)                                    // call:peer-reconnecting
+}
+
+struct CallIncoming: Equatable, Sendable {
+    var callId: String; var from: CallUserDTO; var to: CallUserDTO
+    var offer: SessionDescriptionDTO; var callType: CallType
+}
+
+struct CallRejoin: Equatable, Sendable {
+    var callId: String; var from: CallUserDTO; var to: CallUserDTO; var offer: SessionDescriptionDTO
 }
