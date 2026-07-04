@@ -37,6 +37,9 @@ let project = Project(
                 "UIApplicationSceneManifest": [
                     "UIApplicationSupportsMultipleScenes": false,
                 ],
+                "NSMicrophoneUsageDescription": "通话需要使用麦克风",
+                "NSCameraUsageDescription": "视频通话需要使用摄像头",
+                "UIBackgroundModes": ["audio"],
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],
@@ -48,6 +51,7 @@ let project = Project(
                 .external(name: "GRDB"),
                 .external(name: "OpenAPIRuntime"),
                 .external(name: "SocketIO"),
+                .external(name: "WebRTC"),
             ],
             settings: .settings(
                 base: [

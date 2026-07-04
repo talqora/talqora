@@ -16,6 +16,7 @@ import PackageDescription
             "OpenAPIRuntime": .framework,
             "HTTPTypes": .framework,
             "SocketIO": .framework,
+            "WebRTC": .framework,
         ]
     )
 #endif
@@ -54,6 +55,10 @@ let package = Package(
         .package(
             url: "https://github.com/socketio/socket.io-client-swift",
             from: "16.1.0"
+        ),
+        .package(
+            url: "https://github.com/stasel/WebRTC.git",
+            .upToNextMajor(from: "149.0.0")
         ),
     ]
 )
