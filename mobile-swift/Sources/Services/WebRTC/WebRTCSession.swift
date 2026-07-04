@@ -59,7 +59,7 @@ extension WebRTCSession: DependencyKey {
             close: { await engine.close() },
             events: {
                 let (stream, cont) = AsyncStream<WebRTCEvent>.makeStream()
-                Task { await engine.setContinuation(cont) }
+                Task { await engine.addSubscriber(cont) }
                 return stream
             }
         )

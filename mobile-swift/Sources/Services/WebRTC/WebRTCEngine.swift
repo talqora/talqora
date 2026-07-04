@@ -24,17 +24,30 @@ actor RTCEngine {
     private var pc: RTCPeerConnection?
     private var audioTrack: RTCAudioTrack?
     private var candidateBuffer = CandidateBuffer()
-    private var continuation: AsyncStream<WebRTCEvent>.Continuation?
+    private var subscribers: [UUID: AsyncStream<WebRTCEvent>.Continuation] = [:]
     private var relayOnly = false
     private var iceServers: [IceServerDTO] = []
     private let delegate = PCDelegate()
 
-    func setContinuation(_ c: AsyncStream<WebRTCEvent>.Continuation) {
-        continuation = c
-        delegate.sink = { [weak self] event in
+    init() {
+        // set-once 不变量:sink 在 init 里、任何 RTCPeerConnection 存在之前就绑定,之后不再改。
+        // init 完成 happens-before 后续 actor 隔离的 configure()/buildPC(),而 PC 回调只会在
+        // buildPC 之后触发;故这次写入 happens-before 每次信令线程上的读取(无竞争),
+        // 且 sink 在任何 PC 发事件前已就位(不丢早到的本地候选/状态)。
+        delegate.attach { [weak self] event in
             Task { await self?.ingest(event) }
         }
     }
+
+    func addSubscriber(_ c: AsyncStream<WebRTCEvent>.Continuation) {
+        let id = UUID()
+        subscribers[id] = c
+        c.onTermination = { [weak self] _ in
+            Task { await self?.removeSubscriber(id) }
+        }
+    }
+
+    private func removeSubscriber(_ id: UUID) { subscribers[id] = nil }
 
     func configure(_ servers: [IceServerDTO], relayOnly: Bool) {
         iceServers = servers
@@ -130,12 +143,12 @@ actor RTCEngine {
     func close() {
         pc?.close()
         pc = nil
-        continuation?.finish()
-        continuation = nil
+        for c in subscribers.values { c.finish() }
+        subscribers.removeAll()
     }
 
     private func ingest(_ event: WebRTCEvent) {
-        continuation?.yield(event)
+        for c in subscribers.values { c.yield(event) }
     }
 
     // 把 setLocalDescription 的 completion-handler 形态包成 async。
@@ -163,8 +176,14 @@ enum WebRTCError: Error {
 }
 
 // delegate 只经由 @Sendable sink 把 RTC 回调转成 Sendable 事件转发;RTC 类型不越界。
+// sink 由 RTCEngine.init 通过 attach 一次性注入(在任何 PeerConnection 存在之前),
+// 之后只读不写,故 @unchecked Sendable 成立、信令线程上的回调读 sink 无竞争。
 final class PCDelegate: NSObject, RTCPeerConnectionDelegate, @unchecked Sendable {
-    var sink: (@Sendable (WebRTCEvent) -> Void)?
+    private var sink: (@Sendable (WebRTCEvent) -> Void)?
+
+    func attach(_ sink: @escaping @Sendable (WebRTCEvent) -> Void) {
+        self.sink = sink
+    }
 
     func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         sink?(.localCandidate(IceCandidateDTO(
