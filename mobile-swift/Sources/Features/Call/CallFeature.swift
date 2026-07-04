@@ -168,7 +168,11 @@ struct CallFeature {
 
             case let .remoteAccepted(answer):
                 state.phase = .connecting
-                return .run { _ in try await webRTC.setRemoteAnswer(answer: answer) }
+                return .run { _ in
+                    try await webRTC.setRemoteAnswer(answer: answer)
+                } catch: { error, send in
+                    await send(.failed(callSetupErrorMessage(error)))
+                }
 
             case .remoteRejected:
                 state.phase = .ended(reason: "对方已拒绝")

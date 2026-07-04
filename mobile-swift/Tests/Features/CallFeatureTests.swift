@@ -10,6 +10,8 @@ private let peer = CallUserDTO(id: 2, username: "peer", nickname: "Peer", avatar
 private let offer = SessionDescriptionDTO(type: "offer", sdp: "OFFER")
 private let answer = SessionDescriptionDTO(type: "answer", sdp: "ANSWER")
 
+private enum CallTestError: Error { case boom }
+
 @MainActor
 struct CallFeatureTests {
     private func incomingState() -> CallFeature.State {
@@ -196,6 +198,24 @@ struct CallFeatureTests {
         var got: SessionDescriptionDTO?
         for await a in set { got = a; break }
         #expect(got == answer)
+    }
+
+    @Test
+    func remoteAcceptedFailureEndsCall() async {
+        var state = incomingState()
+        state.phase = .outgoing
+        let store = TestStore(initialState: state) {
+            CallFeature()
+        } withDependencies: {
+            $0.webRTCSession.setRemoteAnswer = { _ in throw CallTestError.boom }
+            $0.webRTCSession.close = {}
+        }
+        await store.send(.remoteAccepted(answer: answer)) {
+            $0.phase = .connecting
+        }
+        await store.receive(\.failed) {
+            $0.phase = .ended(reason: "通话建立失败")
+        }
     }
 
     // MARK: ICE 收发
