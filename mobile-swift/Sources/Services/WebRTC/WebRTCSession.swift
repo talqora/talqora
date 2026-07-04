@@ -50,7 +50,7 @@ extension WebRTCSession: DependencyKey {
         let engine = RTCEngine()
         return WebRTCSession(
             configure: { await engine.configure($0, relayOnly: $1) },
-            startLocalMedia: { await engine.startLocalMedia(video: $0) },
+            startLocalMedia: { try await engine.startLocalMedia(video: $0) },
             createOffer: { try await engine.createOffer() },
             createAnswer: { try await engine.createAnswer(remoteOffer: $0) },
             setRemoteAnswer: { try await engine.setRemoteAnswer($0) },

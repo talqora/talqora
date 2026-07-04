@@ -49,6 +49,7 @@ struct CallFeature {
         case connectionState(String)
         // 内部
         case tick
+        case noAnswerTimeout
         case failed(String)
         // 上抛父 feature:通话已收尾,请求关闭呈现。
         case delegate(Delegate)
@@ -64,7 +65,7 @@ struct CallFeature {
     @Dependency(\.continuousClock) var clock
     @Dependency(\.date) var date
 
-    private enum CancelID { case events, timer }
+    private enum CancelID { case events, timer, timeout }
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -83,6 +84,7 @@ struct CallFeature {
                 let isVideo = type == .video
                 return .merge(
                     subscribeEvents(),
+                    noAnswerTimeout(),
                     .run { send in
                         let iceServers = try await turn.fetch()
                         await webRTC.configure(iceServers: iceServers, relayOnly: false)
@@ -174,11 +176,15 @@ struct CallFeature {
 
             case let .remoteAccepted(answer):
                 state.phase = .connecting
-                return .run { _ in
-                    try await webRTC.setRemoteAnswer(answer: answer)
-                } catch: { error, send in
-                    await send(.failed(callSetupErrorMessage(error)))
-                }
+                // 对方已应答,离开 .outgoing:取消无应答超时。
+                return .merge(
+                    .cancel(id: CancelID.timeout),
+                    .run { _ in
+                        try await webRTC.setRemoteAnswer(answer: answer)
+                    } catch: { error, send in
+                        await send(.failed(callSetupErrorMessage(error)))
+                    }
+                )
 
             case .remoteRejected:
                 state.phase = .ended(reason: "对方已拒绝")
@@ -245,6 +251,12 @@ struct CallFeature {
                 state.durationSeconds += 1
                 return .none
 
+            case .noAnswerTimeout:
+                // 仅在仍处于 .outgoing(对方一直未应答)时收尾;已进入协商/连接则忽略。
+                guard state.phase == .outgoing else { return .none }
+                state.phase = .ended(reason: "对方无应答")
+                return cleanup()
+
             case let .failed(message):
                 state.phase = .ended(reason: message)
                 return cleanup()
@@ -299,19 +311,37 @@ struct CallFeature {
         .cancellable(id: CancelID.events, cancelInFlight: true)
     }
 
-    // 结束通话统一清理:取消两条订阅 + 计时器,关闭 WebRTC 会话释放媒体资源,并上抛 finished 请父层收起呈现。
+    // 主叫无应答超时:60s 内若仍未离开 .outgoing(未收到 accept),自动收尾。
+    // 用可取消 effect,离开 .outgoing 时取消(remoteAccepted / cleanup)。
+    private func noAnswerTimeout() -> Effect<Action> {
+        .run { send in
+            try await clock.sleep(for: .seconds(60))
+            await send(.noAnswerTimeout)
+        }
+        .cancellable(id: CancelID.timeout, cancelInFlight: true)
+    }
+
+    // 结束通话统一清理:取消订阅 + 计时器 + 无应答超时,关闭 WebRTC 会话释放媒体资源,并上抛 finished 请父层收起呈现。
     // 所有进入 .ended 的迁移都经此,故 finished 恰好每次通话结束发一次。
     private func cleanup() -> Effect<Action> {
         .merge(
             .cancel(id: CancelID.events),
             .cancel(id: CancelID.timer),
+            .cancel(id: CancelID.timeout),
             .run { _ in await webRTC.close() },
             .send(.delegate(.finished))
         )
     }
 }
 
-// TURN 拉取 / 媒体启动 / SDP 协商任一步失败时给的兜底文案。
+// TURN 拉取 / 媒体启动 / SDP 协商任一步失败时给的文案。
+// 权限被拒可区分,给针对性提示;其余走兜底。
 private func callSetupErrorMessage(_ error: Error) -> String {
-    "通话建立失败"
+    if let e = error as? CallMediaError {
+        switch e {
+        case .microphonePermissionDenied: return "需要麦克风权限才能通话"
+        case .cameraPermissionDenied: return "需要摄像头权限才能视频通话"
+        }
+    }
+    return "通话建立失败"
 }

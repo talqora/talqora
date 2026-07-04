@@ -81,8 +81,17 @@ actor RTCEngine {
         pc = Self.factory.peerConnection(with: cfg, constraints: constraints, delegate: delegate)
     }
 
-    func startLocalMedia(video: Bool) {
+    func startLocalMedia(video: Bool) async throws {
         guard let pc else { return }
+        // 建轨前先要权限:被拒时抛出可区分错误,让上层给出针对性文案而非笼统失败。
+        guard await AVCaptureDevice.requestAccess(for: .audio) else {
+            throw CallMediaError.microphonePermissionDenied
+        }
+        if video {
+            guard await AVCaptureDevice.requestAccess(for: .video) else {
+                throw CallMediaError.cameraPermissionDenied
+            }
+        }
         configureAudioSession()
         let source = Self.factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
         let track = Self.factory.audioTrack(with: source, trackId: "audio0")
@@ -243,6 +252,10 @@ actor RTCEngine {
         pc?.close()
         pc = nil
         buildPC()
+        // 轨道与采集器仍存活,重连只需把已有本地媒体重新挂到新 PC 上当发送端;
+        // 不重建轨/不重启采集,否则重连后的 offer/answer 会协商出无媒体的连接。
+        if let audioTrack { pc?.add(audioTrack, streamIds: ["stream0"]) }
+        if let localVideoTrack { pc?.add(localVideoTrack, streamIds: ["stream0"]) }
         // buffer 内容保留:重建后 remoteDescription 尚未设置,早到候选仍需等待补投。
     }
 
@@ -293,6 +306,12 @@ actor RTCEngine {
 enum WebRTCError: Error {
     case noPeerConnection
     case sdpFailed
+}
+
+// 麦克风/摄像头权限被拒时抛出,供上层映射成针对性用户文案。
+enum CallMediaError: Error {
+    case microphonePermissionDenied
+    case cameraPermissionDenied
 }
 
 // delegate 只经由 @Sendable sink 把 RTC 回调转成 Sendable 事件转发;RTC 类型不越界。

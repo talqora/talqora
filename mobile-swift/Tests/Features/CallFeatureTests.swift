@@ -98,11 +98,13 @@ struct CallFeatureTests {
 
     @Test
     func startCallGoesOutgoingAndSendsOffer() async {
+        let clock = TestClock()
         let (started, startedCont) = AsyncStream<SessionDescriptionDTO>.makeStream()
         let store = TestStore(initialState: incomingState()) {
             CallFeature()
         } withDependencies: {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.continuousClock = clock
             $0.turnCredentials.fetch = { [] }
             $0.webRTCSession.configure = { _, _ in }
             $0.webRTCSession.startLocalMedia = { _ in }
@@ -112,6 +114,7 @@ struct CallFeatureTests {
             $0.socketClient.sendCallStart = { _, _, _, offer, _ in
                 startedCont.yield(offer); startedCont.finish()
             }
+            $0.webRTCSession.close = {}
         }
         store.exhaustivity = .off(showSkippedAssertions: false)
         await store.send(.startCall(peer: peer, type: .video)) {
@@ -123,7 +126,105 @@ struct CallFeatureTests {
         var sentOffer: SessionDescriptionDTO?
         for await offer in started { sentOffer = offer; break }
         #expect(sentOffer == offer)
+        // 挂断取消无应答超时,让长驻 effect 收敛后再 finish。
+        await store.send(.hangupTapped)
         await store.finish()
+    }
+
+    // MARK: 主叫无应答超时
+
+    @Test
+    func startCallTimesOutWhenNoAnswer() async {
+        let clock = TestClock()
+        let store = TestStore(initialState: incomingState()) {
+            CallFeature()
+        } withDependencies: {
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.continuousClock = clock
+            $0.turnCredentials.fetch = { [] }
+            $0.webRTCSession.configure = { _, _ in }
+            $0.webRTCSession.startLocalMedia = { _ in }
+            $0.webRTCSession.createOffer = { offer }
+            $0.webRTCSession.events = { .finished }
+            $0.socketClient.events = { .finished }
+            $0.socketClient.sendCallStart = { _, _, _, _, _ in }
+            $0.webRTCSession.close = {}
+        }
+        store.exhaustivity = .off(showSkippedAssertions: false)
+        await store.send(.startCall(peer: peer, type: .voice)) {
+            $0.phase = .outgoing
+        }
+        // 60s 内无 accept:超时触发,收尾为无应答。
+        await clock.advance(by: .seconds(60))
+        await store.receive(\.noAnswerTimeout) {
+            $0.phase = .ended(reason: "对方无应答")
+        }
+        await store.receive(\.delegate)
+        await store.finish()
+    }
+
+    // accept 先于 60s 到达时,超时被取消,不会再收尾为无应答。
+    @Test
+    func remoteAcceptedCancelsNoAnswerTimeout() async {
+        let clock = TestClock()
+        let store = TestStore(initialState: incomingState()) {
+            CallFeature()
+        } withDependencies: {
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.continuousClock = clock
+            $0.turnCredentials.fetch = { [] }
+            $0.webRTCSession.configure = { _, _ in }
+            $0.webRTCSession.startLocalMedia = { _ in }
+            $0.webRTCSession.createOffer = { offer }
+            $0.webRTCSession.setRemoteAnswer = { _ in }
+            $0.webRTCSession.events = { .finished }
+            $0.socketClient.events = { .finished }
+            $0.socketClient.sendCallStart = { _, _, _, _, _ in }
+            $0.socketClient.sendCallEnd = { _ in }
+            $0.webRTCSession.close = {}
+        }
+        store.exhaustivity = .off(showSkippedAssertions: false)
+        await store.send(.startCall(peer: peer, type: .voice)) {
+            $0.phase = .outgoing
+        }
+        await clock.advance(by: .seconds(30))
+        await store.send(.remoteAccepted(answer: answer)) {
+            $0.phase = .connecting
+        }
+        // 超时已取消:再推进过 60s 也不应有 noAnswerTimeout。
+        await clock.advance(by: .seconds(60))
+        // 收尾长驻订阅,让 finish 收敛。
+        await store.send(.hangupTapped) {
+            $0.phase = .ended(reason: "通话结束")
+        }
+        await store.receive(\.delegate)
+        await store.finish()
+    }
+
+    // MARK: 权限被拒 → 针对性文案
+
+    @Test
+    func acceptTappedMicrophoneDeniedShowsMessage() async {
+        var state = incomingState()
+        state.phase = .incoming
+        state.callId = "c1"
+        state.peer = peer
+        state.pendingOffer = offer
+        let store = TestStore(initialState: state) {
+            CallFeature()
+        } withDependencies: {
+            $0.turnCredentials.fetch = { [] }
+            $0.webRTCSession.configure = { _, _ in }
+            $0.webRTCSession.startLocalMedia = { _ in throw CallMediaError.microphonePermissionDenied }
+            $0.webRTCSession.close = {}
+        }
+        await store.send(.acceptTapped) {
+            $0.phase = .connecting
+        }
+        await store.receive(\.failed) {
+            $0.phase = .ended(reason: "需要麦克风权限才能通话")
+        }
+        await store.receive(\.delegate)
     }
 
     // MARK: 被叫应答(有 pendingOffer)
