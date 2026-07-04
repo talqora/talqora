@@ -1,9 +1,12 @@
 import Foundation
 
 // 通讯录联系人。sectionKey 为拼音/字母首字母(A-Z),非字母归 "#"。
+// name 为展示名(有备注用备注,否则昵称);username/remark 分开存,便于备注编辑后本地重算展示名。
 struct Contact: Identifiable, Equatable, Sendable {
     let id: String
     var name: String
+    var username: String = ""
+    var remark: String?
     var avatarURL: URL?
     var sectionKey: String
 }

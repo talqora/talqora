@@ -9,14 +9,27 @@ enum AuthError: Error, Equatable {
 @DependencyClient
 struct AuthService: Sendable {
     var login: @Sendable (_ username: String, _ password: String, _ remember: Bool) async throws -> AuthTokens
+    // 注册:成功不返回 token(服务端不自动登录),注册后仍需登录。
+    var register: @Sendable (_ username: String, _ email: String, _ password: String) async throws -> Void
+    // 注册前唯一性预检(对齐 web):返回 true 表示「已存在」。
+    var checkUsername: @Sendable (_ username: String) async throws -> Bool
+    var checkEmail: @Sendable (_ email: String) async throws -> Bool
     var refresh: @Sendable () async throws -> AuthTokens
     var logout: @Sendable () async throws -> Void
 }
+
+private struct ExistsResult: Decodable { let exists: Bool }
 
 private struct LoginBody: Encodable {
     var username: String
     var password: String
     var remember: Bool
+}
+
+private struct RegisterBody: Encodable {
+    var username: String
+    var email: String
+    var password: String
 }
 
 // 服务端 /api/login、/api/refresh 的 data 形如 { ...user, token }。原生端只取 token 走 Bearer。
@@ -40,6 +53,31 @@ extension AuthService: DependencyKey {
             try keychain.save(tokens.refreshToken, .refreshToken)
             return tokens
         },
+        register: { username, email, password in
+            @Dependency(\.baseAPIClient) var apiClient
+            struct RegisterResult: Decodable { let success: Bool }
+            let request = try APIRequest.post(
+                "/api/register",
+                json: RegisterBody(username: username, email: email, password: password)
+            )
+            do {
+                // 201 成功:忽略返回的 user 数据。
+                _ = try await apiClient.send(request, decoding: APIResponse<RegisterResult>.self)
+            } catch let APIError.http(_, body) {
+                // 400/409:抽取服务端 message(用户名已存在 / 邮箱格式不正确 …)透给用户。
+                throw APIError.server(message: registerErrorMessage(from: body))
+            }
+        },
+        checkUsername: { username in
+            @Dependency(\.baseAPIClient) var apiClient
+            let request = APIRequest.get("/api/check-username", query: [URLQueryItem(name: "username", value: username)])
+            return try await apiClient.send(request, decoding: ExistsResult.self).exists
+        },
+        checkEmail: { email in
+            @Dependency(\.baseAPIClient) var apiClient
+            let request = APIRequest.get("/api/check-email", query: [URLQueryItem(name: "email", value: email)])
+            return try await apiClient.send(request, decoding: ExistsResult.self).exists
+        },
         refresh: {
             @Dependency(\.baseAPIClient) var apiClient
             @Dependency(\.keychain) var keychain
@@ -61,6 +99,16 @@ extension AuthService: DependencyKey {
             try keychain.delete(.refreshToken)
         }
     )
+}
+
+// 从注册失败响应体里抽服务端 message(优于笼统「请求失败」)。
+private func registerErrorMessage(from body: Data?) -> String {
+    struct Envelope: Decodable { let message: String? }
+    if let body, let envelope = try? JSONDecoder().decode(Envelope.self, from: body),
+       let message = envelope.message {
+        return message
+    }
+    return "注册失败,请稍后重试"
 }
 
 extension DependencyValues {

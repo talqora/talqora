@@ -8,6 +8,7 @@ struct ChatsFeature {
         var conversations: [Conversation] = []
         var otherDeviceCount = 0
         var isLoading = false
+        var loadError: String?
         // 搜索页(全屏覆盖呈现)。
         @Presents var search: SearchFeature.State?
         // 导航栈:点会话推入聊天详情页。
@@ -17,7 +18,9 @@ struct ChatsFeature {
     enum Action: BindableAction {
         case binding(BindingAction<State>)
         case onAppear
+        case reloadTapped
         case conversationsResponse([Conversation], deviceCount: Int)
+        case conversationsFailed(String)
         case conversationTapped(Conversation)
         case searchButtonTapped
         case search(PresentationAction<SearchFeature.Action>)
@@ -31,21 +34,23 @@ struct ChatsFeature {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                guard state.conversations.isEmpty else { return .none }
-                state.isLoading = true
-                return .run { send in
-                    let conversations = try await chatClient.conversations()
-                    let deviceCount = try await chatClient.otherDeviceCount()
-                    await send(.conversationsResponse(conversations, deviceCount: deviceCount))
-                } catch: { _, send in
-                    // 拉取失败:收敛到空态,不让 loading 卡死(样本数据不会触发,真实接入后兜底)。
-                    await send(.conversationsResponse([], deviceCount: 0))
-                }
+                guard state.conversations.isEmpty, !state.isLoading else { return .none }
+                return load(&state)
+
+            case .reloadTapped:
+                return load(&state)
 
             case let .conversationsResponse(conversations, deviceCount):
                 state.isLoading = false
+                state.loadError = nil
                 state.conversations = conversations
                 state.otherDeviceCount = deviceCount
+                return .none
+
+            case let .conversationsFailed(message):
+                // 失败留在 error 态(带重试),不静默当空(§3)。
+                state.isLoading = false
+                state.loadError = message
                 return .none
 
             case let .conversationTapped(conversation):
@@ -79,6 +84,22 @@ struct ChatsFeature {
         }
         .forEach(\.path, action: \.path) {
             ChatDetailFeature()
+        }
+    }
+
+    // 拉会话列表 + 其它设备数;失败进 error 态(带重试),不静默当空。
+    private func load(_ state: inout State) -> Effect<Action> {
+        state.isLoading = true
+        state.loadError = nil
+        return .run { send in
+            // 会话为关键数据,设备数非关键:并行拉取,设备数失败按 0,不因它拖垮整屏。
+            async let conversationsTask = chatClient.conversations()
+            async let deviceCountTask = chatClient.otherDeviceCount()
+            let conversations = try await conversationsTask
+            let deviceCount = (try? await deviceCountTask) ?? 0
+            await send(.conversationsResponse(conversations, deviceCount: deviceCount))
+        } catch: { error, send in
+            await send(.conversationsFailed(loadErrorMessage(error)))
         }
     }
 }

@@ -7,6 +7,10 @@ import Foundation
 @DependencyClient
 struct MeClient: Sendable {
     var profile: @Sendable () async throws -> MeProfile
+    // 更新头像:POST /user/update(字段白名单含 avatar),鉴权取当前用户 id。
+    var updateAvatar: @Sendable (_ url: URL) async throws -> Void
+    // 更新名字(昵称):POST /user/update(白名单含 nickname)。
+    var updateName: @Sendable (_ nickname: String) async throws -> Void
 }
 
 extension MeClient: DependencyKey {
@@ -29,10 +33,30 @@ extension MeClient: DependencyKey {
                 avatarURL: dto.avatar.flatMap(URL.init(string:)),
                 friendCount: friends.count
             )
+        },
+        updateAvatar: { url in
+            @Dependency(\.apiClient) var apiClient
+            @Dependency(\.sessionClient) var session
+            guard let userId = session.currentUserId() else { throw AuthError.notAuthenticated }
+            struct UpdateAck: Decodable {} // /user/update 成功回 { message },用空结构忽略
+            let request = try APIRequest.post("/user/update", json: ["id": String(userId), "avatar": url.absoluteString])
+            _ = try await apiClient.send(request, decoding: UpdateAck.self)
+        },
+        updateName: { nickname in
+            @Dependency(\.apiClient) var apiClient
+            @Dependency(\.sessionClient) var session
+            guard let userId = session.currentUserId() else { throw AuthError.notAuthenticated }
+            struct UpdateAck: Decodable {}
+            let request = try APIRequest.post("/user/update", json: ["id": String(userId), "nickname": nickname])
+            _ = try await apiClient.send(request, decoding: UpdateAck.self)
         }
     )
 
-    static let previewValue = MeClient(profile: { .sample })
+    static let previewValue = MeClient(
+        profile: { .sample },
+        updateAvatar: { _ in },
+        updateName: { _ in }
+    )
 }
 
 extension DependencyValues {

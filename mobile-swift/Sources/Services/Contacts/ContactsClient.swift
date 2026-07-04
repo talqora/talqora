@@ -6,6 +6,8 @@ import Foundation
 @DependencyClient
 struct ContactsClient: Sendable {
     var contacts: @Sendable () async throws -> [Contact]
+    // 更新好友备注:PUT /user/updateRemark;remark 传 nil/空即清空。
+    var updateRemark: @Sendable (_ friendId: Int, _ remark: String?) async throws -> Void
 }
 
 extension ContactsClient: DependencyKey {
@@ -20,10 +22,25 @@ extension ContactsClient: DependencyKey {
             )
             // data 为两张 id 映射:friendId(id→备注,可空)、friendInfo(id→资料)。
             return toContacts(remarks: data.friendId.additionalProperties, infos: data.friendInfo.additionalProperties)
+        },
+        updateRemark: { friendId, remark in
+            @Dependency(\.apiClient) var apiClient
+            @Dependency(\.sessionClient) var session
+            guard let userId = session.currentUserId() else { throw AuthError.notAuthenticated }
+            struct UpdateAck: Decodable {}
+            let request = try APIRequest.put("/user/updateRemark", json: [
+                "userId": String(userId),
+                "friendId": String(friendId),
+                "remark": remark ?? "", // 空串 → 服务端清空备注
+            ])
+            _ = try await apiClient.send(request, decoding: UpdateAck.self)
         }
     )
 
-    static let previewValue = ContactsClient(contacts: { ContactSamples.all })
+    static let previewValue = ContactsClient(
+        contacts: { ContactSamples.all },
+        updateRemark: { _, _ in }
+    )
 }
 
 extension DependencyValues {
@@ -42,6 +59,8 @@ private func toContacts(remarks: [String: String?], infos: [String: APIFriendInf
         return Contact(
             id: id,
             name: name,
+            username: info.username,
+            remark: remark,
             avatarURL: info.avatar.flatMap(URL.init(string:)),
             sectionKey: ContactSectioning.key(for: name)
         )

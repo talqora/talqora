@@ -14,7 +14,7 @@ struct OutgoingMessage: Equatable, Sendable {
 
 // 实时通道:一条共享 socket.io 长连接,收发聊天消息。
 // connect 幂等(已连则忽略),token 取 Keychain 里的 accessToken,作为握手 auth 上报,
-// 与服务端 extractHandshakeToken(handshake.auth.token) 对齐。incomingMessages 多订阅者各取一份。
+// 与服务端 extractHandshakeToken(handshake.auth.token) 对齐。events() 多订阅者各取一份。
 @DependencyClient
 struct SocketClient: Sendable {
     var connect: @Sendable () -> Void
@@ -22,12 +22,14 @@ struct SocketClient: Sendable {
     var send: @Sendable (_ message: OutgoingMessage) -> Void
     // 已读上报:单调推进该会话本端 lastReadSeq,服务端据此清未读并同步其它端。
     var reportRead: @Sendable (_ conversationId: String, _ uptoSeq: Int) -> Void
-    var incomingMessages: @Sendable () -> AsyncStream<ChatMessage> = { .finished }
+    // 统一事件流:所有服务端实时事件(消息 / 好友请求 / 好友变更 …)都从这一条流出,
+    // 由订阅方各取所需。新增事件在 ServerEvent 加 case + 下面 socket.on 注册即可。
+    var events: @Sendable () -> AsyncStream<ServerEvent> = { .finished }
 }
 
 extension SocketClient: DependencyKey {
     static let liveValue: SocketClient = {
-        let connection = SocketConnection(baseURL: URL(string: APIEnvironment.dev.baseURLString)!)
+        let connection = SocketConnection(baseURL: URL(string: APIEnvironment.current.baseURLString)!)
         return SocketClient(
             connect: {
                 @Dependency(\.keychain) var keychain
@@ -39,9 +41,16 @@ extension SocketClient: DependencyKey {
             reportRead: { conversationId, uptoSeq in
                 Task { await connection.reportRead(conversationId: conversationId, uptoSeq: uptoSeq) }
             },
-            incomingMessages: {
-                let (stream, continuation) = AsyncStream<ChatMessage>.makeStream()
-                Task { await connection.subscribe(continuation) }
+            events: {
+                @Dependency(\.keychain) var keychain
+                let token = (try? keychain.load(.accessToken)) ?? nil
+                let (stream, continuation) = AsyncStream<ServerEvent>.makeStream()
+                // 先订阅、再连接(同一 Task 顺序 await):保证首个订阅者不漏掉
+                // connect 与订阅之间窗口内到达的事件。connect 幂等,后续订阅只订阅。
+                Task {
+                    await connection.subscribe(continuation)
+                    if let token { await connection.connect(token: token) }
+                }
                 return stream
             }
         )
@@ -52,7 +61,7 @@ extension SocketClient: DependencyKey {
         disconnect: {},
         send: { _ in },
         reportRead: { _, _ in },
-        incomingMessages: { .finished }
+        events: { .finished }
     )
 }
 
@@ -69,7 +78,7 @@ private actor SocketConnection {
     private let baseURL: URL
     private var manager: SocketManager?
     private var socket: SocketIOClient?
-    private var subscribers: [UUID: AsyncStream<ChatMessage>.Continuation] = [:]
+    private var subscribers: [UUID: AsyncStream<ServerEvent>.Continuation] = [:]
 
     init(baseURL: URL) { self.baseURL = baseURL }
 
@@ -77,13 +86,31 @@ private actor SocketConnection {
         guard socket == nil else { return }
         let manager = SocketManager(
             socketURL: baseURL,
-            config: [.log(false), .forceWebsockets(true), .reconnects(true)]
+            config: [
+                .log(false),
+                .forceWebsockets(true),
+                .reconnects(true),
+                // 服务端 socket 握手鉴权只从 cookie 取 JWT(server utils/socket.ts:
+                // parseCookie(handshake.headers.cookie, 'token')),原生端无 cookie,
+                // 故把 token 作为 token cookie 放进握手 HTTP 头,否则连接被拒、收不到实时消息。
+                .extraHeaders(["Cookie": "token=\(token)"]),
+            ]
         )
         let socket = manager.defaultSocket
+        // 统一在此注册所有服务端事件,解析后扇出为 ServerEvent(收发口径集中一处)。
         socket.on("receiveMessage") { [weak self] data, _ in
             guard let self, let first = data.first,
                   let message = SocketMessageParser.parse(first) else { return }
-            Task { await self.emit(message) }
+            Task { await self.emit(.message(message)) }
+        }
+        socket.on("receiveFriendReq") { [weak self] data, _ in
+            guard let self, let first = data.first,
+                  let request = SocketFriendRequestParser.parse(first) else { return }
+            Task { await self.emit(.friendRequest(request)) }
+        }
+        socket.on("friendListChanged") { [weak self] _, _ in
+            guard let self else { return }
+            Task { await self.emit(.friendListChanged) }
         }
         socket.connect(withPayload: ["token": token])
         self.manager = manager
@@ -120,7 +147,7 @@ private actor SocketConnection {
         ])
     }
 
-    func subscribe(_ continuation: AsyncStream<ChatMessage>.Continuation) {
+    func subscribe(_ continuation: AsyncStream<ServerEvent>.Continuation) {
         let id = UUID()
         subscribers[id] = continuation
         continuation.onTermination = { [weak self] _ in
@@ -130,8 +157,8 @@ private actor SocketConnection {
 
     private func unsubscribe(_ id: UUID) { subscribers[id] = nil }
 
-    private func emit(_ message: ChatMessage) {
-        for continuation in subscribers.values { continuation.yield(message) }
+    private func emit(_ event: ServerEvent) {
+        for continuation in subscribers.values { continuation.yield(event) }
     }
 }
 
@@ -171,5 +198,20 @@ enum SocketMessageParser {
         case let s as String: return Int(s)
         default: return nil
         }
+    }
+}
+
+// 把 socket.io 投递的 receiveFriendReq 原始字典解析成 FriendRequest(纯函数,可单测)。
+// 载荷形状对齐 getFriendReqs 条目:friendId=发起人、username/avatar=其资料、status=pending。
+enum SocketFriendRequestParser {
+    static func parse(_ raw: Any) -> FriendRequest? {
+        guard let dict = raw as? [String: Any],
+              let friendId = SocketMessageParser.intValue(dict["friendId"]) else { return nil }
+        return FriendRequest(
+            peerId: friendId,
+            username: dict["username"] as? String ?? String(friendId),
+            avatarURL: (dict["avatar"] as? String).flatMap(URL.init(string:)),
+            status: FriendRequestStatus(rawValue: dict["status"] as? String ?? "pending") ?? .pending
+        )
     }
 }

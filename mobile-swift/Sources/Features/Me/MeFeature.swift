@@ -3,18 +3,26 @@ import Foundation
 
 @Reducer
 struct MeFeature {
+    // 「我」页导航栈目的地:设置 / 个人资料 / 界面与显示。个人资料由头像入口与设置内入口共用。
+    @Reducer
+    enum Path {
+        case settings(SettingsFeature)
+        case profile(ProfileFeature)
+        case appearance(AppearanceFeature)
+    }
+
     @ObservableState
     struct State: Equatable {
         var profile = MeProfile.empty
-        var settingsPresented = false
+        var path = StackState<Path.State>()
     }
 
-    enum Action: BindableAction {
-        case binding(BindingAction<State>)
+    enum Action {
         case onAppear
         case profileResponse(MeProfile)
         case settingsTapped
-        case logoutTapped
+        case profileTapped
+        case path(StackActionOf<Path>)
         case delegate(Delegate)
 
         enum Delegate: Equatable {
@@ -25,7 +33,6 @@ struct MeFeature {
     @Dependency(\.meClient) var meClient
 
     var body: some ReducerOf<Self> {
-        BindingReducer()
         Reduce { state, action in
             switch action {
             case .onAppear:
@@ -41,16 +48,35 @@ struct MeFeature {
                 return .none
 
             case .settingsTapped:
-                state.settingsPresented = true
+                state.path.append(.settings(SettingsFeature.State()))
                 return .none
 
-            case .logoutTapped:
+            case .profileTapped:
+                state.path.append(.profile(ProfileFeature.State(profile: state.profile)))
+                return .none
+
+            // 设置页入口:个人资料 / 界面与显示 / 退出登录。
+            case .path(.element(id: _, action: .settings(.delegate(.openProfile)))):
+                state.path.append(.profile(ProfileFeature.State(profile: state.profile)))
+                return .none
+
+            case .path(.element(id: _, action: .settings(.delegate(.openAppearance)))):
+                state.path.append(.appearance(AppearanceFeature.State()))
+                return .none
+
+            case .path(.element(id: _, action: .settings(.delegate(.logout)))):
                 return .send(.delegate(.logout))
 
-            case .binding, .delegate:
+            // 个人资料变更:同步刷新「我」页头部展示。
+            case let .path(.element(id: _, action: .profile(.delegate(.profileChanged(profile))))):
+                state.profile = profile
+                return .none
+
+            case .path, .delegate:
                 return .none
             }
         }
+        .forEach(\.path, action: \.path)
     }
 }
 
@@ -60,6 +86,9 @@ struct MeProfile: Equatable, Sendable {
     var avatarURL: URL?
     var friendCount: Int
 }
+
+// 各目的地 State 均 Equatable → 合成 Path.State 的 Equatable(供 StackState 与父 State 满足 Equatable)。
+extension MeFeature.Path.State: Equatable {}
 
 extension MeProfile {
     static let empty = MeProfile(name: "", wxid: "", avatarURL: nil, friendCount: 0)

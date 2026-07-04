@@ -3,30 +3,13 @@ import SwiftUI
 
 struct ChatsView: View {
     @Bindable var store: StoreOf<ChatsFeature>
+    @Environment(ToastCenter.self) private var toast
 
     var body: some View {
         NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
-            List {
-                if store.otherDeviceCount > 0 {
-                    DeviceBanner(count: store.otherDeviceCount)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowBackground(WeChatColor.background)
-                        .listRowSeparatorTint(WeChatColor.separator)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 60 }
-                }
-                ForEach(store.conversations) { conversation in
-                    Button { store.send(.conversationTapped(conversation)) } label: {
-                        ConversationRow(conversation: conversation)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(WeChatColor.background)
-                    .listRowSeparatorTint(WeChatColor.separator)
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 60 }
-                }
+            AsyncStateView<Conversation, AnyView>(state: chatsViewState) { conversations in
+                AnyView(conversationList(conversations))
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .background(WeChatColor.background)
             .navigationTitle("微信")
             .navigationBarTitleDisplayMode(.inline)
@@ -38,7 +21,9 @@ struct ChatsView: View {
                         Button { store.send(.searchButtonTapped) } label: {
                             Image(systemName: "magnifyingglass")
                         }
-                        Button {} label: { Image(systemName: "plus.circle") }
+                        .accessibilityLabel("搜索")
+                        Button { toast.show() } label: { Image(systemName: "plus.circle") }
+                            .accessibilityLabel("发起")
                     }
                     .font(.system(size: 18))
                     .foregroundStyle(WeChatColor.textPrimary)
@@ -51,6 +36,40 @@ struct ChatsView: View {
         } destination: { store in
             ChatDetailView(store: store)
         }
+    }
+
+    // 三态:加载中 / 空会话 / 加载失败(带重试);有数据即列表。
+    private var chatsViewState: AsyncStateView<Conversation, AnyView>.State {
+        if store.isLoading && store.conversations.isEmpty { return .loading }
+        if let error = store.loadError, store.conversations.isEmpty {
+            return .failed(error, retry: { store.send(.reloadTapped) })
+        }
+        if store.conversations.isEmpty { return .empty("暂无会话") }
+        return .loaded(store.conversations)
+    }
+
+    private func conversationList(_ conversations: [Conversation]) -> some View {
+        List {
+            if store.otherDeviceCount > 0 {
+                DeviceBanner(count: store.otherDeviceCount)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowBackground(WeChatColor.background)
+                    .listRowSeparatorTint(WeChatColor.separator)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 60 }
+            }
+            ForEach(conversations) { conversation in
+                Button { store.send(.conversationTapped(conversation)) } label: {
+                    ConversationRow(conversation: conversation)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowBackground(WeChatColor.background)
+                .listRowSeparatorTint(WeChatColor.separator)
+                .alignmentGuide(.listRowSeparatorLeading) { _ in 60 }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -100,6 +119,7 @@ private struct ConversationRow: View {
             }
         }
         .padding(.vertical, 10)
+        .contentShape(Rectangle()) // 整行(含 Spacer/内边距)命中区可点,而非仅头像/文字
     }
 
     @ViewBuilder private var avatar: some View {
@@ -136,5 +156,6 @@ private struct ConversationRow: View {
             ChatsFeature()
         }
     )
+    .environment(ToastCenter())
     .preferredColorScheme(.dark)
 }

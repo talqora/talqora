@@ -9,6 +9,7 @@ struct AuthFeature {
         var password = ""
         var isLoading = false
         var errorMessage: String?
+        @Presents var register: RegisterFeature.State?
 
         var isLoginEnabled: Bool {
             !username.isEmpty && !password.isEmpty && !isLoading
@@ -20,6 +21,8 @@ struct AuthFeature {
         case loginButtonTapped
         case loginSucceeded(AuthTokens)
         case loginFailed(message: String)
+        case registerTapped
+        case register(PresentationAction<RegisterFeature.Action>)
         case delegate(Delegate)
 
         enum Delegate: Equatable {
@@ -65,9 +68,23 @@ struct AuthFeature {
                 state.errorMessage = message
                 return .none
 
-            case .delegate:
+            case .registerTapped:
+                state.register = RegisterFeature.State()
+                return .none
+
+            case let .register(.presented(.delegate(.registered(username)))):
+                // 注册成功:回登录页预填用户名、清密码,关闭注册。
+                state.username = username
+                state.password = ""
+                state.register = nil
+                return .none
+
+            case .register, .delegate:
                 return .none
             }
+        }
+        .ifLet(\.$register, action: \.register) {
+            RegisterFeature()
         }
     }
 }

@@ -8,7 +8,13 @@
 DEV_COMPOSE := docker/docker-compose.dev.yml
 ENV_DEBUG   := docker/.env.debug
 
-.PHONY: dev middleware down env deps proto proto-check
+# iOS 发布构建(Tuist + xcodebuild)。工程/工作区是 Tuist 产物(不入库),故先 generate。
+IOS_DIR       := mobile-swift
+IOS_WORKSPACE := OurChat.xcworkspace
+IOS_SCHEME    := OurChat
+IOS_ARCHIVE   := build/OurChat.xcarchive
+
+.PHONY: dev middleware down env deps proto proto-check ios-release
 
 # 一键起全部:env/依赖就绪 → 起中间件 → 等 PG → 并发跑三个业务(Ctrl-C 一起退出)
 dev: env deps middleware
@@ -53,3 +59,28 @@ proto-check:
 		web/src/contracts/gen \
 		gateway/internal/contracts/gen \
 		mobile-swift/Sources/Contracts/Gen
+
+# 构建 iOS 发布包:Tuist 生成工程 → Release 归档 →(有 ExportOptions.plist 则)导出 ipa。
+# 前置:装好 Xcode 与 tuist;真机分发需在工程里配好签名(团队/描述文件)。
+# 产物:归档 mobile-swift/build/OurChat.xcarchive;ipa mobile-swift/build/ipa/。
+ios-release:
+	cd $(IOS_DIR) && tuist generate --no-open
+	cd $(IOS_DIR) && xcodebuild archive \
+		-workspace $(IOS_WORKSPACE) \
+		-scheme $(IOS_SCHEME) \
+		-configuration Release \
+		-destination 'generic/platform=iOS' \
+		-archivePath $(IOS_ARCHIVE) \
+		-allowProvisioningUpdates
+	@if [ -f $(IOS_DIR)/ExportOptions.plist ]; then \
+		cd $(IOS_DIR) && xcodebuild -exportArchive \
+			-archivePath $(IOS_ARCHIVE) \
+			-exportPath build/ipa \
+			-exportOptionsPlist ExportOptions.plist \
+			-allowProvisioningUpdates && \
+		echo '✓ ipa 已导出 → $(IOS_DIR)/build/ipa'; \
+	else \
+		echo '⚠ 未找到 $(IOS_DIR)/ExportOptions.plist,已产出归档但跳过 ipa 导出'; \
+		echo '  归档:$(IOS_DIR)/$(IOS_ARCHIVE)(可在 Xcode Organizer 手动签名分发)'; \
+		echo '  或添加 ExportOptions.plist(method: app-store/ad-hoc/development)后重跑本命令导出 ipa'; \
+	fi

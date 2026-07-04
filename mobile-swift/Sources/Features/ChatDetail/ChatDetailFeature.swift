@@ -12,20 +12,27 @@ struct ChatDetailFeature {
         var messages: [ChatMessage] = []
         var currentUserId: Int = 0
         var isLoading = false
+        var loadFailed = false
         var draft = ""
+        @Presents var alert: AlertState<Action.Alert>?
     }
 
     enum Action: BindableAction {
         case binding(BindingAction<State>)
         case onAppear
         case messagesResponse([ChatMessage])
+        case messagesFailed(String)
         case sendButtonTapped
         case imageSelected(Data)
         case imageReady(url: String, clientMsgId: String)
         case fileSelected(data: Data, filename: String, mimeType: String)
         case fileReady(url: String, fileName: String, fileSize: Int, clientMsgId: String)
+        case uploadFailed(String)
         case messageReceived(ChatMessage)
+        case alert(PresentationAction<Alert>)
         case delegate(Delegate)
+
+        enum Alert: Equatable { case retryLoad }
 
         enum Delegate: Equatable {
             // 本会话已读至 uptoSeq:父 reducer 据此清列表未读角标。
@@ -49,18 +56,15 @@ struct ChatDetailFeature {
             case .onAppear:
                 state.currentUserId = sessionClient.currentUserId() ?? 0
                 state.isLoading = true
-                let conversationId = state.conversationId
+                state.loadFailed = false
                 return .merge(
+                    loadMessages(state.conversationId),
                     .run { send in
-                        let messages = try await chatClient.messages(conversationId)
-                        await send(.messagesResponse(messages))
-                    } catch: { _, send in
-                        await send(.messagesResponse([]))
-                    },
-                    .run { send in
-                        socketClient.connect()
-                        for await message in socketClient.incomingMessages() {
-                            await send(.messageReceived(message))
+                        // events() 内部自动建连(先订阅再连接),这里只消费消息事件。
+                        for await event in socketClient.events() {
+                            if case let .message(message) = event {
+                                await send(.messageReceived(message))
+                            }
                         }
                     }
                     .cancellable(id: CancelID.incoming, cancelInFlight: true)
@@ -68,8 +72,23 @@ struct ChatDetailFeature {
 
             case let .messagesResponse(messages):
                 state.isLoading = false
+                state.loadFailed = false
                 state.messages = messages
                 return markRead(conversationId: state.conversationId, messages: messages)
+
+            case let .messagesFailed(message):
+                // 加载失败弹可重试提示,不静默当空会话(§3)。
+                state.isLoading = false
+                state.loadFailed = true
+                state.alert = AlertState {
+                    TextState("加载消息失败")
+                } actions: {
+                    ButtonState(action: .retryLoad) { TextState("重试") }
+                    ButtonState(role: .cancel) { TextState("取消") }
+                } message: {
+                    TextState(message)
+                }
+                return .none
 
             case .sendButtonTapped:
                 let content = state.draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -99,8 +118,8 @@ struct ChatDetailFeature {
                 return .run { send in
                     let url = try await uploadClient.uploadImage(data, "image.jpg")
                     await send(.imageReady(url: url.absoluteString, clientMsgId: clientMsgId))
-                } catch: { _, _ in
-                    // 上传失败静默,用户可重选。
+                } catch: { error, send in
+                    await send(.uploadFailed(loadErrorMessage(error)))
                 }
 
             case let .imageReady(url, clientMsgId):
@@ -129,8 +148,8 @@ struct ChatDetailFeature {
                 return .run { send in
                     let url = try await uploadClient.uploadFile(data, filename, mimeType)
                     await send(.fileReady(url: url.absoluteString, fileName: filename, fileSize: size, clientMsgId: clientMsgId))
-                } catch: { _, _ in
-                    // 上传失败静默,用户可重选。
+                } catch: { error, send in
+                    await send(.uploadFailed(loadErrorMessage(error)))
                 }
 
             case let .fileReady(url, fileName, fileSize, clientMsgId):
@@ -156,6 +175,14 @@ struct ChatDetailFeature {
                 mergeMessage(into: &state.messages, optimistic)
                 return .run { _ in socketClient.send(outgoing) }
 
+            case let .uploadFailed(message):
+                state.alert = AlertState {
+                    TextState("发送失败")
+                } message: {
+                    TextState(message)
+                }
+                return .none
+
             case let .messageReceived(message):
                 guard message.conversationId == state.conversationId else { return .none }
                 mergeMessage(into: &state.messages, message)
@@ -163,9 +190,25 @@ struct ChatDetailFeature {
                 guard message.senderId != state.currentUserId else { return .none }
                 return markRead(conversationId: state.conversationId, messages: state.messages)
 
-            case .binding, .delegate:
+            case .alert(.presented(.retryLoad)):
+                state.isLoading = true
+                state.loadFailed = false
+                return loadMessages(state.conversationId)
+
+            case .binding, .delegate, .alert:
                 return .none
             }
+        }
+        .ifLet(\.$alert, action: \.alert)
+    }
+
+    // 拉历史消息;失败发 messagesFailed(弹重试),不静默当空。
+    private func loadMessages(_ conversationId: String) -> Effect<Action> {
+        .run { send in
+            let messages = try await chatClient.messages(conversationId)
+            await send(.messagesResponse(messages))
+        } catch: { error, send in
+            await send(.messagesFailed(loadErrorMessage(error)))
         }
     }
 

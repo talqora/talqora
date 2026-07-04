@@ -5,11 +5,11 @@ struct SettingsItem: Identifiable, Equatable {
     let id = UUID()
     var icon: String
     var iconColor: Color
-    var title: String
+    var title: LocalizedStringKey // 随语言令牌本地化
     var detail: String?
     var showDot: Bool = false
 
-    init(icon: String, iconColor: Color, title: String, detail: String? = nil, showDot: Bool = false) {
+    init(icon: String, iconColor: Color, title: LocalizedStringKey, detail: String? = nil, showDot: Bool = false) {
         self.icon = icon
         self.iconColor = iconColor
         self.title = title

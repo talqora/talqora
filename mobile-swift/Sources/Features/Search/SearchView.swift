@@ -12,6 +12,7 @@ struct SearchView: View {
             Spacer()
         }
         .background(WeChatColor.background.ignoresSafeArea())
+        .dismissKeyboardOnTap()
     }
 
     private var topBar: some View {

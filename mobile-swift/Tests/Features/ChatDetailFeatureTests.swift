@@ -20,7 +20,7 @@ struct ChatDetailFeatureTests {
             $0.sessionClient.currentUserId = { 1 }
             $0.socketClient.connect = {}
             $0.socketClient.reportRead = { _, _ in }
-            $0.socketClient.incomingMessages = { .finished }
+            $0.socketClient.events = { .finished }
         }
         await store.send(.onAppear) {
             $0.currentUserId = 1
@@ -68,7 +68,7 @@ struct ChatDetailFeatureTests {
             $0.chatClient.messages = { _ in [] }
             $0.sessionClient.currentUserId = { 1 }
             $0.socketClient.connect = {}
-            $0.socketClient.incomingMessages = { .finished }
+            $0.socketClient.events = { .finished }
             $0.socketClient.send = { sentContinuation.yield($0); sentContinuation.finish() }
             $0.uuid = .incrementing
             $0.date = .constant(Date(timeIntervalSince1970: 0))
@@ -210,5 +210,55 @@ struct ChatDetailFeatureTests {
         #expect(sent?.type == "file")
         #expect(sent?.fileInfo?.fileName == "report.pdf")
         #expect(sent?.fileInfo?.fileSize == 3)
+    }
+
+    @Test
+    func messagesFailedShowsRetryAlert() async {
+        let store = TestStore(
+            initialState: ChatDetailFeature.State(conversationId: "single_1_2", title: "x")
+        ) {
+            ChatDetailFeature()
+        } withDependencies: {
+            $0.chatClient.messages = { _ in throw APIError.transport(message: "x") }
+            $0.sessionClient.currentUserId = { 1 }
+            $0.socketClient.connect = {}
+            $0.socketClient.events = { .finished }
+        }
+        await store.send(.onAppear) {
+            $0.currentUserId = 1
+            $0.isLoading = true
+        }
+        await store.receive(\.messagesFailed) {
+            $0.isLoading = false
+            $0.loadFailed = true
+            $0.alert = AlertState {
+                TextState("加载消息失败")
+            } actions: {
+                ButtonState(action: .retryLoad) { TextState("重试") }
+                ButtonState(role: .cancel) { TextState("取消") }
+            } message: {
+                TextState("网络异常,请检查网络后重试")
+            }
+        }
+    }
+
+    @Test
+    func imageUploadFailureShowsAlert() async {
+        let store = TestStore(
+            initialState: ChatDetailFeature.State(conversationId: "single_1_2", title: "x")
+        ) {
+            ChatDetailFeature()
+        } withDependencies: {
+            $0.uploadClient.uploadImage = { _, _ in throw APIError.server(message: "上传失败") }
+            $0.uuid = .incrementing
+        }
+        await store.send(.imageSelected(Data([0x1])))
+        await store.receive(\.uploadFailed) {
+            $0.alert = AlertState {
+                TextState("发送失败")
+            } message: {
+                TextState("上传失败")
+            }
+        }
     }
 }

@@ -15,7 +15,8 @@ enum AppearanceMode: String, CaseIterable, Sendable {
         }
     }
 
-    var label: String {
+    // LocalizedStringKey:Picker 里 Text(mode.label) 随语言令牌本地化。
+    var label: LocalizedStringKey {
         switch self {
         case .system: "跟随系统"
         case .light: "浅色"

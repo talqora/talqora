@@ -63,4 +63,19 @@ struct ChatsFeatureTests {
             $0.conversations[0].hasRedDot = false
         }
     }
+
+    @Test
+    func conversationsFailedSetsError() async {
+        let store = TestStore(initialState: ChatsFeature.State()) {
+            ChatsFeature()
+        } withDependencies: {
+            $0.chatClient.conversations = { throw APIError.transport(message: "x") }
+            $0.chatClient.otherDeviceCount = { 0 }
+        }
+        await store.send(.onAppear) { $0.isLoading = true }
+        await store.receive(\.conversationsFailed) {
+            $0.isLoading = false
+            $0.loadError = "网络异常,请检查网络后重试"
+        }
+    }
 }
