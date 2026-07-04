@@ -22,6 +22,13 @@ struct SocketClient: Sendable {
     var send: @Sendable (_ message: OutgoingMessage) -> Void
     // 已读上报:单调推进该会话本端 lastReadSeq,服务端据此清未读并同步其它端。
     var reportRead: @Sendable (_ conversationId: String, _ uptoSeq: Int) -> Void
+    // call:* 上行信令——对应 WebRTC 呼叫协商各阶段。
+    var sendCallStart: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO, _ type: CallType) -> Void
+    var sendCallAccept: @Sendable (_ callId: String, _ from: Int, _ to: Int, _ answer: SessionDescriptionDTO) -> Void
+    var sendCallReject: @Sendable (_ callId: String) -> Void
+    var sendCallEnd: @Sendable (_ callId: String) -> Void
+    var sendCallIce: @Sendable (_ callId: String, _ candidate: IceCandidateDTO) -> Void
+    var sendCallRejoin: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO) -> Void
     // 统一事件流:所有服务端实时事件(消息 / 好友请求 / 好友变更 …)都从这一条流出,
     // 由订阅方各取所需。新增事件在 ServerEvent 加 case + 下面 socket.on 注册即可。
     var events: @Sendable () -> AsyncStream<ServerEvent> = { .finished }
@@ -40,6 +47,20 @@ extension SocketClient: DependencyKey {
             send: { message in Task { await connection.send(message) } },
             reportRead: { conversationId, uptoSeq in
                 Task { await connection.reportRead(conversationId: conversationId, uptoSeq: uptoSeq) }
+            },
+            sendCallStart: { callId, from, to, offer, type in
+                Task { await connection.sendCallStart(callId: callId, from: from, to: to, offer: offer, callType: type) }
+            },
+            sendCallAccept: { callId, from, to, answer in
+                Task { await connection.sendCallAccept(callId: callId, from: from, to: to, answer: answer) }
+            },
+            sendCallReject: { callId in Task { await connection.sendCallReject(callId: callId) } },
+            sendCallEnd: { callId in Task { await connection.sendCallEnd(callId: callId) } },
+            sendCallIce: { callId, candidate in
+                Task { await connection.sendCallIce(callId: callId, candidate: candidate) }
+            },
+            sendCallRejoin: { callId, from, to, offer in
+                Task { await connection.sendCallRejoin(callId: callId, from: from, to: to, offer: offer) }
             },
             events: {
                 @Dependency(\.keychain) var keychain
@@ -61,6 +82,12 @@ extension SocketClient: DependencyKey {
         disconnect: {},
         send: { _ in },
         reportRead: { _, _ in },
+        sendCallStart: { _, _, _, _, _ in },
+        sendCallAccept: { _, _, _, _ in },
+        sendCallReject: { _ in },
+        sendCallEnd: { _ in },
+        sendCallIce: { _, _ in },
+        sendCallRejoin: { _, _, _, _ in },
         events: { .finished }
     )
 }
@@ -112,6 +139,43 @@ private actor SocketConnection {
             guard let self else { return }
             Task { await self.emit(.friendListChanged) }
         }
+        socket.on("call:start") { [weak self] d, _ in
+            guard let self, let ev = SocketCallParsers.parseIncoming(d.first ?? [:]) else { return }
+            Task { await self.emit(.callIncoming(ev)) }
+        }
+        socket.on("call:accept") { [weak self] d, _ in
+            guard let self, let a = SocketCallParsers.parseAccept(d.first ?? [:]) else { return }
+            Task { await self.emit(.callAccepted(callId: a.callId, answer: a.answer)) }
+        }
+        socket.on("call:reject") { [weak self] d, _ in
+            guard let self, let id = SocketCallParsers.callId(d.first ?? [:]) else { return }
+            Task { await self.emit(.callRejected(callId: id)) }
+        }
+        socket.on("call:end") { [weak self] d, _ in
+            guard let self, let id = SocketCallParsers.callId(d.first ?? [:]) else { return }
+            Task { await self.emit(.callEnded(callId: id)) }
+        }
+        socket.on("call:ice") { [weak self] d, _ in
+            guard let self, let i = SocketCallParsers.parseIce(d.first ?? [:]) else { return }
+            Task { await self.emit(.callIce(callId: i.callId, candidate: i.candidate)) }
+        }
+        socket.on("call:rejoin") { [weak self] d, _ in
+            guard let self, let ev = SocketCallParsers.parseRejoin(d.first ?? [:]) else { return }
+            Task { await self.emit(.callRejoin(ev)) }
+        }
+        socket.on("call:busy") { [weak self] d, _ in
+            guard let self, let id = SocketCallParsers.callId(d.first ?? [:]) else { return }
+            Task { await self.emit(.callBusy(callId: id)) }
+        }
+        socket.on("call:handled") { [weak self] d, _ in
+            guard let self, let id = SocketCallParsers.callId(d.first ?? [:]) else { return }
+            let status = SocketCallParsers.handledStatus(d.first ?? [:]) ?? ""
+            Task { await self.emit(.callHandled(callId: id, status: status)) }
+        }
+        socket.on("call:peer-reconnecting") { [weak self] d, _ in
+            guard let self, let id = SocketCallParsers.callId(d.first ?? [:]) else { return }
+            Task { await self.emit(.callPeerReconnecting(callId: id)) }
+        }
         socket.connect(withPayload: ["token": token])
         self.manager = manager
         self.socket = socket
@@ -145,6 +209,55 @@ private actor SocketConnection {
             "conversationId": conversationId,
             "uptoSeq": uptoSeq,
         ])
+    }
+
+    func sendCallStart(callId: String, from: CallUserDTO, to: CallUserDTO, offer: SessionDescriptionDTO, callType: CallType) {
+        func userDict(_ u: CallUserDTO) -> [String: Any] {
+            ["id": u.id, "username": u.username, "nickname": u.nickname, "avatar": u.avatar]
+        }
+        socket?.emit("call:start", [
+            "callId": callId,
+            "from": userDict(from),
+            "to": userDict(to),
+            "offer": ["type": offer.type, "sdp": offer.sdp],
+            "callType": callType.rawValue,
+        ] as [String: Any])
+    }
+
+    func sendCallAccept(callId: String, from: Int, to: Int, answer: SessionDescriptionDTO) {
+        socket?.emit("call:accept", [
+            "callId": callId,
+            "from": from,
+            "to": to,
+            "answer": ["type": answer.type, "sdp": answer.sdp],
+        ] as [String: Any])
+    }
+
+    func sendCallReject(callId: String) {
+        socket?.emit("call:reject", ["callId": callId])
+    }
+
+    func sendCallEnd(callId: String) {
+        socket?.emit("call:end", ["callId": callId])
+    }
+
+    func sendCallIce(callId: String, candidate: IceCandidateDTO) {
+        var c: [String: Any] = ["candidate": candidate.candidate]
+        if let i = candidate.sdpMlineIndex { c["sdpMlineIndex"] = i }
+        if let m = candidate.sdpMid { c["sdpMid"] = m }
+        socket?.emit("call:ice", ["callId": callId, "candidate": c])
+    }
+
+    func sendCallRejoin(callId: String, from: CallUserDTO, to: CallUserDTO, offer: SessionDescriptionDTO) {
+        func userDict(_ u: CallUserDTO) -> [String: Any] {
+            ["id": u.id, "username": u.username, "nickname": u.nickname, "avatar": u.avatar]
+        }
+        socket?.emit("call:rejoin", [
+            "callId": callId,
+            "from": userDict(from),
+            "to": userDict(to),
+            "offer": ["type": offer.type, "sdp": offer.sdp],
+        ] as [String: Any])
     }
 
     func subscribe(_ continuation: AsyncStream<ServerEvent>.Continuation) {
