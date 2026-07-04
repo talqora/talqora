@@ -42,8 +42,28 @@ extension WebRTCSession: DependencyKey {
         events: { .finished }
     )
 
-    // TODO: 临时桩，待后续任务替换为 actor-backed libwebrtc 真实实现。
-    static var liveValue: WebRTCSession { previewValue }
+    static var liveValue: WebRTCSession {
+        let engine = RTCEngine()
+        return WebRTCSession(
+            configure: { await engine.configure($0, relayOnly: $1) },
+            startLocalMedia: { await engine.startLocalMedia(video: $0) },
+            createOffer: { try await engine.createOffer() },
+            createAnswer: { try await engine.createAnswer(remoteOffer: $0) },
+            setRemoteAnswer: { try await engine.setRemoteAnswer($0) },
+            addRemoteCandidate: { await engine.addRemoteCandidate($0) },
+            setMuted: { await engine.setMuted($0) },
+            setCameraEnabled: { _ in },   // 视频采集后续任务补
+            switchCamera: {},             // 视频采集后续任务补
+            setSpeaker: { _ in },         // 音频路由(AVAudioSession)后续任务补
+            reset: { await engine.reset() },
+            close: { await engine.close() },
+            events: {
+                let (stream, cont) = AsyncStream<WebRTCEvent>.makeStream()
+                Task { await engine.setContinuation(cont) }
+                return stream
+            }
+        )
+    }
 }
 
 extension DependencyValues {
