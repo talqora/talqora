@@ -83,6 +83,12 @@ struct MainFeature {
                 return .run { send in
                     let localUser = try await sessionClient.currentUser()
                     await send(.placeCall(peer: peer, type: type, localUser: localUser))
+                } catch: { _, send in
+                    // 拉本端完整资料失败也要能起呼:退回 JWT 里的同步 id(对端来电或只显示 id,
+                    // 但不至于点了发起却毫无反应)。
+                    if let uid = sessionClient.currentUserId() {
+                        await send(.placeCall(peer: peer, type: type, localUser: CallUserDTO(id: uid, username: "", nickname: "", avatar: "")))
+                    }
                 }
 
             case .call(.presented(.delegate(.finished))):
@@ -113,8 +119,10 @@ struct MainFeature {
         .run { send in
             for await event in socketClient.events() {
                 guard case let .callIncoming(ev) = event else { continue }
-                guard let localUser = try? await sessionClient.currentUser() else { continue }
-                await send(.incomingCall(ev, localUser: localUser))
+                // 被叫振铃只需本端 id(应答时 sendCallAccept 仅带 from:id);此处用 JWT 里的同步 id,
+                // 不做网络拉取——否则弱网/接口失败会把来电悄悄丢掉,对端永远收不到呼叫。
+                guard let uid = sessionClient.currentUserId() else { continue }
+                await send(.incomingCall(ev, localUser: CallUserDTO(id: uid, username: "", nickname: "", avatar: "")))
             }
         }
         .cancellable(id: CancelID.incoming, cancelInFlight: true)
