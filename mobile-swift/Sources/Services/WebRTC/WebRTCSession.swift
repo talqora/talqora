@@ -23,6 +23,8 @@ struct WebRTCSession: Sendable {
     var reset: @Sendable () async -> Void
     var close: @Sendable () async -> Void
     var events: @Sendable () -> AsyncStream<WebRTCEvent> = { .finished }
+    var localVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
+    var remoteVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
 }
 
 extension WebRTCSession: DependencyKey {
@@ -39,7 +41,9 @@ extension WebRTCSession: DependencyKey {
         setSpeaker: { _ in },
         reset: {},
         close: {},
-        events: { .finished }
+        events: { .finished },
+        localVideoTrack: { nil },
+        remoteVideoTrack: { nil }
     )
 
     static var liveValue: WebRTCSession {
@@ -52,8 +56,8 @@ extension WebRTCSession: DependencyKey {
             setRemoteAnswer: { try await engine.setRemoteAnswer($0) },
             addRemoteCandidate: { await engine.addRemoteCandidate($0) },
             setMuted: { await engine.setMuted($0) },
-            setCameraEnabled: { _ in },   // 视频采集后续任务补
-            switchCamera: {},             // 视频采集后续任务补
+            setCameraEnabled: { await engine.setCameraEnabled($0) },
+            switchCamera: { await engine.switchCamera() },
             setSpeaker: { await engine.setSpeaker($0) },
             reset: { await engine.reset() },
             close: { await engine.close() },
@@ -61,7 +65,9 @@ extension WebRTCSession: DependencyKey {
                 let (stream, cont) = AsyncStream<WebRTCEvent>.makeStream()
                 Task { await engine.addSubscriber(cont) }
                 return stream
-            }
+            },
+            localVideoTrack: { await engine.localVideoTrackBox() },
+            remoteVideoTrack: { await engine.remoteVideoTrackBox() }
         )
     }
 }

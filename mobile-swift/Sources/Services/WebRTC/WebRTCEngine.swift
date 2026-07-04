@@ -1,6 +1,13 @@
 import Foundation
 import WebRTC
 
+// RTCVideoTrack 是非 Sendable 的 class,而渲染发生在 MainActor(RTCMTLVideoView / SwiftUI View)。
+// 用这个盒子把 track 越过隔离边界交给 UI。不变量:box.track 只在 MainActor 上被访问(attach/detach
+// 到渲染器);libwebrtc 的 track add/remove renderer 内部线程安全,故这一处 @unchecked Sendable 成立。
+struct VideoTrackBox: @unchecked Sendable {
+    let track: RTCVideoTrack
+}
+
 // 拥有非 Sendable 的 RTCPeerConnection 及媒体轨,所有 RTC 对象都被隔离在 actor 内部,
 // 不逃逸到 async 边界之外;delegate 在回调边界把 RTC 类型转成 Sendable 的 DTO/字符串再送出。
 actor RTCEngine {
@@ -23,6 +30,10 @@ actor RTCEngine {
 
     private var pc: RTCPeerConnection?
     private var audioTrack: RTCAudioTrack?
+    private var localVideoTrack: RTCVideoTrack?
+    private var videoCapturer: RTCCameraVideoCapturer?
+    private var cameraPosition: AVCaptureDevice.Position = .front
+    private var remoteVideoTrack: RTCVideoTrack?
     private var candidateBuffer = CandidateBuffer()
     private var subscribers: [UUID: AsyncStream<WebRTCEvent>.Continuation] = [:]
     private var relayOnly = false
@@ -36,6 +47,10 @@ actor RTCEngine {
         // 且 sink 在任何 PC 发事件前已就位(不丢早到的本地候选/状态)。
         delegate.attach { [weak self] event in
             Task { await self?.ingest(event) }
+        }
+        // 远端 video track 通过盒子越过隔离边界送进 actor 存下;set-once 同上,init 里一次绑定。
+        delegate.attachRemoteVideo { [weak self] box in
+            Task { await self?.setRemoteVideoTrack(box) }
         }
     }
 
@@ -66,14 +81,79 @@ actor RTCEngine {
         pc = Self.factory.peerConnection(with: cfg, constraints: constraints, delegate: delegate)
     }
 
-    func startLocalMedia(video _: Bool) {
+    func startLocalMedia(video: Bool) {
         guard let pc else { return }
         configureAudioSession()
         let source = Self.factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
         let track = Self.factory.audioTrack(with: source, trackId: "audio0")
         audioTrack = track
         pc.add(track, streamIds: ["stream0"])
-        // 视频轨在后续任务补
+
+        guard video else { return }
+        let videoSource = Self.factory.videoSource()
+        let capturer = RTCCameraVideoCapturer(delegate: videoSource)
+        videoCapturer = capturer
+        let videoTrack = Self.factory.videoTrack(with: videoSource, trackId: "video0")
+        localVideoTrack = videoTrack
+        pc.add(videoTrack, streamIds: ["stream0"])
+        startCapture(position: cameraPosition)
+    }
+
+    // 挑指定朝向的摄像头 + 一个折中分辨率/帧率的格式启动采集。
+    // 找不到设备/格式(如模拟器无摄像头)时静默返回,不崩;真机上才真正出画面。
+    private func startCapture(position: AVCaptureDevice.Position) {
+        guard let capturer = videoCapturer else { return }
+        guard let device = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == position })
+            ?? RTCCameraVideoCapturer.captureDevices().first
+        else { return }
+        let formats = RTCCameraVideoCapturer.supportedFormats(for: device)
+        guard let format = selectFormat(from: formats) else { return }
+        let fps = selectFps(for: format)
+        capturer.startCapture(with: device, format: format, fps: fps)
+    }
+
+    // 选最接近 720p 的格式(按与 1280×720 像素数的差取最小),避免过高分辨率吃带宽/CPU。
+    private func selectFormat(from formats: [AVCaptureDevice.Format]) -> AVCaptureDevice.Format? {
+        let target = 1280 * 720
+        return formats.min { lhs, rhs in
+            let l = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
+            let r = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
+            return abs(Int(l.width * l.height) - target) < abs(Int(r.width * r.height) - target)
+        }
+    }
+
+    // 取格式支持的最大帧率但封顶 30fps。
+    private func selectFps(for format: AVCaptureDevice.Format) -> Int {
+        let maxFps = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30
+        return min(Int(maxFps), 30)
+    }
+
+    func setCameraEnabled(_ on: Bool) {
+        localVideoTrack?.isEnabled = on
+    }
+
+    // 前后置切换:停当前采集后用另一朝向的设备重启;停采是异步 completion,
+    // 在其内切换以免与旧采集会话竞争同一 capturer。
+    func switchCamera() {
+        guard let capturer = videoCapturer else { return }
+        let next: AVCaptureDevice.Position = cameraPosition == .front ? .back : .front
+        cameraPosition = next
+        capturer.stopCapture { [weak self] in
+            Task { await self?.startCapture(position: next) }
+        }
+    }
+
+    func localVideoTrackBox() -> VideoTrackBox? {
+        localVideoTrack.map(VideoTrackBox.init)
+    }
+
+    func remoteVideoTrackBox() -> VideoTrackBox? {
+        remoteVideoTrack.map(VideoTrackBox.init)
+    }
+
+    // delegate 在信令线程拿到远端 video track 后经盒子送进 actor 存下,供 UI 拉取渲染。
+    private func setRemoteVideoTrack(_ box: VideoTrackBox) {
+        remoteVideoTrack = box.track
     }
 
     // 通话音频会话:playAndRecord + voiceChat 模式(启回声消除/自动增益,默认走听筒)。
@@ -167,6 +247,10 @@ actor RTCEngine {
     }
 
     func close() {
+        videoCapturer?.stopCapture()
+        videoCapturer = nil
+        localVideoTrack = nil
+        remoteVideoTrack = nil
         pc?.close()
         pc = nil
         for c in subscribers.values { c.finish() }
@@ -216,9 +300,14 @@ enum WebRTCError: Error {
 // 之后只读不写,故 @unchecked Sendable 成立、信令线程上的回调读 sink 无竞争。
 final class PCDelegate: NSObject, RTCPeerConnectionDelegate, @unchecked Sendable {
     private var sink: (@Sendable (WebRTCEvent) -> Void)?
+    private var remoteVideoSink: (@Sendable (VideoTrackBox) -> Void)?
 
     func attach(_ sink: @escaping @Sendable (WebRTCEvent) -> Void) {
         self.sink = sink
+    }
+
+    func attachRemoteVideo(_ sink: @escaping @Sendable (VideoTrackBox) -> Void) {
+        remoteVideoSink = sink
     }
 
     func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
@@ -241,7 +330,9 @@ final class PCDelegate: NSObject, RTCPeerConnectionDelegate, @unchecked Sendable
     }
 
     func peerConnection(_: RTCPeerConnection, didAdd receiver: RTCRtpReceiver, streams _: [RTCMediaStream]) {
-        if receiver.track?.kind == "video" { sink?(.remoteVideoAvailable) }
+        guard receiver.track?.kind == "video", let track = receiver.track as? RTCVideoTrack else { return }
+        remoteVideoSink?(VideoTrackBox(track: track))
+        sink?(.remoteVideoAvailable)
     }
 
     // 其余 RTCPeerConnectionDelegate 必须实现的方法留空,满足协议要求以通过编译。
