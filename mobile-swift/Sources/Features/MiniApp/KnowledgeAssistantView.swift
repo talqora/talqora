@@ -10,29 +10,13 @@ struct KnowledgeAssistantView: View {
                 AgentChatListView(store: store.scope(state: \.chat, action: \.chat))
             }
             Tab("知识库", systemImage: "books.vertical", value: KnowledgeAssistantFeature.Tab.documents) {
-                placeholderView(title: "知识库", systemImage: "books.vertical")
+                AgentDocumentsView(store: store.scope(state: \.documents, action: \.documents))
             }
             Tab("任务", systemImage: "sparkles", value: KnowledgeAssistantFeature.Tab.tasks) {
-                placeholderView(title: "任务", systemImage: "sparkles")
+                AgentTasksView(store: store.scope(state: \.tasks, action: \.tasks))
             }
         }
         .tint(WeChatColor.brand)
-    }
-
-    @ViewBuilder
-    private func placeholderView(title: String, systemImage: String) -> some View {
-        ZStack {
-            WeChatColor.background.ignoresSafeArea()
-            ContentUnavailableView {
-                Label(title, systemImage: systemImage)
-                    .font(WeChatFont.navTitle)
-                    .foregroundStyle(WeChatColor.textSecondary)
-            } description: {
-                Text("即将上线")
-                    .font(WeChatFont.subheadline)
-                    .foregroundStyle(WeChatColor.textTertiary)
-            }
-        }
     }
 }
 

@@ -4,9 +4,46 @@ import SwiftUI
 struct ChatsView: View {
     @Bindable var store: StoreOf<ChatsFeature>
     @Environment(ToastCenter.self) private var toast
-    @State private var showLauncher = false
+
+    // 小程序面板下拉揭示:主页随手指整体下移,过阈值完全变成面板;上拖收回。
+    // offset ∈ [0, h]:0 = 主页,h = 面板全屏。
+    @State private var offset: CGFloat = 0
+    @State private var revealed = false
+    @State private var listAtTop = true
+    @State private var dragEngaged = false     // 本次拖拽是否已判定过是否参与揭示
+    @State private var revealEngaged = false    // 本次拖拽是否驱动揭示(拖起点在顶/面板态)
+
+    private let revealThreshold: CGFloat = 110
+    private var revealSpring: Animation { .spring(response: 0.34, dampingFraction: 0.86) }
 
     var body: some View {
+        GeometryReader { proxy in
+            let h = proxy.size.height
+            ZStack(alignment: .top) {
+                // 小程序面板:位于主页上方,随下拉从顶部露出
+                MiniAppPanel(
+                    onOpen: {
+                        withAnimation(revealSpring) { revealed = false; offset = 0 }
+                        store.send(.launcherRequested)
+                    },
+                    onClose: { withAnimation(revealSpring) { revealed = false; offset = 0 } }
+                )
+                .frame(height: h)
+                .offset(y: offset - h)
+
+                // 聊天主页:随下拉整体下移
+                homeContent
+                    .offset(y: offset)
+            }
+            .background(WeChatColor.background)
+            .clipped() // 裁到 tab 内容区,防止下移的主页/上方面板溢出到状态栏或标签栏
+            .simultaneousGesture(revealGesture(h))
+        }
+    }
+
+    // MARK: - 主页内容
+
+    private var homeContent: some View {
         NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
             AsyncStateView<Conversation, AnyView>(state: chatsViewState) { conversations in
                 AnyView(conversationList(conversations))
@@ -34,28 +71,45 @@ struct ChatsView: View {
                 SearchView(store: searchStore)
             }
             .task { store.send(.onAppear) }
-            // 下拉手势:向下拖超过 60pt 即弹出小程序面板。
-            .gesture(
-                DragGesture(minimumDistance: 10)
-                    .onEnded { value in
-                        if value.translation.height > 60 {
-                            showLauncher = true
-                        }
-                    }
-            )
-            .sheet(isPresented: $showLauncher) {
-                MiniAppLauncherSheet(onOpen: {
-                    showLauncher = false
-                    store.send(.launcherRequested)
-                })
-                .presentationDetents([.height(200)])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(WeChatColor.elevated)
-            }
         } destination: { store in
             ChatDetailView(store: store)
         }
     }
+
+    // MARK: - 下拉揭示手势
+
+    private func revealGesture(_ h: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                if !dragEngaged {
+                    // 起手判定:仅在「主页且列表已到顶」或「面板态」时参与揭示,
+                    // 否则交给列表自身滚动,不打架。
+                    dragEngaged = true
+                    revealEngaged = store.path.isEmpty && (revealed || listAtTop)
+                }
+                guard revealEngaged else { return }
+                let base: CGFloat = revealed ? h : 0
+                offset = min(max(base + value.translation.height, 0), h)
+            }
+            .onEnded { value in
+                let engaged = revealEngaged
+                dragEngaged = false
+                revealEngaged = false
+                guard engaged else { return }
+                let dy = value.translation.height
+                let predicted = value.predictedEndTranslation.height
+                // 过阈值(或惯性预测过阈值)则吸附到目标态,否则回弹。
+                let commit = revealed
+                    ? !(dy < -revealThreshold || predicted < -revealThreshold * 2)
+                    : (dy > revealThreshold || predicted > revealThreshold * 2)
+                withAnimation(revealSpring) {
+                    revealed = commit
+                    offset = commit ? h : 0
+                }
+            }
+    }
+
+    // MARK: - 会话列表
 
     // 三态:加载中 / 空会话 / 加载失败(带重试);有数据即列表。
     private var chatsViewState: AsyncStateView<Conversation, AnyView>.State {
@@ -89,16 +143,12 @@ struct ChatsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-    }
-}
-
-/// 小程序启动面板的 sheet 包装。
-private struct MiniAppLauncherSheet: View {
-    let onOpen: () -> Void
-
-    var body: some View {
-        MiniAppLauncher(onOpen: onOpen)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // 记录列表是否在顶部:仅在顶部下拉才驱动小程序面板揭示
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y <= 1
+        } action: { _, atTop in
+            listAtTop = atTop
+        }
     }
 }
 

@@ -6,25 +6,13 @@ struct MiniAppView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        // 公共容器提供顶部 chrome(标题 + 关闭),本体在其下方布局,二者解耦不重合。
+        MiniAppContainer(title: "知识库助手", onClose: { dismiss() }) {
             if store.authorized {
                 KnowledgeAssistantView(store: store.scope(state: \.assistant, action: \.assistant))
             } else {
                 AgentAuthView(store: store.scope(state: \.auth, action: \.auth))
             }
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(WeChatFont.body)
-                    .foregroundStyle(WeChatColor.textSecondary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PressableButtonStyle())
-            .accessibilityLabel("关闭")
-            .padding(.trailing, WeChatSpacing.s)
         }
         .onAppear { store.send(.onAppear) }
     }
