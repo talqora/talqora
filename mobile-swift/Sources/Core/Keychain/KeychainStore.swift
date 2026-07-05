@@ -6,6 +6,7 @@ import Security
 enum TokenKey: String, Sendable, CaseIterable {
     case accessToken
     case refreshToken
+    case agentToken
 }
 
 enum KeychainError: Error, Equatable {
