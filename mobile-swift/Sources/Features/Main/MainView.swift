@@ -33,6 +33,9 @@ struct MainView: View {
         .fullScreenCover(item: $store.scope(state: \.call, action: \.call)) { callStore in
             CallView(store: callStore)
         }
+        .fullScreenCover(item: $store.scope(state: \.miniApp, action: \.miniApp)) { miniAppStore in
+            MiniAppView(store: miniAppStore)
+        }
     }
 
     // 暗色标签栏:不透明深色底 + 未选灰、选中微信绿。用 UITabBarAppearance 全局配置。

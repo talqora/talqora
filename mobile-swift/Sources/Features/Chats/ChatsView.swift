@@ -4,6 +4,7 @@ import SwiftUI
 struct ChatsView: View {
     @Bindable var store: StoreOf<ChatsFeature>
     @Environment(ToastCenter.self) private var toast
+    @State private var showLauncher = false
 
     var body: some View {
         NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
@@ -33,6 +34,24 @@ struct ChatsView: View {
                 SearchView(store: searchStore)
             }
             .task { store.send(.onAppear) }
+            // 下拉手势:向下拖超过 60pt 即弹出小程序面板。
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onEnded { value in
+                        if value.translation.height > 60 {
+                            showLauncher = true
+                        }
+                    }
+            )
+            .sheet(isPresented: $showLauncher) {
+                MiniAppLauncherSheet(onOpen: {
+                    showLauncher = false
+                    store.send(.launcherRequested)
+                })
+                .presentationDetents([.height(200)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(WeChatColor.elevated)
+            }
         } destination: { store in
             ChatDetailView(store: store)
         }
@@ -70,6 +89,16 @@ struct ChatsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+    }
+}
+
+/// 小程序启动面板的 sheet 包装。
+private struct MiniAppLauncherSheet: View {
+    let onOpen: () -> Void
+
+    var body: some View {
+        MiniAppLauncher(onOpen: onOpen)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 

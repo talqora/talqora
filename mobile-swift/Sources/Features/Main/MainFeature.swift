@@ -15,6 +15,8 @@ struct MainFeature {
         var me = MeFeature.State()
         // 通话全屏呈现:登录态下始终可被来电/发起唤起,故挂在主界面根部而非某个 tab。
         @Presents var call: CallFeature.State?
+        // 小程序全屏呈现:由 home 下拉入口或其他路径唤起。
+        @Presents var miniApp: MiniAppFeature.State?
     }
 
     enum Action: BindableAction {
@@ -24,6 +26,8 @@ struct MainFeature {
         case contacts(ContactsFeature.Action)
         case me(MeFeature.Action)
         case call(PresentationAction<CallFeature.Action>)
+        case miniApp(PresentationAction<MiniAppFeature.Action>)
+        case openMiniApp
         // 订阅到来电:携当前用户资料建被叫态并转发给 CallFeature 启动其订阅。
         case incomingCall(CallIncoming, localUser: CallUserDTO)
         // 发起通话:补齐本端资料后建主叫态并转发 startCall。
@@ -106,12 +110,23 @@ struct MainFeature {
                     await send(.delegate(.loggedOut))
                 }
 
-            case .binding, .chats, .contacts, .me, .call, .delegate:
+            case .openMiniApp:
+                state.miniApp = MiniAppFeature.State()
+                return .none
+
+            case .chats(.delegate(.openMiniApp)):
+                state.miniApp = MiniAppFeature.State()
+                return .none
+
+            case .binding, .chats, .contacts, .me, .call, .miniApp, .delegate:
                 return .none
             }
         }
         .ifLet(\.$call, action: \.call) {
             CallFeature()
+        }
+        .ifLet(\.$miniApp, action: \.miniApp) {
+            MiniAppFeature()
         }
     }
 

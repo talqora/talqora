@@ -25,11 +25,14 @@ struct ChatsFeature {
         case searchButtonTapped
         case search(PresentationAction<SearchFeature.Action>)
         case path(StackActionOf<ChatDetailFeature>)
+        case launcherRequested
         case delegate(Delegate)
 
         enum Delegate: Equatable {
             // 聊天详情页发起通话:上抛给 MainFeature 呈现通话。
             case startCall(peer: CallUserDTO, type: CallType)
+            // 小程序面板点磁贴:上抛给 MainFeature 全屏呈现 MiniApp。
+            case openMiniApp
         }
     }
 
@@ -88,6 +91,10 @@ struct ChatsFeature {
             // 聊天详情页发起语音/视频通话 → 上抛父层呈现。
             case let .path(.element(id: _, action: .delegate(.startCall(peer, type)))):
                 return .send(.delegate(.startCall(peer: peer, type: type)))
+
+            // 小程序面板点磁贴 → 上抛父层全屏呈现 MiniApp。
+            case .launcherRequested:
+                return .send(.delegate(.openMiniApp))
 
             case .binding, .path, .search, .delegate:
                 return .none
