@@ -7,7 +7,7 @@ struct KnowledgeAssistantView: View {
     var body: some View {
         TabView(selection: $store.selectedTab) {
             Tab("对话", systemImage: "bubble.left.and.bubble.right", value: KnowledgeAssistantFeature.Tab.chat) {
-                placeholderView(title: "对话", systemImage: "bubble.left.and.bubble.right")
+                AgentChatListView(store: store.scope(state: \.chat, action: \.chat))
             }
             Tab("知识库", systemImage: "books.vertical", value: KnowledgeAssistantFeature.Tab.documents) {
                 placeholderView(title: "知识库", systemImage: "books.vertical")
