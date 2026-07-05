@@ -13,8 +13,10 @@ IOS_DIR       := mobile-swift
 IOS_WORKSPACE := OurChat.xcworkspace
 IOS_SCHEME    := OurChat
 IOS_ARCHIVE   := build/OurChat.xcarchive
+IOS_SIM       := iPhone 17 Pro
+IOS_DEST      := platform=iOS Simulator,name=$(IOS_SIM)
 
-.PHONY: dev middleware down env deps proto proto-check ios-release
+.PHONY: dev middleware down env deps proto proto-check ios-release ios-gen ios-build ios-test ios-test-one
 
 # 一键起全部:env/依赖就绪 → 起中间件 → 等 PG → 并发跑三个业务(Ctrl-C 一起退出)
 dev: env deps middleware
@@ -84,3 +86,29 @@ ios-release:
 		echo '  归档:$(IOS_DIR)/$(IOS_ARCHIVE)(可在 Xcode Organizer 手动签名分发)'; \
 		echo '  或添加 ExportOptions.plist(method: app-store/ad-hoc/development)后重跑本命令导出 ipa'; \
 	fi
+
+# iOS 开发期构建/测试(模拟器 iPhone 17 Pro)。
+# 新增/删除源文件后先跑一次 `make ios-gen`(Tuist 重生成工程,会触发一次全量重编,慢);
+# 之后只改已有文件用 ios-build/ios-test 走增量,快。
+#   make ios-gen                              # 加了新文件后重生成工程
+#   make ios-build                            # 编译整个 app(验证能否编译)
+#   make ios-test                             # 跑全部 OurChatTests
+#   make ios-test-one TEST=SSEParserTests     # 只跑某个测试套件(OurChatTests/<TEST>)
+ios-gen:
+	cd $(IOS_DIR) && tuist generate --no-open
+
+ios-build:
+	cd $(IOS_DIR) && xcodebuild build \
+		-workspace $(IOS_WORKSPACE) -scheme $(IOS_SCHEME) \
+		-destination '$(IOS_DEST)'
+
+ios-test:
+	cd $(IOS_DIR) && xcodebuild test \
+		-workspace $(IOS_WORKSPACE) -scheme $(IOS_SCHEME) \
+		-destination '$(IOS_DEST)'
+
+ios-test-one:
+	cd $(IOS_DIR) && xcodebuild test \
+		-workspace $(IOS_WORKSPACE) -scheme $(IOS_SCHEME) \
+		-destination '$(IOS_DEST)' \
+		-only-testing:OurChatTests/$(TEST)
