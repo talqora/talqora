@@ -25,7 +25,7 @@ extension AgentAPIClient: DependencyKey {
             r.httpMethod = req.method
             r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             if let b = req.body { r.httpBody = b; r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-            let (data, resp) = try await URLSession.shared.data(for: r)
+            let (data, resp) = try await AgentHTTP.rest.data(for: r)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(code) else { throw AgentAPIError.http(code) }
             return data
@@ -45,7 +45,7 @@ extension AgentAPIClient: DependencyKey {
             body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
             body.append(fileData)
             body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-            let (data, resp) = try await URLSession.shared.upload(for: r, from: body)
+            let (data, resp) = try await AgentHTTP.stream.upload(for: r, from: body)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 || code == 201 else { throw AgentAPIError.http(code) }
             return try JSONDecoder().decode(UploadResult.self, from: data)
@@ -61,13 +61,23 @@ extension AgentAPIClient: DependencyKey {
                         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                         if let b = req.body { r.httpBody = b; r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-                        let (bytes, resp) = try await URLSession.shared.bytes(for: r)
+                        let (bytes, resp) = try await AgentHTTP.stream.bytes(for: r)
                         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                         guard (200..<300).contains(code) else { throw AgentAPIError.http(code) }
                         var parser = SSEParser()
-                        for try await line in bytes.lines {
-                            // bytes.lines 去掉了换行;补回 "\n"。空行(帧分隔)→ "\n",与上一行的 "\n" 组成 "\n\n" 触发分帧。
-                            for frame in parser.consume(line + "\n") { continuation.yield(frame) }
+                        // 逐字节读:遇 "\n" 就把「含该换行的整行」喂给解析器,保留 SSE 的空行(帧分隔 \n\n)。
+                        // 注意:不能用 bytes.lines——它会吞掉空行,导致 buffer 永远凑不出 "\n\n"、一帧都吐不出来。
+                        var lineBytes = [UInt8]()
+                        for try await byte in bytes {
+                            lineBytes.append(byte)
+                            guard byte == 0x0A else { continue } // 0x0A = "\n"
+                            if let s = String(bytes: lineBytes, encoding: .utf8) {
+                                for frame in parser.consume(s) { continuation.yield(frame) }
+                            }
+                            lineBytes.removeAll(keepingCapacity: true)
+                        }
+                        if !lineBytes.isEmpty, let s = String(bytes: lineBytes, encoding: .utf8) {
+                            for frame in parser.consume(s) { continuation.yield(frame) }
                         }
                         continuation.finish()
                     } catch { continuation.finish(throwing: error) }

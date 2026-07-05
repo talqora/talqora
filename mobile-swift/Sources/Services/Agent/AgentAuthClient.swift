@@ -66,7 +66,7 @@ private actor AgentTokenStore {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(login)", forHTTPHeaderField: "Authorization")
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await AgentHTTP.rest.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw AgentAuthError.mintFailed }
         let r = try JSONDecoder().decode(AgentTokenResponse.self, from: data)
         cache = AgentTokenCache(token: r.accessToken, expiresAt: Date(timeIntervalSinceNow: TimeInterval(r.expiresIn)))
