@@ -1,11 +1,27 @@
 import ComposableArchitecture
+import Services
 import Foundation
 
 // 搜索:输入微信号/手机号/用户名,防抖后精确查找用户。命中显示用户,未命中提示。
 @Reducer
-struct SearchFeature {
+public struct SearchFeature {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(
+            query: String = "",
+            result: SearchResult? = nil,
+            isSearching: Bool = false,
+            notFound: Bool = false,
+            requestSent: Bool = false
+        ) {
+            self.query = query
+            self.result = result
+            self.isSearching = isSearching
+            self.notFound = notFound
+            self.requestSent = requestSent
+        }
         var query = ""
         var result: SearchResult?
         var isSearching = false
@@ -13,7 +29,7 @@ struct SearchFeature {
         var requestSent = false // 已对当前结果发起好友请求
     }
 
-    enum Action: BindableAction {
+    public enum Action: BindableAction {
         case binding(BindingAction<State>)
         case searchResponse(SearchResult?)
         case addButtonTapped
@@ -21,7 +37,7 @@ struct SearchFeature {
         case closeTapped
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             case close
         }
     }
@@ -32,7 +48,7 @@ struct SearchFeature {
 
     private enum CancelID { case search }
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {
@@ -46,7 +62,7 @@ struct SearchFeature {
                 }
                 state.isSearching = true
                 state.notFound = false
-                return .run { send in
+                return .run { [clock, searchClient] send in
                     try await clock.sleep(for: .milliseconds(300)) // 防抖:连续输入只查最后一次
                     let result = try await searchClient.search(keyword)
                     await send(.searchResponse(result))
@@ -64,7 +80,7 @@ struct SearchFeature {
 
             case .addButtonTapped:
                 guard let result = state.result, !result.isFriend, !state.requestSent else { return .none }
-                return .run { send in
+                return .run { [friendRequestClient] send in
                     try await friendRequestClient.send(result.userId)
                     await send(.addCompleted)
                 } catch: { _, _ in

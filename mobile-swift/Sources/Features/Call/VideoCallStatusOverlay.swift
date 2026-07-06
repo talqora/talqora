@@ -1,4 +1,5 @@
 import ComposableArchitecture
+import DesignSystem
 import SwiftUI
 
 // 对端昵称 + 状态叠加在视频顶部,带渐变保证可读性。

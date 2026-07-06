@@ -1,23 +1,30 @@
 import ComposableArchitecture
+import Services
+import Models
 import Foundation
 
 @Reducer
-struct MeFeature {
+public struct MeFeature {
+    public init() {}
+
     // 「我」页导航栈目的地:设置 / 个人资料 / 界面与显示。个人资料由头像入口与设置内入口共用。
     @Reducer
-    enum Path {
+    public enum Path {
         case settings(SettingsFeature)
         case profile(ProfileFeature)
         case appearance(AppearanceFeature)
     }
 
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(profile: MeProfile = .empty) {
+            self.profile = profile
+        }
         var profile = MeProfile.empty
         var path = StackState<Path.State>()
     }
 
-    enum Action {
+    public enum Action {
         case onAppear
         case profileResponse(MeProfile)
         case settingsTapped
@@ -25,18 +32,18 @@ struct MeFeature {
         case path(StackActionOf<Path>)
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             case logout
         }
     }
 
     @Dependency(\.meClient) var meClient
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                return .run { send in
+                return .run { [meClient] send in
                     let profile = try await meClient.profile()
                     await send(.profileResponse(profile))
                 } catch: { _, _ in
@@ -80,23 +87,5 @@ struct MeFeature {
     }
 }
 
-struct MeProfile: Equatable, Sendable {
-    var name: String
-    var wxid: String
-    var avatarURL: URL?
-    var friendCount: Int
-}
-
 // 各目的地 State 均 Equatable → 合成 Path.State 的 Equatable(供 StackState 与父 State 满足 Equatable)。
 extension MeFeature.Path.State: Equatable {}
-
-extension MeProfile {
-    static let empty = MeProfile(name: "", wxid: "", avatarURL: nil, friendCount: 0)
-
-    static let sample = MeProfile(
-        name: "段宇皓",
-        wxid: "1024",
-        avatarURL: nil,
-        friendCount: 6
-    )
-}

@@ -1,15 +1,16 @@
 import ComposableArchitecture
+import Services
 import Foundation
 
 @Reducer
-struct AgentDocumentsFeature {
+public struct AgentDocumentsFeature: Sendable {
     enum ListPhase: Equatable { case idle, loading, loaded, empty, failed }
 
     private enum CancelID { case poll }
     private static let maxPollCount = 12
 
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
         var documents: [AgentDocument] = []
         var phase: ListPhase = .idle
         var errorMessage: String?
@@ -17,7 +18,7 @@ struct AgentDocumentsFeature {
         var pollCount = 0
     }
 
-    enum Action {
+    public enum Action {
         case onAppear
         case load
         case documentsResponse(Result<[AgentDocument], Error>)
@@ -30,7 +31,7 @@ struct AgentDocumentsFeature {
     @Dependency(\.agentAPI) var agentAPI
     @Dependency(\.continuousClock) var clock
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum APIError: Error, Equatable, Sendable {
+public enum APIError: Error, Equatable, Sendable {
     case invalidURL
     case transport(message: String)
     case unauthorized

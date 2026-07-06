@@ -1,18 +1,27 @@
 import Dependencies
+import Core
+import Contracts
 import DependenciesMacros
 import Foundation
 
 // 一条好友关系/请求(friendships 表里「我 → 对方」那一行)。peer 即对方。
-struct FriendRequest: Equatable, Sendable, Identifiable {
-    var id: Int { peerId }
-    let peerId: Int
-    let username: String
-    let avatarURL: URL?
-    let status: FriendRequestStatus
+public struct FriendRequest: Equatable, Sendable, Identifiable {
+    public var id: Int { peerId }
+    public let peerId: Int
+    public let username: String
+    public let avatarURL: URL?
+    public let status: FriendRequestStatus
+
+    public init(peerId: Int, username: String, avatarURL: URL?, status: FriendRequestStatus) {
+        self.peerId = peerId
+        self.username = username
+        self.avatarURL = avatarURL
+        self.status = status
+    }
 }
 
 // 与服务端 FriendshipStatus 对齐:sent=我发出待对方验证,pending=对方发来待我验证,accepted=已是好友。
-enum FriendRequestStatus: String, Equatable, Sendable {
+public enum FriendRequestStatus: String, Equatable, Sendable {
     case sent
     case pending
     case accepted
@@ -21,14 +30,14 @@ enum FriendRequestStatus: String, Equatable, Sendable {
 
 // 好友请求:发起 / 拉取我收到与发出的请求 / 回复(接受或拒绝)。
 @DependencyClient
-struct FriendRequestClient: Sendable {
-    var send: @Sendable (_ friendId: Int) async throws -> Void
-    var list: @Sendable () async throws -> [FriendRequest]
-    var reply: @Sendable (_ friendId: Int, _ accepted: Bool) async throws -> Void
+public struct FriendRequestClient: Sendable {
+    public var send: @Sendable (_ friendId: Int) async throws -> Void
+    public var list: @Sendable () async throws -> [FriendRequest]
+    public var reply: @Sendable (_ friendId: Int, _ accepted: Bool) async throws -> Void
 }
 
 extension FriendRequestClient: DependencyKey {
-    static let liveValue = FriendRequestClient(
+    public static let liveValue = FriendRequestClient(
         send: { friendId in
             @Dependency(\.apiClient) var apiClient
             @Dependency(\.sessionClient) var session
@@ -68,7 +77,7 @@ extension FriendRequestClient: DependencyKey {
         }
     )
 
-    static let previewValue = FriendRequestClient(
+    public static let previewValue = FriendRequestClient(
         send: { _ in },
         list: {
             [
@@ -88,7 +97,7 @@ private func ensureSuccess(_ apiClient: APIClient, _ request: APIRequest) async 
 }
 
 extension DependencyValues {
-    var friendRequestClient: FriendRequestClient {
+    public var friendRequestClient: FriendRequestClient {
         get { self[FriendRequestClient.self] }
         set { self[FriendRequestClient.self] = newValue }
     }

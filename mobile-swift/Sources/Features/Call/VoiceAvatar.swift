@@ -1,4 +1,5 @@
 import SwiftUI
+import DesignSystem
 
 // 圆形头像:语音通话专用,无网络图时显示 person 图标占位。
 struct VoiceAvatar: View {

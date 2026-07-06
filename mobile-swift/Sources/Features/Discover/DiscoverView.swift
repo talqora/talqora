@@ -1,10 +1,13 @@
 import SwiftUI
+import DesignSystem
 
 // 发现页为静态入口聚合,无业务状态,直接用普通 SwiftUI 视图(不挂 TCA reducer)。全部为占位入口。
-struct DiscoverView: View {
+public struct DiscoverView: View {
     @Environment(ToastCenter.self) private var toast
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {

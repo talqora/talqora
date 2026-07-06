@@ -1,24 +1,33 @@
 import Dependencies
+import Core
+import Contracts
 import DependenciesMacros
 import Foundation
 
 // 搜索结果:微信「添加朋友」式精确查找(按微信号/手机号/用户名命中单个用户)。
-struct SearchResult: Equatable, Sendable, Identifiable {
-    var id: Int { userId }
-    let userId: Int
-    let username: String
-    let avatarURL: URL?
-    let isFriend: Bool
+public struct SearchResult: Equatable, Sendable, Identifiable {
+    public var id: Int { userId }
+    public let userId: Int
+    public let username: String
+    public let avatarURL: URL?
+    public let isFriend: Bool
+
+    public init(userId: Int, username: String, avatarURL: URL?, isFriend: Bool) {
+        self.userId = userId
+        self.username = username
+        self.avatarURL = avatarURL
+        self.isFriend = isFriend
+    }
 }
 
 // 用户搜索:GET /searchUser。命中返回单个用户,未命中返回 nil。
 @DependencyClient
-struct SearchClient: Sendable {
-    var search: @Sendable (_ keyword: String) async throws -> SearchResult?
+public struct SearchClient: Sendable {
+    public var search: @Sendable (_ keyword: String) async throws -> SearchResult?
 }
 
 extension SearchClient: DependencyKey {
-    static let liveValue = SearchClient(
+    public static let liveValue = SearchClient(
         search: { keyword in
             @Dependency(\.apiClient) var apiClient
             @Dependency(\.sessionClient) var session
@@ -42,13 +51,13 @@ extension SearchClient: DependencyKey {
         }
     )
 
-    static let previewValue = SearchClient(
+    public static let previewValue = SearchClient(
         search: { _ in SearchResult(userId: 1024, username: "duanyuhao", avatarURL: nil, isFriend: false) }
     )
 }
 
 extension DependencyValues {
-    var searchClient: SearchClient {
+    public var searchClient: SearchClient {
         get { self[SearchClient.self] }
         set { self[SearchClient.self] = newValue }
     }

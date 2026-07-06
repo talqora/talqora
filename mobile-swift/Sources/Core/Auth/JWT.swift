@@ -1,8 +1,8 @@
 import Foundation
 
 // 仅本地解析 JWT 载荷读取 userId(不验签——验签是服务端的职责;客户端只需知道"我是谁")。
-enum JWT {
-    static func decodeUserId(_ token: String) -> Int? {
+public enum JWT {
+    public static func decodeUserId(_ token: String) -> Int? {
         let segments = token.split(separator: ".")
         guard segments.count == 3, let payload = base64URLDecode(String(segments[1])) else {
             return nil

@@ -1,13 +1,13 @@
 import SwiftUI
 
 // 外观模式:跟随系统 / 强制浅色 / 强制深色。持久化在 @AppStorage,根视图据此设 preferredColorScheme。
-enum AppearanceMode: String, CaseIterable, Sendable {
+public enum AppearanceMode: String, CaseIterable, Sendable {
     case system
     case light
     case dark
 
     // nil = 跟随系统(不覆盖 colorScheme)。
-    var colorScheme: ColorScheme? {
+    public var colorScheme: ColorScheme? {
         switch self {
         case .system: nil
         case .light: .light
@@ -16,7 +16,7 @@ enum AppearanceMode: String, CaseIterable, Sendable {
     }
 
     // LocalizedStringKey:Picker 里 Text(mode.label) 随语言令牌本地化。
-    var label: LocalizedStringKey {
+    public var label: LocalizedStringKey {
         switch self {
         case .system: "跟随系统"
         case .light: "浅色"

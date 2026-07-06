@@ -1,9 +1,10 @@
 import Foundation
+import Models
 
-enum CallType: String, Equatable, Sendable { case voice, video }
-enum CallRole: Equatable, Sendable { case caller, callee }
+// CallType 已下沉到 Models(Services 的 socket 解析也要用)。此处保留通话页内部状态类型。
+public enum CallRole: Equatable, Sendable { case caller, callee }
 
-enum CallPhase: Equatable, Sendable {
+public enum CallPhase: Equatable, Sendable {
     case idle
     case outgoing         // 主叫已发 call:start,等 accept
     case incoming         // 被叫振铃

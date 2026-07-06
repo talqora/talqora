@@ -7,7 +7,7 @@ import Foundation
 /// `timeoutIntervalForResource`(默认 7 天)约束、不受 `timeoutIntervalForRequest`(60s)约束,
 /// 表现为"一直转圈"(与网络无关,退出小程序取消 SSE 释放连接后重进才好)。独立会话即独立连接池,
 /// 互不挤占;再配合较短的 resource 超时,即使异常也**快速失败可重试**,而非无限挂起。
-enum AgentHTTP {
+public enum AgentHTTP {
     /// REST / token mint:短超时,连排队也在 30s 内失败(可重试),不无限挂起。
     static let rest: URLSession = {
         let cfg = URLSessionConfiguration.default

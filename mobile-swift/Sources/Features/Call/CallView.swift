@@ -1,11 +1,17 @@
 import ComposableArchitecture
+import Services
+import Models
 import SwiftUI
 
 // 通话全屏壳:根据 callType 分发到语音/视频 panel,共享底部控制条。
-struct CallView: View {
+public struct CallView: View {
     @Bindable var store: StoreOf<CallFeature>
 
-    var body: some View {
+    public init(store: StoreOf<CallFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         ZStack {
             if store.callType == .video || store.hasRemoteVideo {
                 VideoCallPanel(store: store)

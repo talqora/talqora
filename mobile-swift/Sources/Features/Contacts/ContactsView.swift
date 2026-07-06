@@ -1,9 +1,16 @@
 import ComposableArchitecture
+import Chats
+import DesignSystem
+import Models
 import SwiftUI
 
-struct ContactsView: View {
+public struct ContactsView: View {
     @Bindable var store: StoreOf<ContactsFeature>
     @Environment(ToastCenter.self) private var toast
+
+    public init(store: StoreOf<ContactsFeature>) {
+        self.store = store
+    }
 
     private let specials: [SpecialEntry] = [
         SpecialEntry(title: "新的朋友", icon: "person.crop.circle.badge.plus", color: Color(hex: 0xFA9D3B)),
@@ -17,7 +24,7 @@ struct ContactsView: View {
     private let indexTitles: [String] = ["↑", "☆"] + (UnicodeScalar("A").value ... UnicodeScalar("Z").value)
         .map { String(UnicodeScalar($0)!) } + ["#"]
 
-    var body: some View {
+    public var body: some View {
         NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
             ScrollViewReader { proxy in
                 List {

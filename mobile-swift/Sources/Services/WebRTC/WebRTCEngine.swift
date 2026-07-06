@@ -4,8 +4,9 @@ import WebRTC
 // RTCVideoTrack 是非 Sendable 的 class,而渲染发生在 MainActor(RTCMTLVideoView / SwiftUI View)。
 // 用这个盒子把 track 越过隔离边界交给 UI。不变量:box.track 只在 MainActor 上被访问(attach/detach
 // 到渲染器);libwebrtc 的 track add/remove renderer 内部线程安全,故这一处 @unchecked Sendable 成立。
-struct VideoTrackBox: @unchecked Sendable {
-    let track: RTCVideoTrack
+public struct VideoTrackBox: @unchecked Sendable {
+    public let track: RTCVideoTrack
+    public init(track: RTCVideoTrack) { self.track = track }
 }
 
 // 拥有非 Sendable 的 RTCPeerConnection 及媒体轨,所有 RTC 对象都被隔离在 actor 内部,
@@ -309,7 +310,7 @@ enum WebRTCError: Error {
 }
 
 // 麦克风/摄像头权限被拒时抛出,供上层映射成针对性用户文案。
-enum CallMediaError: Error {
+public enum CallMediaError: Error {
     case microphonePermissionDenied
     case cameraPermissionDenied
 }

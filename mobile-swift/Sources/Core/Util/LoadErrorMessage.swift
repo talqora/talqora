@@ -2,7 +2,7 @@ import Foundation
 
 // 把底层错误转成给用户看的人话,供列表/详情「加载失败」三态的错误文案统一使用。
 // 不把网络失败/服务端错误静默成空态(§3:empty 不能长得像 error)。
-func loadErrorMessage(_ error: Error) -> String {
+public func loadErrorMessage(_ error: Error) -> String {
     if let apiError = error as? APIError {
         switch apiError {
         case .unauthorized:

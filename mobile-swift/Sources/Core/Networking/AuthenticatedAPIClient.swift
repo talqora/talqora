@@ -71,7 +71,7 @@ private enum BaseAPIClientKey: DependencyKey {
 }
 
 extension DependencyValues {
-    var baseAPIClient: APIClient {
+    public var baseAPIClient: APIClient {
         get { self[BaseAPIClientKey.self] }
         set { self[BaseAPIClientKey.self] = newValue }
     }

@@ -2,8 +2,8 @@ import Foundation
 
 // 会话列表的时间展示:今天→HH:mm;昨天→"昨天";一周内→周几;更早→M月d日。
 // now/calendar 可注入,便于单测稳定。
-enum RelativeTime {
-    static func label(from date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+public enum RelativeTime {
+    public static func label(from date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         if calendar.isDate(date, inSameDayAs: now) {
             return formatted(date, "HH:mm", calendar)
         }
@@ -37,8 +37,8 @@ enum RelativeTime {
 }
 
 // 会话最后一条消息在列表里的预览文案:非文本消息用占位标签。
-enum MessagePreview {
-    static func text(content: String, type: String) -> String {
+public enum MessagePreview {
+    public static func text(content: String, type: String) -> String {
         switch type {
         case "text": return content
         case "image": return "[图片]"

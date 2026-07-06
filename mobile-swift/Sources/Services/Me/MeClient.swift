@@ -1,20 +1,23 @@
 import Dependencies
+import Models
+import Core
+import Contracts
 import DependenciesMacros
 import Foundation
 
 // 「我」页数据源:GET /user/profile 取当前用户资料,好友数复用 ContactsClient。
 // previewValue 用样本供 SwiftUI 预览离线渲染。
 @DependencyClient
-struct MeClient: Sendable {
-    var profile: @Sendable () async throws -> MeProfile
+public struct MeClient: Sendable {
+    public var profile: @Sendable () async throws -> MeProfile
     // 更新头像:POST /user/update(字段白名单含 avatar),鉴权取当前用户 id。
-    var updateAvatar: @Sendable (_ url: URL) async throws -> Void
+    public var updateAvatar: @Sendable (_ url: URL) async throws -> Void
     // 更新名字(昵称):POST /user/update(白名单含 nickname)。
-    var updateName: @Sendable (_ nickname: String) async throws -> Void
+    public var updateName: @Sendable (_ nickname: String) async throws -> Void
 }
 
 extension MeClient: DependencyKey {
-    static let liveValue = MeClient(
+    public static let liveValue = MeClient(
         profile: {
             @Dependency(\.apiClient) var apiClient
             @Dependency(\.contactsClient) var contactsClient
@@ -52,7 +55,7 @@ extension MeClient: DependencyKey {
         }
     )
 
-    static let previewValue = MeClient(
+    public static let previewValue = MeClient(
         profile: { .sample },
         updateAvatar: { _ in },
         updateName: { _ in }
@@ -60,7 +63,7 @@ extension MeClient: DependencyKey {
 }
 
 extension DependencyValues {
-    var meClient: MeClient {
+    public var meClient: MeClient {
         get { self[MeClient.self] }
         set { self[MeClient.self] = newValue }
     }

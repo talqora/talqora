@@ -1,12 +1,18 @@
 import SwiftUI
+import DesignSystem
 
 /// 小程序全屏面板 —— 聊天主页下拉过阈值后呈现(微信「最近使用的小程序」页)。
 /// 纯 UI:`onOpen` 磁贴点击回调,`onClose` 收起(拖回主页 / 点顶部收起标)。
-struct MiniAppPanel: View {
+public struct MiniAppPanel: View {
     let onOpen: () -> Void
     let onClose: () -> Void
 
-    var body: some View {
+    public init(onOpen: @escaping () -> Void, onClose: @escaping () -> Void) {
+        self.onOpen = onOpen
+        self.onClose = onClose
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             header
             ScrollView {

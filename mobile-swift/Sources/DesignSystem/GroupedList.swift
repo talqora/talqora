@@ -1,15 +1,15 @@
 import SwiftUI
 
 // 微信「我 / 发现」用的圆角分组卡片。数据驱动:一组 SettingsItem 渲染成一张卡,行间细分隔线缩进到标题。
-struct SettingsItem: Identifiable, Equatable {
-    let id = UUID()
-    var icon: String
-    var iconColor: Color
-    var title: LocalizedStringKey // 随语言令牌本地化
-    var detail: String?
-    var showDot: Bool = false
+public struct SettingsItem: Identifiable, Equatable {
+    public let id = UUID()
+    public var icon: String
+    public var iconColor: Color
+    public var title: LocalizedStringKey // 随语言令牌本地化
+    public var detail: String?
+    public var showDot: Bool
 
-    init(icon: String, iconColor: Color, title: LocalizedStringKey, detail: String? = nil, showDot: Bool = false) {
+    public init(icon: String, iconColor: Color, title: LocalizedStringKey, detail: String? = nil, showDot: Bool = false) {
         self.icon = icon
         self.iconColor = iconColor
         self.title = title
@@ -18,11 +18,16 @@ struct SettingsItem: Identifiable, Equatable {
     }
 }
 
-struct SettingsCard: View {
+public struct SettingsCard: View {
     let items: [SettingsItem]
-    var onTap: (SettingsItem) -> Void = { _ in }
+    var onTap: (SettingsItem) -> Void
 
-    var body: some View {
+    public init(items: [SettingsItem], onTap: @escaping (SettingsItem) -> Void = { _ in }) {
+        self.items = items
+        self.onTap = onTap
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             ForEach(items) { item in
                 Button { onTap(item) } label: { SettingsRow(item: item) }
@@ -40,10 +45,14 @@ struct SettingsCard: View {
     }
 }
 
-struct SettingsRow: View {
+public struct SettingsRow: View {
     let item: SettingsItem
 
-    var body: some View {
+    public init(item: SettingsItem) {
+        self.item = item
+    }
+
+    public var body: some View {
         HStack(spacing: 12) {
             Image(systemName: item.icon)
                 .font(.system(size: 20))

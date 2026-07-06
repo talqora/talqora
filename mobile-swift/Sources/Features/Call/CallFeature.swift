@@ -1,13 +1,46 @@
 import ComposableArchitecture
+import Services
+import Models
 import Foundation
 
 // 1:1 音视频通话状态机:编排 WebRTC 媒体协商与 socket 信令,对齐 web 端 useCall 行为。
 // 通话一旦激活(主叫发起 / 被叫振铃)即自订阅 socket + WebRTC 两条事件流,把外部事件
 // 转成本 feature 的 inbound action;早到的远端 ICE 交给 WebRTCSession 内部缓冲,不丢弃。
 @Reducer
-struct CallFeature {
+public struct CallFeature: Sendable {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(
+            phase: CallPhase = .idle,
+            callId: String = "",
+            callType: CallType = .voice,
+            peer: CallUserDTO? = nil,
+            role: CallRole = .caller,
+            pendingOffer: SessionDescriptionDTO? = nil,
+            isMuted: Bool = false,
+            isSpeakerOn: Bool = false,
+            isCameraOn: Bool = true,
+            isFrontCamera: Bool = true,
+            hasRemoteVideo: Bool = false,
+            durationSeconds: Int = 0,
+            localUser: CallUserDTO? = nil
+        ) {
+            self.phase = phase
+            self.callId = callId
+            self.callType = callType
+            self.peer = peer
+            self.role = role
+            self.pendingOffer = pendingOffer
+            self.isMuted = isMuted
+            self.isSpeakerOn = isSpeakerOn
+            self.isCameraOn = isCameraOn
+            self.isFrontCamera = isFrontCamera
+            self.hasRemoteVideo = hasRemoteVideo
+            self.durationSeconds = durationSeconds
+            self.localUser = localUser
+        }
         var phase: CallPhase = .idle
         var callId: String = ""
         var callType: CallType = .voice
@@ -24,7 +57,7 @@ struct CallFeature {
         var localUser: CallUserDTO?
     }
 
-    enum Action {
+    public enum Action {
         // UI 触发
         case startCall(peer: CallUserDTO, type: CallType)
         case acceptTapped
@@ -54,7 +87,7 @@ struct CallFeature {
         // 上抛父 feature:通话已收尾,请求关闭呈现。
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             case finished
         }
     }
@@ -67,7 +100,7 @@ struct CallFeature {
 
     private enum CancelID { case events, timer, timeout }
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
 

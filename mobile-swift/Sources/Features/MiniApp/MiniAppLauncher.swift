@@ -1,4 +1,5 @@
 import SwiftUI
+import DesignSystem
 
 /// 小程序启动面板 — 微信小程序风格的磁贴列表。
 /// 调用方传入 `onOpen` 回调；此视图自身不持有任何 store，纯 UI 。

@@ -1,16 +1,20 @@
 import SwiftUI
 import WebRTC
 
-struct RTCVideoView: UIViewRepresentable {
-    let track: RTCVideoTrack?
+public struct RTCVideoView: UIViewRepresentable {
+    public let track: RTCVideoTrack?
 
-    func makeUIView(context: Context) -> RTCMTLVideoView {
+    public init(track: RTCVideoTrack?) {
+        self.track = track
+    }
+
+    public func makeUIView(context: Context) -> RTCMTLVideoView {
         let v = RTCMTLVideoView()
         v.videoContentMode = .scaleAspectFill
         return v
     }
 
-    func updateUIView(_ v: RTCMTLVideoView, context: Context) {
+    public func updateUIView(_ v: RTCMTLVideoView, context: Context) {
         track?.add(v)
     }
 }

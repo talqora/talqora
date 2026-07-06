@@ -1,24 +1,25 @@
 import Dependencies
+import Core
 import DependenciesMacros
 import Foundation
 
-struct AgentTokenCache: Equatable, Sendable {
-    var token: String; var expiresAt: Date
+public struct AgentTokenCache: Equatable, Sendable {
+    public var token: String; var expiresAt: Date
     func isValid(now: Date, skew: TimeInterval) -> Bool { expiresAt.timeIntervalSince(now) > skew }
 }
 
 @DependencyClient
-struct AgentAuthClient: Sendable {
-    var authorize: @Sendable () async throws -> Void
-    var ensureToken: @Sendable () async throws -> String
-    var isAuthorized: @Sendable () -> Bool = { false }
-    var clear: @Sendable () -> Void
+public struct AgentAuthClient: Sendable {
+    public var authorize: @Sendable () async throws -> Void
+    public var ensureToken: @Sendable () async throws -> String
+    public var isAuthorized: @Sendable () -> Bool = { false }
+    public var clear: @Sendable () -> Void
 }
 
 private let agentAuthorizedFlagKey = "agent.authorized"
 
 extension AgentAuthClient: DependencyKey {
-    static let liveValue: AgentAuthClient = {
+    public static let liveValue: AgentAuthClient = {
         let store = AgentTokenStore()
         return AgentAuthClient(
             authorize: {
@@ -33,18 +34,18 @@ extension AgentAuthClient: DependencyKey {
             }
         )
     }()
-    static let previewValue = AgentAuthClient(
+    public static let previewValue = AgentAuthClient(
         authorize: {}, ensureToken: { "preview-token" }, isAuthorized: { true }, clear: {}
     )
 }
 extension DependencyValues {
-    var agentAuth: AgentAuthClient {
+    public var agentAuth: AgentAuthClient {
         get { self[AgentAuthClient.self] }
         set { self[AgentAuthClient.self] = newValue }
     }
 }
 
-enum AgentAuthError: Error, Equatable { case noSession, mintFailed }
+public enum AgentAuthError: Error, Equatable { case noSession, mintFailed }
 
 // 进程内 token 管理:非 Sendable 状态 actor 隔离;mint 用主 App 登录态调 /oauth/agent-token。并发去重。
 private actor AgentTokenStore {

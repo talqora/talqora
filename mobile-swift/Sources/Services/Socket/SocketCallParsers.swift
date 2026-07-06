@@ -1,7 +1,8 @@
 import Foundation
+import Models
 
 // 把 socket.io 投递的 call:* 原始字典解析成领域类型。纯函数,可单测。
-enum SocketCallParsers {
+public enum SocketCallParsers {
     static func parseUser(_ any: Any?) -> CallUserDTO? {
         guard let d = any as? [String: Any], let id = SocketMessageParser.intValue(d["id"]) else { return nil }
         return CallUserDTO(id: id,

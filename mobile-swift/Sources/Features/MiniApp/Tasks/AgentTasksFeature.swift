@@ -1,12 +1,13 @@
 import ComposableArchitecture
+import Services
 import Foundation
 
 @Reducer
-struct AgentTasksFeature {
+public struct AgentTasksFeature: Sendable {
     enum RunPhase: Equatable { case idle, submitting, running, finished, failed }
 
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
         var input: String = ""
         var phase: RunPhase = .idle
         var runId: String?
@@ -15,7 +16,7 @@ struct AgentTasksFeature {
         var errorMessage: String?
     }
 
-    enum Action: BindableAction {
+    public enum Action: BindableAction {
         case binding(BindingAction<State>)
         case submitTapped
         case runStarted(String)
@@ -28,7 +29,7 @@ struct AgentTasksFeature {
 
     private enum CancelID { case stream }
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {

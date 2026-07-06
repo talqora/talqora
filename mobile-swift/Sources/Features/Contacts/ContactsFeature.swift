@@ -1,11 +1,17 @@
 import ComposableArchitecture
+import Chats
+import Services
+import Core
+import Models
 import Foundation
 
 @Reducer
-struct ContactsFeature {
+public struct ContactsFeature: Sendable {
+    public init() {}
+
     // 通讯录导航栈的目的地(多类型):新的朋友 / 好友资料 / 好友设置 / 备注编辑 / 聊天详情。
     @Reducer
-    enum Path {
+    public enum Path {
         case newFriends(NewFriendsFeature)
         case contactDetail(ContactDetailFeature)
         case friendSettings(FriendSettingsFeature)
@@ -14,7 +20,8 @@ struct ContactsFeature {
     }
 
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init() {}
         var contacts: [Contact] = []
         var isLoading = false
         var loadError: String?
@@ -24,7 +31,7 @@ struct ContactsFeature {
         var path = StackState<Path.State>()
     }
 
-    enum Action {
+    public enum Action {
         case onAppear
         case reloadTapped
         case contactsResponse([Contact])
@@ -37,7 +44,7 @@ struct ContactsFeature {
         case path(StackActionOf<Path>)
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             // 好友资料页发起通话:上抛给 MainFeature 呈现通话。
             case startCall(peer: CallUserDTO, type: CallType)
         }
@@ -49,7 +56,7 @@ struct ContactsFeature {
 
     private enum CancelID { case events }
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
             case .onAppear:

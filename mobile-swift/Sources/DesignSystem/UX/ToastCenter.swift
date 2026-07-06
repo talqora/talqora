@@ -4,11 +4,13 @@ import SwiftUI
 // 注入于 AppView 根,顶层 overlay 呈现;占位点直接 @Environment 取用后调 show(),无需各自 reducer 加 no-op action。
 @MainActor
 @Observable
-final class ToastCenter {
-    private(set) var message: String?
+public final class ToastCenter {
+    public private(set) var message: String?
     private var dismissTask: Task<Void, Never>?
 
-    func show(_ text: String = "该功能暂未上线") {
+    public init() {}
+
+    public func show(_ text: String = "该功能暂未上线") {
         message = text
         dismissTask?.cancel()
         dismissTask = Task { [weak self] in
@@ -20,10 +22,12 @@ final class ToastCenter {
 }
 
 // 顶层提示视图:深色胶囊,居中略偏下,淡入淡出;不拦截点击。
-struct ToastOverlay: View {
+public struct ToastOverlay: View {
     @Environment(ToastCenter.self) private var toast
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         ZStack {
             if let message = toast.message {
                 Text(LocalizedStringKey(message))

@@ -1,27 +1,28 @@
 import ComposableArchitecture
+import Services
 
 @Reducer
-struct AgentAuthFeature {
+public struct AgentAuthFeature: Sendable {
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
         var isLoading = false
         var errorMessage: String?
     }
 
-    enum Action {
+    public enum Action {
         case authorizeTapped
         case authorized
         case authorizeFailed
         case delegate(Delegate)
 
-        enum Delegate {
+        public enum Delegate {
             case authorized
         }
     }
 
     @Dependency(\.agentAuth) var agentAuth
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
             case .authorizeTapped:

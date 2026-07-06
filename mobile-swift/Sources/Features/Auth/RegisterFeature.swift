@@ -1,10 +1,37 @@
 import ComposableArchitecture
+import Services
+import Core
 import Foundation
 
 @Reducer
-struct RegisterFeature {
+public struct RegisterFeature {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(
+            username: String = "",
+            email: String = "",
+            password: String = "",
+            confirmPassword: String = "",
+            isLoading: Bool = false,
+            usernameError: String? = nil,
+            emailError: String? = nil,
+            passwordError: String? = nil,
+            confirmError: String? = nil,
+            formError: String? = nil
+        ) {
+            self.username = username
+            self.email = email
+            self.password = password
+            self.confirmPassword = confirmPassword
+            self.isLoading = isLoading
+            self.usernameError = usernameError
+            self.emailError = emailError
+            self.passwordError = passwordError
+            self.confirmError = confirmError
+            self.formError = formError
+        }
         var username = ""
         var email = ""
         var password = ""
@@ -18,7 +45,7 @@ struct RegisterFeature {
         var formError: String? // 注册接口本身失败的通用提示
     }
 
-    enum Action: BindableAction, Equatable {
+    public enum Action: BindableAction, Equatable {
         case binding(BindingAction<State>)
         case registerButtonTapped
         case cancelTapped
@@ -27,7 +54,7 @@ struct RegisterFeature {
         case registerFailed(String)
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             // 注册成功:通知登录页预填用户名并关闭。
             case registered(username: String)
         }
@@ -36,7 +63,7 @@ struct RegisterFeature {
     @Dependency(\.authService) var authService
     @Dependency(\.dismiss) var dismiss
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {
@@ -63,7 +90,7 @@ struct RegisterFeature {
                 state.isLoading = true
                 let username = state.username
                 let email = state.email
-                return .run { send in
+                return .run { [authService] send in
                     async let usernameTaken = (try? await authService.checkUsername(username)) ?? false
                     async let emailTaken = (try? await authService.checkEmail(email)) ?? false
                     let (uTaken, eTaken) = await (usernameTaken, emailTaken)
@@ -81,7 +108,7 @@ struct RegisterFeature {
                 let username = state.username
                 let email = state.email
                 let password = state.password
-                return .run { send in
+                return .run { [authService] send in
                     do {
                         try await authService.register(username, email, password)
                         await send(.registerSucceeded)
@@ -91,7 +118,7 @@ struct RegisterFeature {
                 }
 
             case .cancelTapped:
-                return .run { _ in await dismiss() }
+                return .run { [dismiss] _ in await dismiss() }
 
             case .registerSucceeded:
                 state.isLoading = false

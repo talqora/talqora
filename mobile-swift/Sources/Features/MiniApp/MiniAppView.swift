@@ -1,11 +1,16 @@
 import ComposableArchitecture
+import Services
 import SwiftUI
 
-struct MiniAppView: View {
+public struct MiniAppView: View {
     @Bindable var store: StoreOf<MiniAppFeature>
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
+    public init(store: StoreOf<MiniAppFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         // 公共容器提供顶部 chrome(标题 + 关闭),本体在其下方布局,二者解耦不重合。
         MiniAppContainer(title: "知识库助手", onClose: { dismiss() }) {
             if store.authorized {

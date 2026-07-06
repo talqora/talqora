@@ -1,11 +1,17 @@
 import ComposableArchitecture
+import Models
+import DesignSystem
 import SwiftUI
 
-struct MeView: View {
+public struct MeView: View {
     @Bindable var store: StoreOf<MeFeature>
     @Environment(ToastCenter.self) private var toast
 
-    var body: some View {
+    public init(store: StoreOf<MeFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
             ScrollView {
                 VStack(spacing: 16) {

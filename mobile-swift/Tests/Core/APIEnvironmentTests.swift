@@ -1,4 +1,5 @@
 import Testing
+import Core
 @testable import OurChat
 
 struct APIEnvironmentTests {

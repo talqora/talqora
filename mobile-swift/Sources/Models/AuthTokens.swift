@@ -1,6 +1,11 @@
 import Foundation
 
-struct AuthTokens: Codable, Equatable, Sendable {
-    var accessToken: String
-    var refreshToken: String
+public struct AuthTokens: Codable, Equatable, Sendable {
+    public var accessToken: String
+    public var refreshToken: String
+
+    public init(accessToken: String, refreshToken: String) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
 }

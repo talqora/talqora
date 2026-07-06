@@ -1,4 +1,5 @@
 import SwiftUI
+import DesignSystem
 
 /// 小程序**公共容器**:提供项目级的顶部 chrome(标题 + 关闭/更多 胶囊),
 /// 与小程序本体在布局上解耦——本体只负责填充 `content`,无需感知关闭按钮,

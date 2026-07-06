@@ -3,10 +3,16 @@ import UIKit
 
 // 自研头像裁剪(纯 SwiftUI,不引第三方):方形取景框内拖动 + 双指缩放,
 // 「完成」用 ImageRenderer 把当前取景内容渲染成正方形 JPEG 回传。
-struct AvatarCropView: View {
+public struct AvatarCropView: View {
     let image: UIImage
     let onDone: (Data) -> Void
     let onCancel: () -> Void
+
+    public init(image: UIImage, onDone: @escaping (Data) -> Void, onCancel: @escaping () -> Void) {
+        self.image = image
+        self.onDone = onDone
+        self.onCancel = onCancel
+    }
 
     @Environment(\.displayScale) private var displayScale
 
@@ -22,7 +28,7 @@ struct AvatarCropView: View {
         CGSize(width: offset.width + gestureOffset.width, height: offset.height + gestureOffset.height)
     }
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 

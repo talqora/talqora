@@ -1,14 +1,17 @@
 import Dependencies
+import Core
+import Contracts
+import Models
 import DependenciesMacros
 import Foundation
 
 // 会话数据源。liveValue 聚合三个真实接口(userConversations + conversations + lastMessages)+ 好友资料
 // 解析单聊标题/头像;previewValue 用样本供 SwiftUI 预览离线渲染。
 @DependencyClient
-struct ChatClient: Sendable {
-    var conversations: @Sendable () async throws -> [Conversation]
-    var otherDeviceCount: @Sendable () async throws -> Int = { 0 }
-    var messages: @Sendable (_ conversationId: String) async throws -> [ChatMessage]
+public struct ChatClient: Sendable {
+    public var conversations: @Sendable () async throws -> [Conversation]
+    public var otherDeviceCount: @Sendable () async throws -> Int = { 0 }
+    public var messages: @Sendable (_ conversationId: String) async throws -> [ChatMessage]
 }
 
 // 线上类型来自 openapi.yaml 生成(APIUserConversation/APIConversation/APIMessagePreview/APIMessage)。
@@ -33,7 +36,7 @@ private func toMessageFileInfo(_ f: APIFileInfo) -> MessageFileInfo? {
 }
 
 extension ChatClient: DependencyKey {
-    static let liveValue = ChatClient(
+    public static let liveValue = ChatClient(
         conversations: {
             @Dependency(\.apiClient) var apiClient
             @Dependency(\.sessionClient) var session
@@ -84,7 +87,7 @@ extension ChatClient: DependencyKey {
         }
     )
 
-    static let previewValue = ChatClient(
+    public static let previewValue = ChatClient(
         conversations: { ConversationSamples.all },
         otherDeviceCount: { 2 },
         messages: { _ in MessageSamples.all }
@@ -92,7 +95,7 @@ extension ChatClient: DependencyKey {
 }
 
 extension DependencyValues {
-    var chatClient: ChatClient {
+    public var chatClient: ChatClient {
         get { self[ChatClient.self] }
         set { self[ChatClient.self] = newValue }
     }
@@ -103,7 +106,7 @@ private func jsonArray(_ values: [String]) -> String {
 }
 
 // 聚合逻辑抽成纯函数,便于单测(给定三接口数据 + 好友 → 期望会话行)。
-enum ConversationAssembler {
+public enum ConversationAssembler {
     struct UserConv: Equatable { var conversationId: String; var unreadCount: Int; var isMuted: Bool; var lastActivity: Date? }
     struct Meta: Equatable { var convType: String?; var title: String?; var avatar: String? }
     struct Last: Equatable { var content: String?; var type: String?; var timestamp: Date? }
@@ -170,12 +173,12 @@ enum ConversationAssembler {
 }
 
 private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
+    public var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 // SwiftUI 预览用样本(离线零网络)。
-enum ConversationSamples {
-    static let all: [Conversation] = [
+public enum ConversationSamples {
+    public static let all: [Conversation] = [
         Conversation(id: "g1", title: "哥布林巢穴", preview: "王博扬: [动画表情]", timeText: "01:55", hasRedDot: true, isMuted: true, isGroup: true),
         Conversation(id: "single_1_2", title: "段宇皓", preview: "OK", timeText: "昨天"),
         Conversation(id: "ft", title: "文件传输助手", preview: "[文件]", timeText: "昨天", systemTile: .fileTransfer),
@@ -184,8 +187,8 @@ enum ConversationSamples {
 }
 
 // SwiftUI 预览用消息样本。
-enum MessageSamples {
-    static let all: [ChatMessage] = [
+public enum MessageSamples {
+    public static let all: [ChatMessage] = [
         ChatMessage(serverId: 1, conversationId: "single_1_2", senderId: 2, seq: 1, content: "在吗?", type: "text", timestamp: nil, clientMsgId: nil),
         ChatMessage(serverId: 2, conversationId: "single_1_2", senderId: 1, seq: 2, content: "在的", type: "text", timestamp: nil, clientMsgId: nil),
         ChatMessage(serverId: 3, conversationId: "single_1_2", senderId: 2, seq: 3, content: "OK", type: "text", timestamp: nil, clientMsgId: nil),

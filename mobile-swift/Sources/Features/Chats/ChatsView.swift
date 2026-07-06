@@ -1,9 +1,17 @@
 import ComposableArchitecture
+import MiniApp
+import Search
+import DesignSystem
+import Models
 import SwiftUI
 
-struct ChatsView: View {
+public struct ChatsView: View {
     @Bindable var store: StoreOf<ChatsFeature>
     @Environment(ToastCenter.self) private var toast
+
+    public init(store: StoreOf<ChatsFeature>) {
+        self.store = store
+    }
 
     // 小程序面板下拉揭示:主页随手指整体下移,过阈值完全变成面板;上拖收回。
     // offset ∈ [0, h]:0 = 主页,h = 面板全屏。
@@ -16,7 +24,7 @@ struct ChatsView: View {
     private let revealThreshold: CGFloat = 110
     private var revealSpring: Animation { .spring(response: 0.34, dampingFraction: 0.86) }
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { proxy in
             let h = proxy.size.height
             ZStack(alignment: .top) {

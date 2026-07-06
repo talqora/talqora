@@ -1,14 +1,19 @@
 import ComposableArchitecture
+import DesignSystem
 import SwiftUI
 
-struct LoginView: View {
+public struct LoginView: View {
     @Bindable var store: StoreOf<AuthFeature>
     @State private var isPasswordVisible = false
     @FocusState private var focus: Field?
 
     private enum Field { case username, password }
 
-    var body: some View {
+    public init(store: StoreOf<AuthFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             Text("登录")
                 .font(WeChatFont.navTitle)

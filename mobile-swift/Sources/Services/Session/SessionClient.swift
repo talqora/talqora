@@ -1,4 +1,6 @@
 import Dependencies
+import Core
+import Contracts
 import DependenciesMacros
 import Foundation
 
@@ -6,13 +8,13 @@ import Foundation
 // currentUser 拉取完整资料(username/nickname/avatar):发起/接听通话时,本端资料要随信令带给对端做来电展示,
 // JWT 里只有 id,故走 /user/profile 补齐。
 @DependencyClient
-struct SessionClient: Sendable {
-    var currentUserId: @Sendable () -> Int?
-    var currentUser: @Sendable () async throws -> CallUserDTO
+public struct SessionClient: Sendable {
+    public var currentUserId: @Sendable () -> Int?
+    public var currentUser: @Sendable () async throws -> CallUserDTO
 }
 
 extension SessionClient: DependencyKey {
-    static let liveValue = SessionClient(
+    public static let liveValue = SessionClient(
         currentUserId: {
             @Dependency(\.keychain) var keychain
             guard let token = (try? keychain.load(.accessToken)) ?? nil else { return nil }
@@ -32,7 +34,7 @@ extension SessionClient: DependencyKey {
 }
 
 extension DependencyValues {
-    var sessionClient: SessionClient {
+    public var sessionClient: SessionClient {
         get { self[SessionClient.self] }
         set { self[SessionClient.self] = newValue }
     }

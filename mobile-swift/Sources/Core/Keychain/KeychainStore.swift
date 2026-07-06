@@ -3,22 +3,22 @@ import DependenciesMacros
 import Foundation
 import Security
 
-enum TokenKey: String, Sendable, CaseIterable {
+public enum TokenKey: String, Sendable, CaseIterable {
     case accessToken
     case refreshToken
     case agentToken
 }
 
-enum KeychainError: Error, Equatable {
+public enum KeychainError: Error, Equatable {
     case unexpectedStatus(OSStatus)
     case dataConversion
 }
 
 @DependencyClient
-struct KeychainStore: Sendable {
-    var save: @Sendable (_ value: String, _ key: TokenKey) throws -> Void
-    var load: @Sendable (_ key: TokenKey) throws -> String?
-    var delete: @Sendable (_ key: TokenKey) throws -> Void
+public struct KeychainStore: Sendable {
+    public var save: @Sendable (_ value: String, _ key: TokenKey) throws -> Void
+    public var load: @Sendable (_ key: TokenKey) throws -> String?
+    public var delete: @Sendable (_ key: TokenKey) throws -> Void
 }
 
 private func keychainBaseQuery(service: String, key: TokenKey) -> [String: Any] {
@@ -30,7 +30,7 @@ private func keychainBaseQuery(service: String, key: TokenKey) -> [String: Any] 
 }
 
 extension KeychainStore {
-    static func live(service: String = "com.ourchat.ios.tokens") -> KeychainStore {
+    public static func live(service: String = "com.ourchat.ios.tokens") -> KeychainStore {
         KeychainStore(
             save: { value, key in
                 let data = Data(value.utf8)
@@ -76,7 +76,7 @@ extension KeychainStore {
         )
     }
 
-    static func inMemory() -> KeychainStore {
+    public static func inMemory() -> KeychainStore {
         let storage = InMemoryKeychainStorage()
         return KeychainStore(
             save: { value, key in storage.set(value, for: key.rawValue) },
@@ -104,11 +104,11 @@ private final class InMemoryKeychainStorage: @unchecked Sendable {
 }
 
 extension KeychainStore: DependencyKey {
-    static let liveValue = KeychainStore.live()
+    public static let liveValue = KeychainStore.live()
 }
 
 extension DependencyValues {
-    var keychain: KeychainStore {
+    public var keychain: KeychainStore {
         get { self[KeychainStore.self] }
         set { self[KeychainStore.self] = newValue }
     }

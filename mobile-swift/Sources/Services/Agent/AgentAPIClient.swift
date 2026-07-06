@@ -2,22 +2,22 @@ import Dependencies
 import DependenciesMacros
 import Foundation
 
-struct AgentRequest: Sendable {
-    var method: String; var path: String; var body: Data?
-    static func get(_ p: String) -> AgentRequest { .init(method: "GET", path: p, body: nil) }
-    static func post(_ p: String, _ body: Data? = nil) -> AgentRequest { .init(method: "POST", path: p, body: body) }
-    static func delete(_ p: String) -> AgentRequest { .init(method: "DELETE", path: p, body: nil) }
+public struct AgentRequest: Sendable {
+    public var method: String; var path: String; var body: Data?
+    public static func get(_ p: String) -> AgentRequest { .init(method: "GET", path: p, body: nil) }
+    public static func post(_ p: String, _ body: Data? = nil) -> AgentRequest { .init(method: "POST", path: p, body: body) }
+    public static func delete(_ p: String) -> AgentRequest { .init(method: "DELETE", path: p, body: nil) }
 }
 
 @DependencyClient
-struct AgentAPIClient: Sendable {
-    var request: @Sendable (_ req: AgentRequest) async throws -> Data
-    var upload: @Sendable (_ fileURL: URL, _ fileName: String) async throws -> UploadResult
-    var stream: @Sendable (_ req: AgentRequest) -> AsyncThrowingStream<SSEFrame, Error> = { _ in .finished() }
+public struct AgentAPIClient: Sendable {
+    public var request: @Sendable (_ req: AgentRequest) async throws -> Data
+    public var upload: @Sendable (_ fileURL: URL, _ fileName: String) async throws -> UploadResult
+    public var stream: @Sendable (_ req: AgentRequest) -> AsyncThrowingStream<SSEFrame, Error> = { _ in .finished() }
 }
 
 extension AgentAPIClient: DependencyKey {
-    static let liveValue = AgentAPIClient(
+    public static let liveValue = AgentAPIClient(
         request: { req in
             @Dependency(\.agentAuth) var auth
             let token = try await auth.ensureToken()
@@ -86,11 +86,11 @@ extension AgentAPIClient: DependencyKey {
             }
         }
     )
-    static let previewValue = AgentAPIClient(
+    public static let previewValue = AgentAPIClient(
         request: { _ in Data() },
         upload: { _, _ in UploadResult(documentId: 0, runId: "") },
         stream: { _ in .finished() }
     )
 }
-extension DependencyValues { var agentAPI: AgentAPIClient { get { self[AgentAPIClient.self] } set { self[AgentAPIClient.self] = newValue } } }
-enum AgentAPIError: Error, Equatable { case http(Int) }
+extension DependencyValues { public var agentAPI: AgentAPIClient { get { self[AgentAPIClient.self] } set { self[AgentAPIClient.self] = newValue } } }
+public enum AgentAPIError: Error, Equatable { case http(Int) }

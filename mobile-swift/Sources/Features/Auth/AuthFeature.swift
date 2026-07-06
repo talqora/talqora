@@ -1,10 +1,28 @@
 import ComposableArchitecture
+import Services
+import Core
+import Models
 import Foundation
 
 @Reducer
-struct AuthFeature {
+public struct AuthFeature {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(
+            username: String = "",
+            password: String = "",
+            isLoading: Bool = false,
+            errorMessage: String? = nil,
+            register: RegisterFeature.State? = nil
+        ) {
+            self.username = username
+            self.password = password
+            self.isLoading = isLoading
+            self.errorMessage = errorMessage
+            self.register = register
+        }
         var username = ""
         var password = ""
         var isLoading = false
@@ -16,7 +34,7 @@ struct AuthFeature {
         }
     }
 
-    enum Action: BindableAction, Equatable {
+    public enum Action: BindableAction, Equatable {
         case binding(BindingAction<State>)
         case loginButtonTapped
         case loginSucceeded(AuthTokens)
@@ -25,14 +43,14 @@ struct AuthFeature {
         case register(PresentationAction<RegisterFeature.Action>)
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             case loggedIn(AuthTokens)
         }
     }
 
     @Dependency(\.authService) var authService
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {
@@ -46,7 +64,7 @@ struct AuthFeature {
                 state.errorMessage = nil
                 let username = state.username
                 let password = state.password
-                return .run { send in
+                return .run { [authService] send in
                     do {
                         let tokens = try await authService.login(
                             username: username,

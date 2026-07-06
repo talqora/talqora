@@ -1,4 +1,5 @@
 import Testing
+@testable import Services
 @testable import OurChat
 
 struct SocketCallParsersTests {

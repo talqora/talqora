@@ -1,12 +1,13 @@
 import ComposableArchitecture
+import Services
 import Foundation
 
 @Reducer
-struct AgentChatFeature {
+public struct AgentChatFeature: Sendable {
     enum ListPhase: Equatable { case idle, loading, loaded, empty, failed }
 
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
         var conversations: [AgentConversation] = []
         var listPhase: ListPhase = .idle
         var currentConversationId: Int?
@@ -18,7 +19,7 @@ struct AgentChatFeature {
         var currentTitle: String = "对话"
     }
 
-    enum Action: BindableAction {
+    public enum Action: BindableAction {
         case binding(BindingAction<State>)
         case onAppear
         case loadConversations
@@ -41,7 +42,7 @@ struct AgentChatFeature {
 
     private enum CancelID { case stream }
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {

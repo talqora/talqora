@@ -1,41 +1,51 @@
 import Dependencies
+import Core
+import Models
 import DependenciesMacros
 import Foundation
 import SocketIO
 
 // 待发送的一条消息(上行 message.send)。senderId 由服务端以握手身份为准,故不带。
-struct OutgoingMessage: Equatable, Sendable {
-    var conversationId: String
-    var clientMsgId: String
-    var content: String
-    var type: String = "text"
-    var fileInfo: MessageFileInfo? = nil
+public struct OutgoingMessage: Equatable, Sendable {
+    public var conversationId: String
+    public var clientMsgId: String
+    public var content: String
+    public var type: String = "text"
+    public var fileInfo: MessageFileInfo? = nil
+
+    public init(conversationId: String, clientMsgId: String, content: String, type: String = "text", fileInfo: MessageFileInfo? = nil) {
+        self.conversationId = conversationId
+        self.clientMsgId = clientMsgId
+        self.content = content
+        self.type = type
+        self.fileInfo = fileInfo
+    }
 }
 
 // 实时通道:一条共享 socket.io 长连接,收发聊天消息。
 // connect 幂等(已连则忽略),token 取 Keychain 里的 accessToken,作为握手 auth 上报,
 // 与服务端 extractHandshakeToken(handshake.auth.token) 对齐。events() 多订阅者各取一份。
 @DependencyClient
-struct SocketClient: Sendable {
-    var connect: @Sendable () -> Void
-    var disconnect: @Sendable () -> Void
-    var send: @Sendable (_ message: OutgoingMessage) -> Void
+public struct SocketClient: Sendable {
+    public var connect: @Sendable () -> Void
+    public var disconnect: @Sendable () -> Void
+    public var send: @Sendable (_ message: OutgoingMessage) -> Void
     // 已读上报:单调推进该会话本端 lastReadSeq,服务端据此清未读并同步其它端。
-    var reportRead: @Sendable (_ conversationId: String, _ uptoSeq: Int) -> Void
+    public var reportRead: @Sendable (_ conversationId: String, _ uptoSeq: Int) -> Void
     // call:* 上行信令——对应 WebRTC 呼叫协商各阶段。
-    var sendCallStart: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO, _ type: CallType) -> Void
-    var sendCallAccept: @Sendable (_ callId: String, _ from: Int, _ to: Int, _ answer: SessionDescriptionDTO) -> Void
-    var sendCallReject: @Sendable (_ callId: String) -> Void
-    var sendCallEnd: @Sendable (_ callId: String) -> Void
-    var sendCallIce: @Sendable (_ callId: String, _ candidate: IceCandidateDTO) -> Void
-    var sendCallRejoin: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO) -> Void
+    public var sendCallStart: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO, _ type: CallType) -> Void
+    public var sendCallAccept: @Sendable (_ callId: String, _ from: Int, _ to: Int, _ answer: SessionDescriptionDTO) -> Void
+    public var sendCallReject: @Sendable (_ callId: String) -> Void
+    public var sendCallEnd: @Sendable (_ callId: String) -> Void
+    public var sendCallIce: @Sendable (_ callId: String, _ candidate: IceCandidateDTO) -> Void
+    public var sendCallRejoin: @Sendable (_ callId: String, _ from: CallUserDTO, _ to: CallUserDTO, _ offer: SessionDescriptionDTO) -> Void
     // 统一事件流:所有服务端实时事件(消息 / 好友请求 / 好友变更 …)都从这一条流出,
     // 由订阅方各取所需。新增事件在 ServerEvent 加 case + 下面 socket.on 注册即可。
-    var events: @Sendable () -> AsyncStream<ServerEvent> = { .finished }
+    public var events: @Sendable () -> AsyncStream<ServerEvent> = { .finished }
 }
 
 extension SocketClient: DependencyKey {
-    static let liveValue: SocketClient = {
+    public static let liveValue: SocketClient = {
         let connection = SocketConnection(baseURL: URL(string: APIEnvironment.current.baseURLString)!)
         return SocketClient(
             connect: {
@@ -77,7 +87,7 @@ extension SocketClient: DependencyKey {
         )
     }()
 
-    static let previewValue = SocketClient(
+    public static let previewValue = SocketClient(
         connect: {},
         disconnect: {},
         send: { _ in },
@@ -93,7 +103,7 @@ extension SocketClient: DependencyKey {
 }
 
 extension DependencyValues {
-    var socketClient: SocketClient {
+    public var socketClient: SocketClient {
         get { self[SocketClient.self] }
         set { self[SocketClient.self] = newValue }
     }
@@ -282,7 +292,7 @@ private actor SocketConnection {
 
 // 把 socket.io 投递的 receiveMessage 原始字典解析成领域消息(纯函数,可单测)。
 // id/seq 经服务端 BigInt→Number 序列化,这里按 NSNumber/Int/String 多形态兜底取整。
-enum SocketMessageParser {
+public enum SocketMessageParser {
     static func parse(_ raw: Any) -> ChatMessage? {
         guard let dict = raw as? [String: Any],
               let conversationId = dict["conversationId"] as? String,
@@ -321,7 +331,7 @@ enum SocketMessageParser {
 
 // 把 socket.io 投递的 receiveFriendReq 原始字典解析成 FriendRequest(纯函数,可单测)。
 // 载荷形状对齐 getFriendReqs 条目:friendId=发起人、username/avatar=其资料、status=pending。
-enum SocketFriendRequestParser {
+public enum SocketFriendRequestParser {
     static func parse(_ raw: Any) -> FriendRequest? {
         guard let dict = raw as? [String: Any],
               let friendId = SocketMessageParser.intValue(dict["friendId"]) else { return nil }

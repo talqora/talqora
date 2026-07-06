@@ -1,27 +1,80 @@
 import Foundation
 
-struct AgentTokenResponse: Codable, Equatable, Sendable {
-    var accessToken: String, tokenType: String, expiresIn: Int
+public struct AgentTokenResponse: Codable, Equatable, Sendable {
+    public var accessToken: String
+    public var tokenType: String
+    public var expiresIn: Int
     enum CodingKeys: String, CodingKey { case accessToken = "access_token", tokenType = "token_type", expiresIn = "expires_in" }
+    public init(accessToken: String, tokenType: String, expiresIn: Int) {
+        self.accessToken = accessToken; self.tokenType = tokenType; self.expiresIn = expiresIn
+    }
 }
-struct AgentUser: Codable, Equatable, Sendable { var id: Int; var username: String; var displayName: String? }
-struct Citation: Codable, Equatable, Sendable { var chunkId: Int; var documentId: Int; var score: Double }
-struct AgentMessage: Codable, Equatable, Sendable, Identifiable {
-    var id: Int; var role: String; var content: String; var citations: [Citation]?
+
+public struct AgentUser: Codable, Equatable, Sendable {
+    public var id: Int
+    public var username: String
+    public var displayName: String?
+    public init(id: Int, username: String, displayName: String?) {
+        self.id = id; self.username = username; self.displayName = displayName
+    }
 }
-struct AgentConversation: Codable, Equatable, Sendable, Identifiable {
-    var id: Int; var title: String; var messages: [AgentMessage]?
+
+public struct Citation: Codable, Equatable, Sendable {
+    public var chunkId: Int
+    public var documentId: Int
+    public var score: Double
+    public init(chunkId: Int, documentId: Int, score: Double) {
+        self.chunkId = chunkId; self.documentId = documentId; self.score = score
+    }
 }
-struct AgentDocument: Codable, Equatable, Sendable, Identifiable {
-    var id: Int; var filename: String; var size: Int?; var chunkCount: Int?; var status: String; var error: String?
+
+public struct AgentMessage: Codable, Equatable, Sendable, Identifiable {
+    public var id: Int
+    public var role: String
+    public var content: String
+    public var citations: [Citation]?
+    public init(id: Int, role: String, content: String, citations: [Citation]?) {
+        self.id = id; self.role = role; self.content = content; self.citations = citations
+    }
 }
-struct UploadResult: Codable, Equatable, Sendable { var documentId: Int; var runId: String }
-struct RunIdResult: Codable, Equatable, Sendable { var runId: String }
+
+public struct AgentConversation: Codable, Equatable, Sendable, Identifiable {
+    public var id: Int
+    public var title: String
+    public var messages: [AgentMessage]?
+    public init(id: Int, title: String, messages: [AgentMessage]?) {
+        self.id = id; self.title = title; self.messages = messages
+    }
+}
+
+public struct AgentDocument: Codable, Equatable, Sendable, Identifiable {
+    public var id: Int
+    public var filename: String
+    public var size: Int?
+    public var chunkCount: Int?
+    public var status: String
+    public var error: String?
+    public init(id: Int, filename: String, size: Int?, chunkCount: Int?, status: String, error: String?) {
+        self.id = id; self.filename = filename; self.size = size
+        self.chunkCount = chunkCount; self.status = status; self.error = error
+    }
+}
+
+public struct UploadResult: Codable, Equatable, Sendable {
+    public var documentId: Int
+    public var runId: String
+    public init(documentId: Int, runId: String) { self.documentId = documentId; self.runId = runId }
+}
+
+public struct RunIdResult: Codable, Equatable, Sendable {
+    public var runId: String
+    public init(runId: String) { self.runId = runId }
+}
 
 // 对话 SSE:token 增量 / done(带引用)/ error
-enum ChatStreamEvent: Equatable, Sendable {
+public enum ChatStreamEvent: Equatable, Sendable {
     case token(String), done(messageId: Int, citations: [Citation]), error(String)
-    static func decode(event: String, data: String) throws -> ChatStreamEvent {
+    public static func decode(event: String, data: String) throws -> ChatStreamEvent {
         let d = Data(data.utf8)
         switch event {
         case "token":
@@ -38,4 +91,8 @@ enum ChatStreamEvent: Equatable, Sendable {
 }
 
 // 任务/文档 run SSE:够用即可(名称 + 原始 data),UI 侧再细分。
-struct RunEvent: Equatable, Sendable { var name: String; var data: String }
+public struct RunEvent: Equatable, Sendable {
+    public var name: String
+    public var data: String
+    public init(name: String, data: String) { self.name = name; self.data = data }
+}

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// 异步数据的三态容器:强制覆盖 loading / empty / error。empty 不长得像 error,error 必带重试。
-struct AsyncStateView<Item, Content: View>: View {
-    enum State {
+public struct AsyncStateView<Item, Content: View>: View {
+    public enum State {
         case loading
         case empty(String)
         case failed(String, retry: () -> Void)
@@ -12,7 +12,12 @@ struct AsyncStateView<Item, Content: View>: View {
     let state: State
     @ViewBuilder let content: ([Item]) -> Content
 
-    var body: some View {
+    public init(state: State, @ViewBuilder content: @escaping ([Item]) -> Content) {
+        self.state = state
+        self.content = content
+    }
+
+    public var body: some View {
         switch state {
         case .loading:
             ProgressView()

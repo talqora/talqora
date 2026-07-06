@@ -1,11 +1,17 @@
 import ComposableArchitecture
+import Services
+import DesignSystem
 import SwiftUI
 
 // 搜索页:输入微信号/手机号/用户名,精确查找用户。经 fullScreenCover 呈现。
-struct SearchView: View {
+public struct SearchView: View {
     @Bindable var store: StoreOf<SearchFeature>
 
-    var body: some View {
+    public init(store: StoreOf<SearchFeature>) {
+        self.store = store
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
             topBar
             content

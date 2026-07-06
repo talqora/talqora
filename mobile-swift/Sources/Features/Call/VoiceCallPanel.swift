@@ -1,4 +1,6 @@
 import ComposableArchitecture
+import Services
+import DesignSystem
 import SwiftUI
 
 // 语音通话 panel:深色渐变背景 + 对端头像/昵称/状态 + 共享控制条。

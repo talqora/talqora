@@ -2,33 +2,33 @@ import Dependencies
 import DependenciesMacros
 import Foundation
 
-enum WebRTCEvent: Equatable, Sendable {
+public enum WebRTCEvent: Equatable, Sendable {
     case localCandidate(IceCandidateDTO)
     case remoteVideoAvailable
     case connectionState(String)   // "connected"|"failed"|"closed"|...
 }
 
 @DependencyClient
-struct WebRTCSession: Sendable {
-    var configure: @Sendable (_ iceServers: [IceServerDTO], _ relayOnly: Bool) async -> Void
-    var startLocalMedia: @Sendable (_ video: Bool) async throws -> Void
-    var createOffer: @Sendable () async throws -> SessionDescriptionDTO
-    var createAnswer: @Sendable (_ remoteOffer: SessionDescriptionDTO) async throws -> SessionDescriptionDTO
-    var setRemoteAnswer: @Sendable (_ answer: SessionDescriptionDTO) async throws -> Void
-    var addRemoteCandidate: @Sendable (_ c: IceCandidateDTO) async -> Void
-    var setMuted: @Sendable (_ muted: Bool) async -> Void
-    var setCameraEnabled: @Sendable (_ on: Bool) async -> Void
-    var switchCamera: @Sendable () async -> Void
-    var setSpeaker: @Sendable (_ on: Bool) async -> Void
-    var reset: @Sendable () async -> Void
-    var close: @Sendable () async -> Void
-    var events: @Sendable () -> AsyncStream<WebRTCEvent> = { .finished }
-    var localVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
-    var remoteVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
+public struct WebRTCSession: Sendable {
+    public var configure: @Sendable (_ iceServers: [IceServerDTO], _ relayOnly: Bool) async -> Void
+    public var startLocalMedia: @Sendable (_ video: Bool) async throws -> Void
+    public var createOffer: @Sendable () async throws -> SessionDescriptionDTO
+    public var createAnswer: @Sendable (_ remoteOffer: SessionDescriptionDTO) async throws -> SessionDescriptionDTO
+    public var setRemoteAnswer: @Sendable (_ answer: SessionDescriptionDTO) async throws -> Void
+    public var addRemoteCandidate: @Sendable (_ c: IceCandidateDTO) async -> Void
+    public var setMuted: @Sendable (_ muted: Bool) async -> Void
+    public var setCameraEnabled: @Sendable (_ on: Bool) async -> Void
+    public var switchCamera: @Sendable () async -> Void
+    public var setSpeaker: @Sendable (_ on: Bool) async -> Void
+    public var reset: @Sendable () async -> Void
+    public var close: @Sendable () async -> Void
+    public var events: @Sendable () -> AsyncStream<WebRTCEvent> = { .finished }
+    public var localVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
+    public var remoteVideoTrack: @Sendable () async -> VideoTrackBox? = { nil }
 }
 
 extension WebRTCSession: DependencyKey {
-    static let previewValue = WebRTCSession(
+    public static let previewValue = WebRTCSession(
         configure: { _, _ in },
         startLocalMedia: { _ in },
         createOffer: { .init(type: "offer", sdp: "") },
@@ -46,7 +46,7 @@ extension WebRTCSession: DependencyKey {
         remoteVideoTrack: { nil }
     )
 
-    static var liveValue: WebRTCSession {
+    public static var liveValue: WebRTCSession {
         let engine = RTCEngine()
         return WebRTCSession(
             configure: { await engine.configure($0, relayOnly: $1) },
@@ -73,7 +73,7 @@ extension WebRTCSession: DependencyKey {
 }
 
 extension DependencyValues {
-    var webRTCSession: WebRTCSession {
+    public var webRTCSession: WebRTCSession {
         get { self[WebRTCSession.self] }
         set { self[WebRTCSession.self] = newValue }
     }

@@ -1,7 +1,7 @@
 import Foundation
 
-struct APIRequest: Sendable, Equatable {
-    enum Method: String, Sendable, Equatable {
+public struct APIRequest: Sendable, Equatable {
+    public enum Method: String, Sendable, Equatable {
         case get = "GET"
         case post = "POST"
         case put = "PUT"
@@ -9,13 +9,13 @@ struct APIRequest: Sendable, Equatable {
         case delete = "DELETE"
     }
 
-    var method: Method
-    var path: String
-    var query: [URLQueryItem]
-    var headers: [String: String]
-    var body: Data?
+    public var method: Method
+    public var path: String
+    public var query: [URLQueryItem]
+    public var headers: [String: String]
+    public var body: Data?
 
-    init(
+    public init(
         method: Method = .get,
         path: String,
         query: [URLQueryItem] = [],
@@ -31,11 +31,11 @@ struct APIRequest: Sendable, Equatable {
 }
 
 extension APIRequest {
-    static func get(_ path: String, query: [URLQueryItem] = []) -> APIRequest {
+    public static func get(_ path: String, query: [URLQueryItem] = []) -> APIRequest {
         APIRequest(method: .get, path: path, query: query)
     }
 
-    static func post(
+    public static func post(
         _ path: String,
         json body: some Encodable,
         encoder: JSONEncoder = JSONEncoder()
@@ -48,7 +48,7 @@ extension APIRequest {
         )
     }
 
-    static func put(
+    public static func put(
         _ path: String,
         json body: some Encodable,
         encoder: JSONEncoder = JSONEncoder()

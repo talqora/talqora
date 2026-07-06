@@ -1,44 +1,42 @@
 import Dependencies
+import Core
+import Models
 import DependenciesMacros
 import Foundation
 
-enum AuthError: Error, Equatable {
-    case notAuthenticated
-}
-
 @DependencyClient
-struct AuthService: Sendable {
-    var login: @Sendable (_ username: String, _ password: String, _ remember: Bool) async throws -> AuthTokens
+public struct AuthService: Sendable {
+    public var login: @Sendable (_ username: String, _ password: String, _ remember: Bool) async throws -> AuthTokens
     // 注册:成功不返回 token(服务端不自动登录),注册后仍需登录。
-    var register: @Sendable (_ username: String, _ email: String, _ password: String) async throws -> Void
+    public var register: @Sendable (_ username: String, _ email: String, _ password: String) async throws -> Void
     // 注册前唯一性预检(对齐 web):返回 true 表示「已存在」。
-    var checkUsername: @Sendable (_ username: String) async throws -> Bool
-    var checkEmail: @Sendable (_ email: String) async throws -> Bool
-    var refresh: @Sendable () async throws -> AuthTokens
-    var logout: @Sendable () async throws -> Void
+    public var checkUsername: @Sendable (_ username: String) async throws -> Bool
+    public var checkEmail: @Sendable (_ email: String) async throws -> Bool
+    public var refresh: @Sendable () async throws -> AuthTokens
+    public var logout: @Sendable () async throws -> Void
 }
 
 private struct ExistsResult: Decodable { let exists: Bool }
 
 private struct LoginBody: Encodable {
-    var username: String
-    var password: String
-    var remember: Bool
+    public var username: String
+    public var password: String
+    public var remember: Bool
 }
 
 private struct RegisterBody: Encodable {
-    var username: String
-    var email: String
-    var password: String
+    public var username: String
+    public var email: String
+    public var password: String
 }
 
 // 服务端 /api/login、/api/refresh 的 data 形如 { ...user, token }。原生端只取 token 走 Bearer。
 private struct TokenData: Decodable {
-    var token: String
+    public var token: String
 }
 
 extension AuthService: DependencyKey {
-    static let liveValue = AuthService(
+    public static let liveValue = AuthService(
         login: { username, password, remember in
             @Dependency(\.baseAPIClient) var apiClient
             @Dependency(\.keychain) var keychain
@@ -112,7 +110,7 @@ private func registerErrorMessage(from body: Data?) -> String {
 }
 
 extension DependencyValues {
-    var authService: AuthService {
+    public var authService: AuthService {
         get { self[AuthService.self] }
         set { self[AuthService.self] = newValue }
     }

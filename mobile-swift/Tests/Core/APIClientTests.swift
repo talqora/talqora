@@ -1,4 +1,5 @@
 import Foundation
+@testable import Core
 import Testing
 @testable import OurChat
 

@@ -1,10 +1,19 @@
 import ComposableArchitecture
+import Search
+import Services
+import Core
+import Models
 import Foundation
 
 @Reducer
-struct ChatsFeature {
+public struct ChatsFeature: Sendable {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(conversations: [Conversation] = []) {
+            self.conversations = conversations
+        }
         var conversations: [Conversation] = []
         var otherDeviceCount = 0
         var isLoading = false
@@ -15,7 +24,7 @@ struct ChatsFeature {
         var path = StackState<ChatDetailFeature.State>()
     }
 
-    enum Action: BindableAction {
+    public enum Action: BindableAction {
         case binding(BindingAction<State>)
         case onAppear
         case reloadTapped
@@ -28,7 +37,7 @@ struct ChatsFeature {
         case launcherRequested
         case delegate(Delegate)
 
-        enum Delegate: Equatable {
+        public enum Delegate: Equatable {
             // 聊天详情页发起通话:上抛给 MainFeature 呈现通话。
             case startCall(peer: CallUserDTO, type: CallType)
             // 小程序面板点磁贴:上抛给 MainFeature 全屏呈现 MiniApp。
@@ -38,7 +47,7 @@ struct ChatsFeature {
 
     @Dependency(\.chatClient) var chatClient
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         BindingReducer()
         Reduce { state, action in
             switch action {

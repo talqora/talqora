@@ -1,16 +1,18 @@
 import Dependencies
+import Core
+import Contracts
 import DependenciesMacros
 import Foundation
 
 // 文件上传:把数据以 multipart/form-data 传到 /api/upload/single,返回可访问 URL。
 @DependencyClient
-struct UploadClient: Sendable {
-    var uploadImage: @Sendable (_ data: Data, _ filename: String) async throws -> URL
-    var uploadFile: @Sendable (_ data: Data, _ filename: String, _ mimeType: String) async throws -> URL
+public struct UploadClient: Sendable {
+    public var uploadImage: @Sendable (_ data: Data, _ filename: String) async throws -> URL
+    public var uploadFile: @Sendable (_ data: Data, _ filename: String, _ mimeType: String) async throws -> URL
 }
 
 extension UploadClient: DependencyKey {
-    static let liveValue = UploadClient(
+    public static let liveValue = UploadClient(
         uploadImage: { data, filename in
             try await upload(data: data, filename: filename, mimeType: "image/jpeg")
         },
@@ -19,7 +21,7 @@ extension UploadClient: DependencyKey {
         }
     )
 
-    static let previewValue = UploadClient(
+    public static let previewValue = UploadClient(
         uploadImage: { _, _ in URL(string: "https://example.com/preview.jpg")! },
         uploadFile: { _, _, _ in URL(string: "https://example.com/preview.bin")! }
     )
@@ -58,7 +60,7 @@ private extension Data {
 }
 
 extension DependencyValues {
-    var uploadClient: UploadClient {
+    public var uploadClient: UploadClient {
         get { self[UploadClient.self] }
         set { self[UploadClient.self] = newValue }
     }

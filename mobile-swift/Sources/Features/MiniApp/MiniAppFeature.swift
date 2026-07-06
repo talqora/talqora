@@ -1,15 +1,21 @@
 import ComposableArchitecture
+import Services
 
 @Reducer
-struct MiniAppFeature {
+public struct MiniAppFeature: Sendable {
+    public init() {}
+
     @ObservableState
-    struct State: Equatable {
+    public struct State: Equatable {
+        public init(authorized: Bool = false) {
+            self.authorized = authorized
+        }
         var authorized: Bool = false
         var auth = AgentAuthFeature.State()
         var assistant = KnowledgeAssistantFeature.State()
     }
 
-    enum Action {
+    public enum Action {
         case onAppear
         case auth(AgentAuthFeature.Action)
         case assistant(KnowledgeAssistantFeature.Action)
@@ -17,7 +23,7 @@ struct MiniAppFeature {
 
     @Dependency(\.agentAuth) var agentAuth
 
-    var body: some ReducerOf<Self> {
+    public var body: some ReducerOf<Self> {
         Scope(state: \.auth, action: \.auth) { AgentAuthFeature() }
         Scope(state: \.assistant, action: \.assistant) { KnowledgeAssistantFeature() }
         Reduce { state, action in

@@ -2,12 +2,18 @@ import Kingfisher
 import SwiftUI
 
 // 头像:微信用圆角矩形(非圆形)。url 为空或加载中显示占位。Kingfisher 负责缓存。
-struct Avatar: View {
+public struct Avatar: View {
     let url: URL?
-    var size: CGFloat = 48
-    var cornerRadius: CGFloat = 6
+    var size: CGFloat
+    var cornerRadius: CGFloat
 
-    var body: some View {
+    public init(url: URL?, size: CGFloat = 48, cornerRadius: CGFloat = 6) {
+        self.url = url
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    public var body: some View {
         KFImage(url)
             .placeholder { placeholder }
             .resizable()
@@ -28,13 +34,20 @@ struct Avatar: View {
 }
 
 // 纯色图标块:用于「文件传输助手 / 新的朋友 / 群聊」等系统入口(微信用品牌色方块 + 图标)。
-struct IconTile: View {
+public struct IconTile: View {
     let systemName: String
     let color: Color
-    var size: CGFloat = 48
-    var cornerRadius: CGFloat = 6
+    var size: CGFloat
+    var cornerRadius: CGFloat
 
-    var body: some View {
+    public init(systemName: String, color: Color, size: CGFloat = 48, cornerRadius: CGFloat = 6) {
+        self.systemName = systemName
+        self.color = color
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    public var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(color)
             .frame(width: size, height: size)

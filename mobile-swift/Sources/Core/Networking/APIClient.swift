@@ -3,12 +3,12 @@ import DependenciesMacros
 import Foundation
 
 @DependencyClient
-struct APIClient: Sendable {
-    var perform: @Sendable (_ request: APIRequest) async throws -> Data
+public struct APIClient: Sendable {
+    public var perform: @Sendable (_ request: APIRequest) async throws -> Data
 }
 
 extension APIClient {
-    func send<Response: Decodable>(
+    public func send<Response: Decodable>(
         _ request: APIRequest,
         decoding _: Response.Type,
         decoder: JSONDecoder = .ourchatAPI
@@ -75,26 +75,27 @@ extension APIClient {
 }
 
 extension APIClient: DependencyKey {
-    static let liveValue: APIClient = {
+    public static let liveValue: APIClient = {
         let coordinator = RefreshCoordinator()
         return APIClient(perform: { request in
             @Dependency(\.baseAPIClient) var base
             @Dependency(\.keychain) var keychain
-            @Dependency(\.authService) var authService
+            // 依赖倒置:刷新走 Core 自己的 tokenRefresher 抽象,不直连 Services 的 authService。
+            @Dependency(\.tokenRefresher) var refresher
             return try await authenticatedPerform(
                 request,
                 base: base,
                 keychain: keychain,
                 coordinator: coordinator,
-                refresh: { _ = try await authService.refresh() },
-                onRefreshFailure: { try? await authService.logout() }
+                refresh: { try await refresher.refresh() },
+                onRefreshFailure: { await refresher.onRefreshFailure() }
             )
         })
     }()
 }
 
 extension DependencyValues {
-    var apiClient: APIClient {
+    public var apiClient: APIClient {
         get { self[APIClient.self] }
         set { self[APIClient.self] = newValue }
     }
