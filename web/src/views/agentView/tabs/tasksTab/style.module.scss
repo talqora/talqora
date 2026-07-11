@@ -1,6 +1,116 @@
-// 对话式布局:消息区(滚动)在上、输入框(ChatComposer)在下,与好友聊天同款滚动结构。
+// 两栏布局:左 = 任务会话列表(新建 / 删除),右 = 该会话 transcript(滚动)+ 输入框。
+// 与"对话 tab"同款左列表 + 右聊天 + 移动端单屏切换。
 .wrap {
   flex: 1;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+// ── 左:任务会话列表 ──
+.sessList {
+  width: 180px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+}
+.sessHead {
+  padding: $space-3 $space-3;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+}
+.newBtn {
+  background: transparent;
+  border: 0;
+  color: var(--primary-color);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  &:hover { text-decoration: underline; }
+}
+.sessScroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.empty {
+  padding: $space-4;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  text-align: center;
+}
+// error 态:与 empty 明显区别(危险色 + 重试),避免"空"看起来像"错"。
+.listError {
+  padding: $space-4;
+  font-size: 0.75rem;
+  color: $color-danger;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: $space-2;
+  align-items: center;
+}
+.retryBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: $radius-sm;
+  color: var(--text-2);
+  font-size: 0.6875rem;
+  padding: 0.125rem $space-2;
+  cursor: pointer;
+  &:hover { border-color: var(--primary-color); color: var(--primary-color); }
+}
+.sessItem {
+  display: flex;
+  align-items: center;
+  gap: $space-2;
+  padding: $space-2 $space-3;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-1);
+  border-left: 3px solid transparent;
+  transition: background $dur-base $ease-out, border-color $dur-base $ease-out;
+
+  &:hover { background: var(--hover); }
+}
+.sessItemActive {
+  background: var(--surface) !important;
+  border-left-color: var(--primary-color);
+  font-weight: 500;
+}
+.sessTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delBtn {
+  background: transparent;
+  border: 0;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  cursor: pointer;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-sm;
+  &:hover { background: rgba(239, 68, 68, 0.12); color: $color-danger; }
+}
+
+// ── 右:任务对话区 ──
+.chat {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -130,4 +240,51 @@
 .err {
   color: $color-danger;
   font-size: 0.875rem;
+}
+
+// 返回按钮:桌面隐藏,仅移动端单屏时露出(微信式细角标 "<")。
+.backBtn {
+  display: none;
+  align-items: center;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 $space-4;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+  cursor: pointer;
+  &::before {
+    content: '';
+    width: 11px;
+    height: 11px;
+    border-left: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+  }
+}
+
+// ─── 移动端(≤768px):会话列表 ↔ transcript 单屏切换 ───
+@include mobile {
+  .wrap {
+    position: relative;
+  }
+  .sessList {
+    width: 100%;
+    border-right: none;
+  }
+  .chat {
+    position: absolute;
+    inset: 0;
+    z-index: $z-base;
+    display: none;
+    background: var(--surface);
+  }
+  .has_active {
+    .sessList { display: none; }
+    .chat { display: flex; }
+  }
+  .backBtn {
+    display: inline-flex;
+  }
 }

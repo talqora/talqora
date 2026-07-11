@@ -20,6 +20,7 @@ import type {
   AgentMessage,
   AgentRun,
   AgentTaskResp,
+  AgentTaskSession,
   AgentUser,
   ChatStreamEvent,
   RunEvent,
@@ -162,11 +163,33 @@ export async function listConversationMessages(id: number): Promise<AgentMessage
   return conv.messages ?? [];
 }
 
+// ── 任务会话 ───────────────────────────────────────────────────────
+// 与对话 CRUD 对齐:列表不带 runs,详情带 runs(整段 transcript)。
+export async function listTaskSessions(): Promise<AgentTaskSession[]> {
+  return request('/agent/sessions');
+}
+
+export async function createTaskSession(title?: string): Promise<AgentTaskSession> {
+  return request('/agent/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ title: title ?? '新任务会话' }),
+  });
+}
+
+export async function getTaskSession(id: number): Promise<AgentTaskSession> {
+  return request(`/agent/sessions/${id}`);
+}
+
+export async function deleteTaskSession(id: number): Promise<void> {
+  await request(`/agent/sessions/${id}`, { method: 'DELETE' });
+}
+
 // ── Agent 任务 ─────────────────────────────────────────────────────
-export async function submitAgentTask(task: string): Promise<AgentTaskResp> {
+// sessionId 现为必填:任务必须归属某个任务会话(便于持久化 + 续播)。
+export async function submitAgentTask(task: string, sessionId: number): Promise<AgentTaskResp> {
   return request('/agent/tasks', {
     method: 'POST',
-    body: JSON.stringify({ task }),
+    body: JSON.stringify({ task, sessionId }),
   });
 }
 

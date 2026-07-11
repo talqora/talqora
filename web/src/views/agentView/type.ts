@@ -10,6 +10,7 @@ export type {
   RunEvent,
   AgentRun,
   AgentTaskResp,
+  AgentTaskSession,
   ChatDoneEvent,
 } from '../../contracts/gen/ourchat/agent/v1/agent';
 
