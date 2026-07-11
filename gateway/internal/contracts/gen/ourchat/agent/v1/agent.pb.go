@@ -605,13 +605,16 @@ func (x *RunEvent) GetData() *structpb.Struct {
 // 运行(泛化:摄取作业 + agent 任务共用)。
 // kind: ingestion | agent_task;status: queued | running | succeeded | failed
 type AgentRun struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	ProgressMsg   *string                `protobuf:"bytes,4,opt,name=progress_msg,json=progressMsg,proto3,oneof" json:"progress_msg,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Events        []*RunEvent            `protobuf:"bytes,6,rep,name=events,proto3" json:"events,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	RunId       string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Kind        string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Status      string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	ProgressMsg *string                `protobuf:"bytes,4,opt,name=progress_msg,json=progressMsg,proto3,oneof" json:"progress_msg,omitempty"`
+	CreatedAt   string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Events      []*RunEvent            `protobuf:"bytes,6,rep,name=events,proto3" json:"events,omitempty"`
+	// 该 run 的任务文本(agent_task 提交时的自然语言,后端截断 255)。
+	// 取会话详情时用于渲染用户气泡;stream/snapshot 场景可能不带,故 optional。
+	Task          *string `protobuf:"bytes,7,opt,name=task,proto3,oneof" json:"task,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -688,6 +691,13 @@ func (x *AgentRun) GetEvents() []*RunEvent {
 	return nil
 }
 
+func (x *AgentRun) GetTask() string {
+	if x != nil && x.Task != nil {
+		return *x.Task
+	}
+	return ""
+}
+
 // 提交 agent 任务响应。
 type AgentTaskResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -731,6 +741,84 @@ func (x *AgentTaskResp) GetRunId() string {
 		return x.RunId
 	}
 	return ""
+}
+
+// 任务会话:归组多次 agent 任务运行(与 AgentConversation 对齐)。
+// runs 仅在"取会话详情"时填充,列表接口不带(避免拉全量 transcript)。
+type AgentTaskSession struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int32                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     string                 `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Runs          []*AgentRun            `protobuf:"bytes,5,rep,name=runs,proto3" json:"runs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentTaskSession) Reset() {
+	*x = AgentTaskSession{}
+	mi := &file_ourchat_agent_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentTaskSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentTaskSession) ProtoMessage() {}
+
+func (x *AgentTaskSession) ProtoReflect() protoreflect.Message {
+	mi := &file_ourchat_agent_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentTaskSession.ProtoReflect.Descriptor instead.
+func (*AgentTaskSession) Descriptor() ([]byte, []int) {
+	return file_ourchat_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AgentTaskSession) GetId() int32 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *AgentTaskSession) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *AgentTaskSession) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *AgentTaskSession) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *AgentTaskSession) GetRuns() []*AgentRun {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
 }
 
 var File_ourchat_agent_v1_agent_proto protoreflect.FileDescriptor
@@ -793,7 +881,7 @@ const file_ourchat_agent_v1_agent_proto_rawDesc = "" +
 	"\bRunEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12+\n" +
-	"\x04data\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04data\"\xd9\x01\n" +
+	"\x04data\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04data\"\xfb\x01\n" +
 	"\bAgentRun\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
@@ -801,10 +889,20 @@ const file_ourchat_agent_v1_agent_proto_rawDesc = "" +
 	"\fprogress_msg\x18\x04 \x01(\tH\x00R\vprogressMsg\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\tcreatedAt\x122\n" +
-	"\x06events\x18\x06 \x03(\v2\x1a.ourchat.agent.v1.RunEventR\x06eventsB\x0f\n" +
-	"\r_progress_msg\"&\n" +
+	"\x06events\x18\x06 \x03(\v2\x1a.ourchat.agent.v1.RunEventR\x06events\x12\x17\n" +
+	"\x04task\x18\a \x01(\tH\x01R\x04task\x88\x01\x01B\x0f\n" +
+	"\r_progress_msgB\a\n" +
+	"\x05_task\"&\n" +
 	"\rAgentTaskResp\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runIdB\xd1\x01\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xa6\x01\n" +
+	"\x10AgentTaskSession\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x04 \x01(\tR\tupdatedAt\x12.\n" +
+	"\x04runs\x18\x05 \x03(\v2\x1a.ourchat.agent.v1.AgentRunR\x04runsB\xd1\x01\n" +
 	"\x14com.ourchat.agent.v1B\n" +
 	"AgentProtoP\x01ZKgithub.com/our-chat/gateway/internal/contracts/gen/ourchat/agent/v1;agentv1\xa2\x02\x03OAX\xaa\x02\x10Ourchat.Agent.V1\xca\x02\x10Ourchat\\Agent\\V1\xe2\x02\x1cOurchat\\Agent\\V1\\GPBMetadata\xea\x02\x12Ourchat::Agent::V1b\x06proto3"
 
@@ -820,7 +918,7 @@ func file_ourchat_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_ourchat_agent_v1_agent_proto_rawDescData
 }
 
-var file_ourchat_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_ourchat_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_ourchat_agent_v1_agent_proto_goTypes = []any{
 	(*AgentUser)(nil),         // 0: ourchat.agent.v1.AgentUser
 	(*AgentDocument)(nil),     // 1: ourchat.agent.v1.AgentDocument
@@ -832,19 +930,21 @@ var file_ourchat_agent_v1_agent_proto_goTypes = []any{
 	(*RunEvent)(nil),          // 7: ourchat.agent.v1.RunEvent
 	(*AgentRun)(nil),          // 8: ourchat.agent.v1.AgentRun
 	(*AgentTaskResp)(nil),     // 9: ourchat.agent.v1.AgentTaskResp
-	(*structpb.Struct)(nil),   // 10: google.protobuf.Struct
+	(*AgentTaskSession)(nil),  // 10: ourchat.agent.v1.AgentTaskSession
+	(*structpb.Struct)(nil),   // 11: google.protobuf.Struct
 }
 var file_ourchat_agent_v1_agent_proto_depIdxs = []int32{
 	3,  // 0: ourchat.agent.v1.AgentMessage.citations:type_name -> ourchat.agent.v1.Citation
 	4,  // 1: ourchat.agent.v1.AgentConversation.messages:type_name -> ourchat.agent.v1.AgentMessage
 	3,  // 2: ourchat.agent.v1.ChatDoneEvent.citations:type_name -> ourchat.agent.v1.Citation
-	10, // 3: ourchat.agent.v1.RunEvent.data:type_name -> google.protobuf.Struct
+	11, // 3: ourchat.agent.v1.RunEvent.data:type_name -> google.protobuf.Struct
 	7,  // 4: ourchat.agent.v1.AgentRun.events:type_name -> ourchat.agent.v1.RunEvent
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	8,  // 5: ourchat.agent.v1.AgentTaskSession.runs:type_name -> ourchat.agent.v1.AgentRun
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_ourchat_agent_v1_agent_proto_init() }
@@ -861,7 +961,7 @@ func file_ourchat_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ourchat_agent_v1_agent_proto_rawDesc), len(file_ourchat_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

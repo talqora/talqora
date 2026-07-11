@@ -97,9 +97,26 @@ export interface AgentRun {
   progressMsg?: string | undefined;
   createdAt: string;
   events: RunEvent[];
+  /**
+   * 该 run 的任务文本(agent_task 提交时的自然语言,后端截断 255)。
+   * 取会话详情时用于渲染用户气泡;stream/snapshot 场景可能不带,故 optional。
+   */
+  task?: string | undefined;
 }
 
 /** 提交 agent 任务响应。 */
 export interface AgentTaskResp {
   runId: string;
+}
+
+/**
+ * 任务会话:归组多次 agent 任务运行(与 AgentConversation 对齐)。
+ * runs 仅在"取会话详情"时填充,列表接口不带(避免拉全量 transcript)。
+ */
+export interface AgentTaskSession {
+  id: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  runs: AgentRun[];
 }

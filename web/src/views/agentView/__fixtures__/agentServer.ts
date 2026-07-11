@@ -18,7 +18,9 @@ import type {
   AgentConversation,
   AgentDocument,
   AgentMessage,
+  AgentRun,
   AgentTaskResp,
+  AgentTaskSession,
   AgentUser,
   RunEvent,
 } from '../type';
@@ -149,3 +151,81 @@ export const runEventFixtures = {
     },
   } as RunEvent,
 };
+
+// ── GET /agent/sessions 与 /agent/sessions/:id ──────────────────────
+// 列表接口不带 runs;详情接口带 runs(整段 transcript)。
+//
+// 注意 persisted 事件与 live(SSE)事件形状不同:
+//   live  : { id, type, data }(见 runEventFixtures)
+//   持久化: 原始 DB run_event 行 { id, runId, sequenceNo, eventType, payload, createdAt }
+//           —— 字段是 eventType(非 type)、payload 在顶层。
+// 前端用 normalizeRunEvent 把持久化行归一成 { id, type, data:row } 供 UI 统一读 data.payload。
+// 这里的 PersistedRunEventRow 就是那条原始行的形状。
+export interface PersistedRunEventRow {
+  id: number;
+  runId: string;
+  sequenceNo: number;
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export const persistedRunEventRows = {
+  toolCalled: {
+    id: 1, runId: 'run-A', sequenceNo: 1, eventType: 'tool_called',
+    createdAt: '2026-06-07T12:00:00.000Z',
+    payload: { name: 'retrieve_knowledge', args: { query: 'X' } },
+  } satisfies PersistedRunEventRow,
+  toolResult: {
+    id: 2, runId: 'run-A', sequenceNo: 2, eventType: 'tool_result',
+    createdAt: '2026-06-07T12:00:01.000Z',
+    payload: { name: 'retrieve_knowledge', result: 'hits: 3 chunks' },
+  } satisfies PersistedRunEventRow,
+  finalAnswer: {
+    id: 3, runId: 'run-A', sequenceNo: 3, eventType: 'final_answer',
+    createdAt: '2026-06-07T12:00:02.000Z',
+    payload: { content: 'persisted answer' },
+  } satisfies PersistedRunEventRow,
+};
+
+// 列表项(不带 runs)。satisfies 里 runs 仍需给,置空数组表达"列表不填充"。
+export const taskSessionListFixture = {
+  id: 1,
+  title: '任务会话 1',
+  createdAt: '2026-06-07T12:00:00.000Z',
+  updatedAt: '2026-06-07T12:00:00.000Z',
+  runs: [],
+} satisfies AgentTaskSession;
+
+// 已完成的一次运行(persisted events 为 DB 原始行,故 events 处需 cast)。
+export const completedRunFixture = {
+  runId: 'run-A',
+  kind: 'agent_task',
+  status: 'succeeded',
+  createdAt: '2026-06-07T12:00:00.000Z',
+  task: '总结我最新上传的文档',
+  events: [
+    persistedRunEventRows.toolCalled,
+    persistedRunEventRows.toolResult,
+    persistedRunEventRows.finalAnswer,
+  ],
+} as unknown as AgentRun & { task: string };
+
+// 进行中的一次运行(status=running → 续播);仅带一个 tool_called。
+export const runningRunFixture = {
+  runId: 'run-B',
+  kind: 'agent_task',
+  status: 'running',
+  createdAt: '2026-06-07T12:05:00.000Z',
+  task: '进行中的任务',
+  events: [persistedRunEventRows.toolCalled],
+} as unknown as AgentRun & { task: string };
+
+// 详情:一个已完成 run + 一个进行中 run。
+export const taskSessionDetailFixture = {
+  id: 1,
+  title: '任务会话 1',
+  createdAt: '2026-06-07T12:00:00.000Z',
+  updatedAt: '2026-06-07T12:05:00.000Z',
+  runs: [completedRunFixture, runningRunFixture],
+} as unknown as AgentTaskSession;
