@@ -97,6 +97,11 @@ export interface AgentRun {
   progressMsg?: string | undefined;
   createdAt: string;
   events: RunEvent[];
+  /**
+   * 该 run 的任务文本(agent_task 提交时的自然语言,后端截断 255)。
+   * 取会话详情时用于渲染用户气泡;stream/snapshot 场景可能不带,故 optional。
+   */
+  task?: string | undefined;
 }
 
 /** 提交 agent 任务响应。 */

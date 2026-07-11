@@ -605,13 +605,16 @@ func (x *RunEvent) GetData() *structpb.Struct {
 // 运行(泛化:摄取作业 + agent 任务共用)。
 // kind: ingestion | agent_task;status: queued | running | succeeded | failed
 type AgentRun struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	ProgressMsg   *string                `protobuf:"bytes,4,opt,name=progress_msg,json=progressMsg,proto3,oneof" json:"progress_msg,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Events        []*RunEvent            `protobuf:"bytes,6,rep,name=events,proto3" json:"events,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	RunId       string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Kind        string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Status      string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	ProgressMsg *string                `protobuf:"bytes,4,opt,name=progress_msg,json=progressMsg,proto3,oneof" json:"progress_msg,omitempty"`
+	CreatedAt   string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Events      []*RunEvent            `protobuf:"bytes,6,rep,name=events,proto3" json:"events,omitempty"`
+	// 该 run 的任务文本(agent_task 提交时的自然语言,后端截断 255)。
+	// 取会话详情时用于渲染用户气泡;stream/snapshot 场景可能不带,故 optional。
+	Task          *string `protobuf:"bytes,7,opt,name=task,proto3,oneof" json:"task,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -686,6 +689,13 @@ func (x *AgentRun) GetEvents() []*RunEvent {
 		return x.Events
 	}
 	return nil
+}
+
+func (x *AgentRun) GetTask() string {
+	if x != nil && x.Task != nil {
+		return *x.Task
+	}
+	return ""
 }
 
 // 提交 agent 任务响应。
@@ -871,7 +881,7 @@ const file_ourchat_agent_v1_agent_proto_rawDesc = "" +
 	"\bRunEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12+\n" +
-	"\x04data\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04data\"\xd9\x01\n" +
+	"\x04data\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04data\"\xfb\x01\n" +
 	"\bAgentRun\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
@@ -879,8 +889,10 @@ const file_ourchat_agent_v1_agent_proto_rawDesc = "" +
 	"\fprogress_msg\x18\x04 \x01(\tH\x00R\vprogressMsg\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\tcreatedAt\x122\n" +
-	"\x06events\x18\x06 \x03(\v2\x1a.ourchat.agent.v1.RunEventR\x06eventsB\x0f\n" +
-	"\r_progress_msg\"&\n" +
+	"\x06events\x18\x06 \x03(\v2\x1a.ourchat.agent.v1.RunEventR\x06events\x12\x17\n" +
+	"\x04task\x18\a \x01(\tH\x01R\x04task\x88\x01\x01B\x0f\n" +
+	"\r_progress_msgB\a\n" +
+	"\x05_task\"&\n" +
 	"\rAgentTaskResp\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xa6\x01\n" +
 	"\x10AgentTaskSession\x12\x0e\n" +
