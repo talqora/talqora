@@ -14,6 +14,9 @@ DerivedData/
 xcuserdata/
 *.xcscheme
 
+# xcodebuild / make 的构建输出(-derivedDataPath build,非 SPM 的 .build/)
+build/
+
 # macOS
 .DS_Store
 
