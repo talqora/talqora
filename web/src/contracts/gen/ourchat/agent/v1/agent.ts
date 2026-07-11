@@ -103,3 +103,15 @@ export interface AgentRun {
 export interface AgentTaskResp {
   runId: string;
 }
+
+/**
+ * 任务会话:归组多次 agent 任务运行(与 AgentConversation 对齐)。
+ * runs 仅在"取会话详情"时填充,列表接口不带(避免拉全量 transcript)。
+ */
+export interface AgentTaskSession {
+  id: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  runs: AgentRun[];
+}
