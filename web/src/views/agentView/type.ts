@@ -1,4 +1,6 @@
-import type { Citation } from '../../contracts/gen/ourchat/agent/v1/agent';
+// agent 契约类型来自 agent-server 发布的类型包(权威是 agent-server 的 proto,本端只消费)。
+// 不再从 our-chat 本地 gen 引入——agent 域已从本仓 proto 移除,统一由 agent-server 维护。
+import type { Citation } from '@talqora/agent-contracts';
 
 export type {
   AgentUser,
@@ -12,7 +14,7 @@ export type {
   AgentTaskResp,
   AgentTaskSession,
   ChatDoneEvent,
-} from '../../contracts/gen/ourchat/agent/v1/agent';
+} from '@talqora/agent-contracts';
 
 export type DocStatus =
   | 'uploaded'
