@@ -5,8 +5,12 @@ WORKDIR /app
 RUN npm install -g pnpm@10
 # 依赖源:默认官方;服务器本地 build 时由 compose 传 NPM_REGISTRY=npmmirror(国内快)。
 ARG NPM_REGISTRY=https://registry.npmjs.org
-# 先拷依赖清单,利用层缓存
-COPY package.json pnpm-lock.yaml ./
+# @talqora 私有作用域(agent-contracts)走 GitHub Packages,需 token 鉴权(.npmrc 读此环境变量)。
+# 由 compose 以 build-arg 传入;非机密默认空(公开 registry 的包不受影响)。
+ARG NODE_AUTH_TOKEN=
+ENV NODE_AUTH_TOKEN=$NODE_AUTH_TOKEN
+# 先拷依赖清单 + .npmrc(作用域 registry 映射),利用层缓存
+COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile --registry="$NPM_REGISTRY"
 COPY . .
 # 生产构建期注入「用户实际访问的公开 origin」(经 nginx 同源反代到 server/gateway)。

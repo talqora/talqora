@@ -127,6 +127,8 @@ services:
         NPM_REGISTRY: https://registry.npmmirror.com
         VITE_SERVER_ORIGIN: ${WEB_PUBLIC_ORIGIN:?WEB_PUBLIC_ORIGIN 未设置（应由 CI export）}
         VITE_AGENT_API_BASE: ${WEB_PUBLIC_ORIGIN}/agent/api
+        # 拉取 @talqora/agent-contracts(GitHub Packages 私有作用域)所需 token；由 CI 按 Secret 注入。
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: our-chat-web:local
     container_name: our-chat-web
     restart: unless-stopped

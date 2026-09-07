@@ -28,6 +28,7 @@
   ],
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
+    "@talqora/agent-contracts": "^0.1.0",
     "@reduxjs/toolkit": "^2.8.2",
     "@types/crypto-js": "^4.2.2",
     "antd": "^5.26.3",
