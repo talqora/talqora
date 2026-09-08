@@ -14,6 +14,9 @@ importers:
       '@reduxjs/toolkit':
         specifier: ^2.8.2
         version: 2.8.2(react-redux@9.2.0(@types/react@19.1.8)(react@19.1.0)(redux@5.0.1))(react@19.1.0)
+      '@talqora/agent-contracts':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@types/crypto-js':
         specifier: ^4.2.2
         version: 4.2.2
@@ -786,6 +789,9 @@ packages:
 
   '@swc/types@0.1.23':
     resolution: {integrity: sha512-u1iIVZV9Q0jxY+yM2vw/hZGDNudsN85bBpTqzAQ9rzkxW9D+e3aEM4Han+ow518gSewkXgjmEK0BD79ZcNVgPw==}
+
+  '@talqora/agent-contracts@0.1.0':
+    resolution: {integrity: sha512-C6cWxmlXTr2750rLCRO6DAdP8Ai3WAwED/oO3AtYVwjVwrJ0qZl9/74WuIb+nlvaSgA0flXJrvEFp+Rbq6i0Ig==, tarball: https://npm.pkg.github.com/download/@talqora/agent-contracts/0.1.0/a175a131f2d166074bfa4bf09d38d17fd8fcece3}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -3900,6 +3906,8 @@ snapshots:
   '@swc/types@0.1.23':
     dependencies:
       '@swc/counter': 0.1.3
+
+  '@talqora/agent-contracts@0.1.0': {}
 
   '@testing-library/dom@10.4.1':
     dependencies:
