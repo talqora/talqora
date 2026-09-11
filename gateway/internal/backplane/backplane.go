@@ -10,10 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/our-chat/gateway/internal/hub"
+	"github.com/our-chat/gateway/internal/metrics"
 )
 
 const channel = "gw:downlink"
@@ -45,7 +47,12 @@ func Run(ctx context.Context, rdb *redis.Client, h *hub.Hub, log *slog.Logger) e
 			if dm.UserID == 0 || len(dm.Frame) == 0 {
 				continue
 			}
+			// 计时窗口:从此刻(已解出本条下行帧)到 RouteToUser 把它投进目标连接 send channel 为止。
+			// RouteToUser 内部对该用户在本副本的每条连接都做 enqueue(非阻塞 channel 写),
+			// 这里量的是"路由 + 入队"这一段,不含客户端后续真正读走/写到 socket 的耗时。
+			start := time.Now()
 			h.RouteToUser(dm.UserID, dm.Frame)
+			metrics.DownlinkDuration.Observe(time.Since(start).Seconds())
 		}
 	}
 }

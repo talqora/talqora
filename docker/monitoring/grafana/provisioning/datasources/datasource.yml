@@ -1,0 +1,13 @@
+# Grafana 数据源自动配置:容器内通过 compose service 名 prometheus 访问(同一 monitoring network)。
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 5s

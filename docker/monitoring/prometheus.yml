@@ -1,0 +1,18 @@
+# Prometheus 抓取配置:server(Node)与 gateway(Go)均在宿主机运行,
+# 容器内通过 host.docker.internal 访问宿主机暴露的端口。
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Node 业务/信令后端,见 server/src/metrics/metrics.ts,端口取自 server/src/server.ts 的 PORT(默认 3007)。
+  - job_name: server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:3007']
+
+  # Go 长连接网关,见 gateway/internal/metrics/metrics.go,端口取自 GATEWAY_ADDR(默认 :8090)。
+  - job_name: gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:8090']

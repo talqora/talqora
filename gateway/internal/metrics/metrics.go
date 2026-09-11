@@ -47,7 +47,18 @@ var (
 		Help:    "上行从收帧到拿到 Node ack 的耗时",
 		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5},
 	})
+
+	// 下行端到端耗时(网关从 backplane 收到帧 → 投递进目标连接的发送 channel)。
+	// buckets 与 UplinkDuration 保持一致,便于上下行同口径对比。
+	DownlinkDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "gateway_downlink_duration_seconds",
+		Help:    "下行从 backplane 收到到写入客户端连接发送缓冲的耗时",
+		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5},
+	})
 )
+
+// runtime 指标(goroutine 数、GC 耗时、内存等 go_*/process_*)由 promauto 使用的默认
+// registry 自动暴露,无需在此额外注册——与 Node 侧 prom-client 默认指标对比时可直接用这些。
 
 // Handler 返回 /metrics 的 HTTP 处理器,挂到网关的 metrics 监听上供 Prometheus 抓取。
 func Handler() http.Handler {

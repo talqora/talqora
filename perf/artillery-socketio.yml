@@ -1,0 +1,51 @@
+# 可选加分项:Artillery socket.io 场景骨架。
+#
+# 不确定点(未在本机验证,使用前请自行 dry-run 确认):
+# 1. 本项目 server 端用的是 socket.io v4.8.1(见 server/package.json)。Artillery 内置的
+#    `engine: socketio` 引擎是为 socket.io v2 协议写的,对 v4 握手/包协议不一定兼容。
+#    官方推荐搭配插件 `@artilleryio/artillery-engine-socketio-v3`(适配 v3/v4 协议),
+#    需要额外 `npm install -D @artilleryio/artillery-engine-socketio-v3` 并在 config.plugins 里声明。
+#    如果不确定协议兼容性,优先用 perf/harness.mjs(已用 socket.io-client 同版本实测过握手路径)。
+# 2. 鉴权走 `handshake.auth.token`(见 server/src/utils/socket.ts io.use),Artillery 的
+#    socketio 引擎默认把 `query` 拼进握手 URL,不一定支持 `auth` 字段——这里用 `query.token`
+#    做兜底占位,若 server 只认 handshake.auth.token 不认 query,需要改用上面的 v3 引擎插件
+#    (它支持 `auth` 选项)或自行 fork 一个 `beforeConnect` hook 注入 auth。
+# 3. message.send 的回包是服务端主动 emit 的 message.ack / message.error(不是 socket.io 的
+#    ack 回调风格),Artillery 内置 `emit` + `acknowledge` 语法测不到这类回包 RTT;如需精确 RTT
+#    还是用 perf/harness.mjs。这里只做「發出去」的负载,不断言回包。
+
+config:
+  target: "http://localhost:3007"
+  engine: socketio # 不兼容时换成: socketio-v3(装 @artilleryio/artillery-engine-socketio-v3 后)
+  socketio:
+    transports: ["websocket"]
+    # query:
+    #   token: "{{ token }}"      # 见上方注意点2:auth.token 可能需要 v3 引擎插件才支持
+  phases:
+    - duration: 5
+      arrivalRate: 1
+      rampTo: 5
+      name: "warm up"
+    - duration: 30
+      arrivalRate: 5
+      rampTo: 40
+      name: "ramp to target load"
+    - duration: 30
+      arrivalRate: 40
+      name: "sustained load"
+  # 压测前需要先跑 perf/harness.mjs 的注册/登录逻辑(或自建脚本)拿到一批可用 JWT,
+  # 再用 `-v tokens=./tokens.json` 或 processor 函数把 token 灌进每个虚拟用户的上下文变量 `token`。
+  # processor: "./artillery-processor.cjs"   # 如需自定义 beforeScenario 注入 auth,骨架未提供该文件
+
+scenarios:
+  - name: "message.send 负载"
+    engine: socketio
+    flow:
+      - emit:
+          channel: "message.send"
+          data:
+            clientMsgId: "{{ $randomString() }}"
+            conversationId: "single_1_2" # 占位:需替换成压测账号真实配对的 conversationId
+            content: "artillery bench message"
+            type: "text"
+      - think: 0.2

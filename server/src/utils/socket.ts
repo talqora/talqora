@@ -1,6 +1,7 @@
 import { Server } from 'socket.io'; //基于WebSocket的实时通信库
 import type { Server as HttpServer } from 'http';
 import { randomUUID } from 'crypto';
+import { performance } from 'perf_hooks';
 import jwt from 'jsonwebtoken';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Prisma } from '../generated/prisma/index.js';
@@ -21,6 +22,13 @@ import {
   getSession,
   GRACE_MS,
 } from '../services/callSession.js';
+import {
+  incConnections,
+  decConnections,
+  observeMessageDuration,
+  messageInTotal,
+  messageOutTotal,
+} from '../metrics/metrics.js';
 
 // 握手验签后把用户身份挂到 socket 上，房间号即用户 id。
 declare module 'socket.io' {
@@ -90,6 +98,9 @@ export const initSocket = (server: HttpServer): Server => {
   io.on('connection', (socket) => {
     console.log('用户连接:', socket.id, 'userId:', socket.userId);
 
+    // 活跃连接数 Gauge +1,disconnect 时对称 -1(见下方 disconnect 处理)。
+    incConnections();
+
     // 连接即自动加入「自己」的房间，房间号取服务端验签得到的 userId
     socket.join(room(socket.userId as number));
 
@@ -125,31 +136,42 @@ export const initSocket = (server: HttpServer): Server => {
     // 新协议:可靠上行。zod 校验 → 落库后回 message.ack(回带 seq/serverMsgId),
     // 客户端凭 ack 把本地"发送中"替换为"已发送";收不到则按同 clientMsgId 重发,服务端幂等去重。
     socket.on('message.send', async (raw) => {
-      const parsed = sendMessageInput.safeParse(raw);
-      if (!parsed.success) {
-        socket.emit('message.error', { message: '消息参数非法', clientMsgId: (raw as { clientMsgId?: string })?.clientMsgId });
-        return;
-      }
-      const data = parsed.data;
+      // 埋点:整个处理耗时(收帧到 ack/error 落定)进 server_message_duration_seconds,
+      // try/finally 保证校验失败/落库异常任一分支都会 observe,不漏埋点。
+      const t0 = performance.now();
+      messageInTotal.inc();
+      let result: 'ok' | 'error' = 'error';
       try {
-        const { message } = await persistAndBroadcastMessage({
-          conversationId: data.conversationId,
-          senderId: BigInt(socket.userId as number), // 发送者以握手验签身份为准,不信任入参
-          clientMsgId: data.clientMsgId,
-          content: data.content,
-          type: data.type,
-          mentions: data.mentions as Prisma.InputJsonValue,
-          extra: data.extra as Prisma.InputJsonValue,
-          fileInfo: data.fileInfo as Prisma.InputJsonValue,
-        });
-        socket.emit('message.ack', {
-          clientMsgId: data.clientMsgId,
-          seq: message.seq,
-          serverMsgId: message.id,
-        });
-      } catch (err) {
-        console.error('message.send 处理失败:', err);
-        socket.emit('message.error', { message: '消息发送失败', clientMsgId: data.clientMsgId });
+        const parsed = sendMessageInput.safeParse(raw);
+        if (!parsed.success) {
+          socket.emit('message.error', { message: '消息参数非法', clientMsgId: (raw as { clientMsgId?: string })?.clientMsgId });
+          return;
+        }
+        const data = parsed.data;
+        try {
+          const { message } = await persistAndBroadcastMessage({
+            conversationId: data.conversationId,
+            senderId: BigInt(socket.userId as number), // 发送者以握手验签身份为准,不信任入参
+            clientMsgId: data.clientMsgId,
+            content: data.content,
+            type: data.type,
+            mentions: data.mentions as Prisma.InputJsonValue,
+            extra: data.extra as Prisma.InputJsonValue,
+            fileInfo: data.fileInfo as Prisma.InputJsonValue,
+          });
+          socket.emit('message.ack', {
+            clientMsgId: data.clientMsgId,
+            seq: message.seq,
+            serverMsgId: message.id,
+          });
+          result = 'ok';
+        } catch (err) {
+          console.error('message.send 处理失败:', err);
+          socket.emit('message.error', { message: '消息发送失败', clientMsgId: data.clientMsgId });
+        }
+      } finally {
+        observeMessageDuration((performance.now() - t0) / 1000);
+        messageOutTotal.inc({ result });
       }
     });
 
@@ -308,6 +330,9 @@ export const initSocket = (server: HttpServer): Server => {
     // 断开连接:① presence 摘除该设备;② 若该设备是某通通话的属主,进入 grace 重连窗:
     //   通知对端「对方重连中」,GRACE_MS 内等 call:rejoin;超时仍未恢复则结束并广播 call:end。
     socket.on('disconnect', () => {
+      // 活跃连接数 Gauge -1,与上方 connection 时的 +1 对称。
+      decConnections();
+
       void remove(socket.userId as number, socket.deviceId as string).catch((err) =>
         console.error('presence 摘除失败:', err)
       );

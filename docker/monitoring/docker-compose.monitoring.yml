@@ -1,0 +1,54 @@
+name: our-chat-monitoring
+
+# 本地监测栈:Prometheus 抓取宿主机上运行的 server(Node, :3007/metrics)与
+# gateway(Go, :8090/metrics),Grafana 可视化对比。
+# server/gateway 不在本 compose 里(它们在宿主机上跑 npm run dev / go run),
+# 容器通过 host.docker.internal 访问宿主机端口。
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: our-chat-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - '9090:9090'
+    extra_hosts:
+      # Linux 下 host.docker.internal 默认不解析,显式加一条映射到宿主机网关;
+      # macOS/Windows Docker Desktop 原生支持,这条是无害的重复保险。
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: our-chat-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - '3001:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # 本地看板方便起见允许匿名访问(Viewer 权限),生产环境不要照搬这份配置。
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    name: our-chat-monitoring
+
+volumes:
+  prometheus-data:
+    name: our-chat-monitoring-prometheus-data
+  grafana-data:
+    name: our-chat-monitoring-grafana-data

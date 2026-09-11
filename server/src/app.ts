@@ -15,6 +15,8 @@ import friendRouter from './routes/friend.js';
 import uploadAdvancedRouter from './routes/uploadAdvanced.js';
 import internalRouter from './routes/internal.js';
 import turnRouter from './routes/turn.js';
+import metricsRouter from './routes/metrics.js';
+import rumRouter from './routes/rum.js';
 
 const app = express(); //Express监听（http）服务器
 
@@ -77,6 +79,10 @@ app.use('/user', userRouter);
 app.use('/user', friendRouter);
 app.use('/api/upload', uploadAdvancedRouter);
 app.use('/internal', internalRouter);
+// Prometheus 抓取端点,挂在根路径(非 /api 下),且不经鉴权中间件——见 routes/metrics.ts 注释。
+app.use(metricsRouter);
+// 前端 RUM(web-vitals)信标上报,POST /api/rum。
+app.use('/api', rumRouter);
 
 // 错误处理中间件（需注册在所有路由之后）
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {

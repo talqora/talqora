@@ -1,0 +1,16 @@
+{
+  "name": "our-chat-perf",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "IM server(Socket.io)实时路径压测 harness,用于给监测平台(Prometheus/Grafana 等)造负载",
+  "scripts": {
+    "bench": "node harness.mjs"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "artillery": "^2.0.0"
+  }
+}

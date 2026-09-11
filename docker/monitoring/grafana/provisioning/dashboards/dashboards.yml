@@ -1,0 +1,15 @@
+# Grafana dashboard provider:从容器内 /var/lib/grafana/dashboards 目录自动加载 dashboard JSON
+# (该路径在 compose 里挂载自 ./grafana/dashboards)。
+apiVersion: 1
+
+providers:
+  - name: our-chat
+    orgId: 1
+    folder: 'our-chat'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
