@@ -35,3 +35,25 @@ class SocketService {
 }
 
 export default SocketService;
+
+// ------ 实时消息 RTT 打点关联态 ------
+// 发送方（chatView）与接收方（useGlobalMessageListener）是两个不同的组件/hook，
+// 用 clientMsgId 关联"发出时刻"与"收到回显时刻"需要一处共享存储；这只是打点用的临时态，
+// 不需要触发渲染、也不需要持久化，故不放 Redux，挂在本模块（两边本就都 import 它）。
+const pendingSentAt = new Map<string, number>();
+
+// 发送消息时调用：记录该 clientMsgId 对应的发出时刻。
+export function markMessageSent(clientMsgId: string) {
+  if (!clientMsgId) return;
+  pendingSentAt.set(clientMsgId, Date.now());
+}
+
+// 收到消息回显时调用：若 clientMsgId 命中此前记录的发送，返回往返耗时（ms）并清除记录；
+// 未命中（如对方发来的消息，或本地未打点的发送路径）返回 null，调用方据此决定是否上报。
+export function takeMessageRtt(clientMsgId: string | null | undefined): number | null {
+  if (!clientMsgId) return null;
+  const sentAt = pendingSentAt.get(clientMsgId);
+  if (sentAt === undefined) return null;
+  pendingSentAt.delete(clientMsgId);
+  return Date.now() - sentAt;
+}

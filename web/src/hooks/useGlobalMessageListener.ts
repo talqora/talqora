@@ -1,7 +1,8 @@
 // 全局 socket 监听器，监听 socket 消息，并更新全局消息状态,在app.tsx中使用
 import { useEffect, useRef} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import SocketService from '@/utils/socket';
+import SocketService, { takeMessageRtt } from '@/utils/socket';
+import { reportRealtimeRtt } from '@/rum';
 import { addGlobalMessage, initGlobalUserConversations, initGlobalConversations,
 initGlobalFriendList, initGlobalFriendInfoList, initLastMessages, addLastMessage, addConversation, addGlobalFriend, addGlobalFriendInfo } from '@/store/chatStore';
 import type { Message } from '@/globalType/message';
@@ -71,6 +72,14 @@ export default function useGlobalMessageListener() {
        socket.emit('join', userId); // 发送连接事件，后端处理连接后的配置（加入会话等
        // 新消息处理函数
        const handleMessage = async (msg: Message) => {
+            // RTT 打点：receiveMessage 是服务端对 sendMessage 的读扩散广播，发送者自己也在收件范围内，
+            // 故这里收到的消息若 clientMsgId 命中本地发送时记录的表（chatView 发送时 markMessageSent），
+            // 即为该条消息"发出到自己收到回显"的往返；对方发来的消息 clientMsgId 不在表中，takeMessageRtt 返回 null，不上报。
+            // 注：测的是 socket.io 上 sendMessage 事件从客户端发出到服务端落库广播回到同一客户端的端到端往返，不是纯网络 RTT。
+            const rttMs = takeMessageRtt(msg.clientMsgId);
+            if (rttMs !== null) {
+              reportRealtimeRtt('socketio', rttMs, 'message.send');
+            }
             // setState 可以接受两种参数：
             // 直接值 ：setMessages(newMessages);
             // 函数式更新 ：注： 当某个会话是第一次收到消息时，其结构为[id] : undefined，需要使用空数组初始化

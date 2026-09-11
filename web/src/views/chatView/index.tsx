@@ -5,7 +5,7 @@ import type { Conversation } from '@/globalType/chat';
 import type { Message } from '@/globalType/message';
 import { List } from 'antd';
 import chatViewStyle from './style.module.scss';
-import SocketService from '@/utils/socket';
+import SocketService, { markMessageSent } from '@/utils/socket';
 import { getConversationMessages } from '@/globalApi/chatApi';
 import { initGlobalMessages, initActiveConversation } from '@/store/chatStore';
 import type { ApiResponse } from '@/globalType/apiResponse';
@@ -119,9 +119,14 @@ function ChatView() {
     // 发送消息（文本由输入组件传入，草稿态不再驻留本组件）
     const sendMessage = (text: string) => {
         if (!text.trim() || !activeConversation) return;
+        // RTT 打点：生成 clientMsgId 关联本次发送与其后的 receiveMessage 回显（服务端广播 receiveMessage 时，
+        // 发送者自己也在会话在线成员范围内，故能收到自己这条消息，近似当作 send 的 ack 时机）。
+        // 之前这里恒传 ''，服务端收到空值会自行生成 clientMsgId，本地也就无法关联；
+        // 现在由客户端生成非空 id 一并带上，仅用于本地 RTT 关联，顺带也让服务端既有的按 clientMsgId 幂等去重可用。
+        const clientMsgId = crypto.randomUUID();
         const msg:Message = {
             id: 0,
-            clientMsgId: '',
+            clientMsgId,
             seq: 0,
             conversationId: activeConversation,
             senderId: userId,
@@ -137,6 +142,7 @@ function ChatView() {
             updatedAt: new Date().toISOString(),
             timestamp: new Date().toISOString(),
         };
+        markMessageSent(clientMsgId);
         socket.emit('sendMessage', msg);
         // 由 socket 监听 receiveMessage 事件来更新消息列表，这里不更新
     };
@@ -179,9 +185,11 @@ function ChatView() {
     const handleFileUploadSuccess = (files: FileItem[]) => {
         try {
             files.forEach(file => {
+                // RTT 打点：同 sendMessage，用本地生成的 clientMsgId 关联发出与回显。
+                const clientMsgId = crypto.randomUUID();
                 const fileMessage: Message = {
                     id: 0,
-                    clientMsgId: '',
+                    clientMsgId,
                     seq: 0,
                     conversationId: activeConversation!,
                     senderId: userId,
@@ -204,7 +212,8 @@ function ChatView() {
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 };
-                
+
+                markMessageSent(clientMsgId);
                 // 通过socket发送文件消息
                 socket.emit('sendMessage', fileMessage);
             });            
