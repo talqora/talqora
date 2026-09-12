@@ -45,13 +45,18 @@ router.post('/gateway/uplink', async (req: Request, res: Response) => {
     return res.status(400).json({ type: 'message.error', message: '缺少合法的用户身份' });
   }
 
-  const frame = req.body as { type?: string };
+  const frame = req.body as { type?: string; data?: unknown };
   // 网关透传任意帧,Node 按 type 分发。当前 PoC 仅落 message.send;其余类型明确拒绝。
   if (frame?.type !== 'message.send') {
     return res.status(400).json({ type: 'message.error', message: `不支持的上行类型: ${frame?.type}` });
   }
 
-  const parsed = sendMessageInput.safeParse(frame);
+  // 兼容两种上行帧形态:
+  //  ① {type:'message.send', data:{...消息载荷}} —— 推荐:信封 type 与消息载荷分离,
+  //     消息自身的 type(如 'text')不会被信封的 'message.send' 覆盖(gateway 客户端用此形态)。
+  //  ② 直接整帧即消息载荷(早期 PoC 形态)—— 兼容保留,此时消息 type 会等于信封 'message.send'。
+  const payload = (frame.data ?? frame) as unknown;
+  const parsed = sendMessageInput.safeParse(payload);
   if (!parsed.success) {
     return res.status(400).json({
       type: 'message.error',
