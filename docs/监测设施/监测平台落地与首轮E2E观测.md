@@ -107,3 +107,29 @@ docker compose -f docker/docker-compose.dev.yml down
 - **加细直方图桶**(见坑②)。
 - **gateway parity → 客户端接 /ws → 真正 A/B**(见开发计划)。
 - 多机压测隔离压测端瓶颈;`/metrics` 生产环境加内网/令牌保护。
+
+---
+
+## 六、补充验证(回应"埋点是否完整、测试是否全面")
+
+首轮只跑了 Node happy-path 一个场景,以下为补齐的**埋点运行时验证**与**测试覆盖**(均有实测证据):
+
+| 验证项 | 手段 | 结果 |
+|---|---|---|
+| `/api/rum` 接收端 + `server_rum_web_vitals` | POST 一条 LCP 信标 | 204;直方图 `{name="LCP",rating="good"}` 落到 [1,2.5]s 桶(1234ms 正确换算)✅ |
+| `nodejs_gc_pause_seconds`(自建 GC 直方图) | 压测后读 count | `{minor}=4681 {major}=42 {incremental}=42`,真实记录到 GC ✅ |
+| `nodejs_eventloop_lag` **压力下** | 重负载(150×20)运行中快照 + Prometheus | 空载 p99≈0.5ms → 负载窗口 **p99 峰值 37ms**,信号随负载抬升 ✅ |
+| **gateway 全部埋点**(此前 0 运行时验证) | `perf/gw-probe.mjs`:raw-ws 带 Cookie token 连 /ws 发 message.send | `handshakes{ok}=1`、`uplink{ok}=1`+`uplink_duration_count=1`、`downlink{delivered=1,dropped=1}`+`downlink_duration_count=2`,收到 receiveMessage 回显 + message.ack ✅ |
+| 错误路径 `server_message_out_total{result="error"}` | `perf/err-probe.mjs`:发缺 conversationId 的非法帧 | in_total +1、`out_total{error}=1`、回 message.error ✅ |
+| server 全量回归(埋点无破坏) | `pnpm typecheck` + `pnpm test` | typecheck 干净;**32 文件 177 测试全绿(0 失败)** ✅ |
+
+**重负载暴露的真实降级(监测成功捕捉)**:150 连接 × 20 msg/s(目标 3000 msg/s)下,44718 发送仅 16167 ack、**28551 message.error**、RTT p99≈**2s**。监测侧的错误计数、RTT、eventloop lag 全部随之动——证明埋点能如实反映降级。**降级根因(DB/seq/会话竞争等)属后续 benchmark 的根因分析,不在本次埋点补测范围。**
+
+### 仍未覆盖(诚实清单,属"benchmark 场景"而非"埋点缺口")
+- 连接爬坡到极限找**单机最大稳定连接数**(只压到 150,未探顶)。
+- **群扇出**(N=100/1000)与**惊群重连**两个计划场景未跑。
+- **gateway 规模化压测**(只用 1 条探针验证了埋点正确性,未驱动 N 条 gateway 连接压测)——且真正 A/B 仍需 gateway 补 parity + 客户端接 /ws。
+- **web 端 RTT 未经浏览器实测**(见 §五 clientMsgId 待确认)。
+- 直方图尾桶加细(见坑②)。
+
+结论:**埋点模块**(server + gateway 两侧的连接/消息/时延/错误/eventloop/GC/RUM)已逐项运行时验证 + 回归通过,可认为**完整可用**;**测试**覆盖了 happy-path、错误路径、压力降级、gateway 全链路与全量回归,但**benchmark 场景覆盖仍不全面**(上面清单),这些依赖 gateway parity,属下一阶段。
