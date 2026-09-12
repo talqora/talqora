@@ -1,0 +1,49 @@
+{
+  "label": "s1_gateway",
+  "mode": "gateway",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 10,
+    "DURATION": 20,
+    "RAMP": 25
+  },
+  "startedAt": 1789199332175,
+  "endedAt": 1789199366998,
+  "windowSec": 35,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 19800,
+    "ack": 19800,
+    "connectMs": {
+      "p50": 6,
+      "p95": 9,
+      "p99": 9,
+      "min": 4,
+      "max": 10,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 63,
+      "p95": 244,
+      "p99": 365,
+      "min": 8,
+      "max": 536,
+      "n": 19800
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 100,
+    "peakServerRssMB": 234.2,
+    "peakGatewayRssMB": 32.5,
+    "peakEventloopP99Ms": 17.27,
+    "peakGoroutines": 412
+  },
+  "serverInternalDurationMs": {
+    "p50": 60.2,
+    "p95": 170,
+    "p99": 241.9
+  }
+}

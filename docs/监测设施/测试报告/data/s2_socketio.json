@@ -1,0 +1,49 @@
+{
+  "label": "s2_socketio",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 300,
+    "RATE": 2,
+    "DURATION": 15,
+    "RAMP": 50
+  },
+  "startedAt": 1789199430605,
+  "endedAt": 1789199475931,
+  "windowSec": 46,
+  "harness": {
+    "connectedCount": 300,
+    "attempted": 300,
+    "sent": 8700,
+    "ack": 8700,
+    "connectMs": {
+      "p50": 16,
+      "p95": 26,
+      "p99": 27,
+      "min": 11,
+      "max": 29,
+      "n": 300
+    },
+    "rttMs": {
+      "p50": 125,
+      "p95": 220,
+      "p99": 318,
+      "min": 8,
+      "max": 363,
+      "n": 8700
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 300,
+    "peakServerRssMB": 243,
+    "peakGatewayRssMB": 22.6,
+    "peakEventloopP99Ms": 18.1,
+    "peakGoroutines": 12
+  },
+  "serverInternalDurationMs": {
+    "p50": 130.8,
+    "p95": 243.1,
+    "p99": 388.7
+  }
+}

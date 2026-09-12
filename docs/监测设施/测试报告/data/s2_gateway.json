@@ -1,0 +1,49 @@
+{
+  "label": "s2_gateway",
+  "mode": "gateway",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 300,
+    "RATE": 2,
+    "DURATION": 15,
+    "RAMP": 50
+  },
+  "startedAt": 1789199481989,
+  "endedAt": 1789199528624,
+  "windowSec": 47,
+  "harness": {
+    "connectedCount": 300,
+    "attempted": 300,
+    "sent": 8700,
+    "ack": 8700,
+    "connectMs": {
+      "p50": 8,
+      "p95": 12,
+      "p99": 14,
+      "min": 5,
+      "max": 15,
+      "n": 300
+    },
+    "rttMs": {
+      "p50": 144,
+      "p95": 355,
+      "p99": 396,
+      "min": 19,
+      "max": 438,
+      "n": 8700
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 300,
+    "peakServerRssMB": 234.9,
+    "peakGatewayRssMB": 48.5,
+    "peakEventloopP99Ms": 18.74,
+    "peakGoroutines": 888
+  },
+  "serverInternalDurationMs": {
+    "p50": 142.6,
+    "p95": 351.8,
+    "p99": 470.4
+  }
+}

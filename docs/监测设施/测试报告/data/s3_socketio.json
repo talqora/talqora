@@ -1,0 +1,51 @@
+{
+  "label": "s3_socketio",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 150,
+    "RATE": 20,
+    "DURATION": 15,
+    "RAMP": 50
+  },
+  "startedAt": 1789199562211,
+  "endedAt": 1789199593502,
+  "windowSec": 32,
+  "harness": {
+    "connectedCount": 150,
+    "attempted": 150,
+    "sent": 44526,
+    "ack": 16532,
+    "connectMs": {
+      "p50": 17,
+      "p95": 28,
+      "p99": 29,
+      "min": 13,
+      "max": 29,
+      "n": 150
+    },
+    "rttMs": {
+      "p50": 2013,
+      "p95": 2036,
+      "p99": 2047,
+      "min": 21,
+      "max": 2134,
+      "n": 16532
+    },
+    "errors": {
+      "message.error": 27994
+    }
+  },
+  "resource": {
+    "peakConnections": 150,
+    "peakServerRssMB": 420.5,
+    "peakGatewayRssMB": 29.5,
+    "peakEventloopP99Ms": 17.51,
+    "peakGoroutines": 12
+  },
+  "serverInternalDurationMs": {
+    "p50": 1717.7,
+    "p95": 2421.8,
+    "p99": 2484.4
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "s1_socketio",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 10,
+    "DURATION": 20,
+    "RAMP": 25
+  },
+  "startedAt": 1789199292538,
+  "endedAt": 1789199326105,
+  "windowSec": 34,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 19800,
+    "ack": 19800,
+    "connectMs": {
+      "p50": 14,
+      "p95": 16,
+      "p99": 17,
+      "min": 10,
+      "max": 20,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 40,
+      "p95": 152,
+      "p99": 392,
+      "min": 2,
+      "max": 479,
+      "n": 19800
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 100,
+    "peakServerRssMB": 240.7,
+    "peakGatewayRssMB": 21,
+    "peakEventloopP99Ms": 13.21,
+    "peakGoroutines": 12
+  },
+  "serverInternalDurationMs": {
+    "p50": 38.5,
+    "p95": 190.3,
+    "p99": 424.2
+  }
+}

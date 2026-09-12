@@ -1,0 +1,49 @@
+{
+  "label": "s3_gateway",
+  "mode": "gateway",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 150,
+    "RATE": 20,
+    "DURATION": 15,
+    "RAMP": 50
+  },
+  "startedAt": 1789199598571,
+  "endedAt": 1789199631305,
+  "windowSec": 33,
+  "harness": {
+    "connectedCount": 150,
+    "attempted": 150,
+    "sent": 44674,
+    "ack": 22286,
+    "connectMs": {
+      "p50": 10,
+      "p95": 16,
+      "p99": 17,
+      "min": 7,
+      "max": 17,
+      "n": 150
+    },
+    "rttMs": {
+      "p50": 5088,
+      "p95": 10030,
+      "p99": 10410,
+      "min": 50,
+      "max": 10544,
+      "n": 22286
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 150,
+    "peakServerRssMB": 248.2,
+    "peakGatewayRssMB": 41.2,
+    "peakEventloopP99Ms": 17.69,
+    "peakGoroutines": 612
+  },
+  "serverInternalDurationMs": {
+    "p50": 175,
+    "p95": 243.5,
+    "p99": 249.6
+  }
+}

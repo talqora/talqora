@@ -1,0 +1,49 @@
+{
+  "label": "smoke_a",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 20,
+    "RATE": 5,
+    "DURATION": 6,
+    "RAMP": 20
+  },
+  "startedAt": 1789198973245,
+  "endedAt": 1789198983908,
+  "windowSec": 11,
+  "harness": {
+    "connectedCount": 20,
+    "attempted": 20,
+    "sent": 580,
+    "ack": 580,
+    "connectMs": {
+      "p50": 18,
+      "p95": 19,
+      "p99": 22,
+      "min": 14,
+      "max": 22,
+      "n": 20
+    },
+    "rttMs": {
+      "p50": 24,
+      "p95": 35,
+      "p99": 56,
+      "min": 11,
+      "max": 60,
+      "n": 580
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 20,
+    "peakRssBytes": 138870784,
+    "peakRssMB": 132.4,
+    "peakEventloopP99Ms": 13.96,
+    "peakGoroutines": 12
+  },
+  "serverInternalDurationMs": {
+    "p50": 22.5,
+    "p95": 47.4,
+    "p99": 50
+  }
+}
