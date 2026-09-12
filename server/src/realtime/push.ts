@@ -7,6 +7,7 @@ import type { Server } from 'socket.io';
 import type { Prisma, Message } from '../generated/prisma/index.js';
 import { persistMessage, getConversationMembers, markMentions } from '../services/message.js';
 import { filterOnline } from './presence.js';
+import { observeBroadcastRecipients } from '../metrics/metrics.js';
 
 let ioRef: Server | null = null;
 
@@ -65,6 +66,8 @@ export async function persistAndBroadcastMessage(
     const targets = isGroup
       ? await filterOnline(participantIds)
       : new Set(participantIds.map(Number));
+    // 扇出规模:这条消息实际推给了多少个在线接收者(单聊恒为 1~2,群聊随在线成员数变化)。
+    observeBroadcastRecipients(targets.size);
     for (const uid of targets) {
       ioRef.to(room(uid)).emit('receiveMessage', message);
     }

@@ -81,6 +81,65 @@ const gcObserver = new PerformanceObserver((list) => {
 });
 gcObserver.observe({ entryTypes: ['gc'] });
 
+// ===== 以下 6 类为新增指标(HTTP/DB/在线用户/广播扇出/通话信令/断连原因),复用同一个默认 register =====
+
+// HTTP 请求耗时(app.ts 的全局中间件在 res 'finish' 时 observe)。route 标签用路由模式
+// (req.route.path 拼 baseUrl)而非原始 path,避免带 id/token 的真实路径把标签基数打爆。
+export const httpRequestDuration = new Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP 请求处理耗时',
+  labelNames: ['method', 'route', 'status'] as const,
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+});
+
+// DB 单次操作(model 方法或 $queryRaw/$executeRaw)耗时,由 database/prisma.ts 的
+// Client Extension 统一埋点,业务代码不用逐处手测。
+export const dbQueryDuration = new Histogram({
+  name: 'db_query_duration_seconds',
+  help: 'Prisma 单次操作耗时',
+  labelNames: ['model', 'operation'] as const,
+  buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
+});
+
+// 当前在线用户数(去重同一用户的多设备连接)。语义与 server_ws_connections(连接数,不去重)
+// 不同:一个用户开 3 个标签页贡献 3 条 ws 连接,但只算 1 个在线用户。
+// 精度说明:本进程内维护(socket.ts 用 Map<userId, 设备数> 计数,0↔1 转换时才动 gauge),
+// 与其余指标同为「单副本本地值」,多副本部署需在 Prometheus 侧 sum() 聚合各副本值近似集群在线用户数
+// (若同一用户同时连了不同副本会被重复计数一次,属已知近似;presence.ts 的 Redis 结构是按 userId 存,
+// 没有现成的「全体在线 userId 去重集合」可直接读,若要做到跨副本精确去重需再建一套 Redis 结构,当前从简)。
+export const onlineUsers = new Gauge({
+  name: 'server_online_users',
+  help: '当前在线用户数(单进程内按 userId 去重的连接数)',
+});
+
+// 一条消息广播给多少个接收者(读扩散扇出规模),用于观察群聊大小对广播成本的影响。
+export const broadcastRecipients = new Histogram({
+  name: 'server_broadcast_recipients',
+  help: '单次消息广播的接收者数量分布',
+  buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000],
+});
+
+// 通话信令事件计数,按事件类型区分。
+export const callEventsTotal = new Counter({
+  name: 'server_call_events_total',
+  help: '通话信令事件计数',
+  labelNames: ['event'] as const,
+});
+
+// 当前进行中的通话数(近似值,见 socket.ts call:start/call:end/call:reject 处注释:
+// 按「已建立会话(ringing 起)到 end/reject 止」计数,含振铃未接通阶段,不是严格的「已接通」数)。
+export const activeCalls = new Gauge({
+  name: 'server_active_calls',
+  help: '当前进行中的通话数(近似,含振铃阶段)',
+});
+
+// WS 断连原因分布(socket.io disconnect 回调的 reason,如 transport close / ping timeout / client namespace disconnect)。
+export const wsDisconnectsTotal = new Counter({
+  name: 'server_ws_disconnects_total',
+  help: 'WS 断连计数,按断连原因分类',
+  labelNames: ['reason'] as const,
+});
+
 // 便捷函数:业务代码(socket.ts / routes/rum.ts)不直接摸指标对象,统一走这几个函数埋点。
 export function incConnections(): void {
   wsConnections.inc();
@@ -96,6 +155,47 @@ export function observeMessageDuration(sec: number): void {
 
 export function observeRumVital(name: string, rating: string, value: number): void {
   rumWebVitals.observe({ name, rating }, value);
+}
+
+export function observeHttpRequestDuration(
+  method: string,
+  route: string,
+  status: number,
+  sec: number
+): void {
+  httpRequestDuration.observe({ method, route, status: String(status) }, sec);
+}
+
+export function observeDbQueryDuration(model: string, operation: string, sec: number): void {
+  dbQueryDuration.observe({ model, operation }, sec);
+}
+
+export function incOnlineUsers(): void {
+  onlineUsers.inc();
+}
+
+export function decOnlineUsers(): void {
+  onlineUsers.dec();
+}
+
+export function observeBroadcastRecipients(count: number): void {
+  broadcastRecipients.observe(count);
+}
+
+export function incCallEvent(event: string): void {
+  callEventsTotal.inc({ event });
+}
+
+export function incActiveCalls(): void {
+  activeCalls.inc();
+}
+
+export function decActiveCalls(): void {
+  activeCalls.dec();
+}
+
+export function incWsDisconnect(reason: string): void {
+  wsDisconnectsTotal.inc({ reason });
 }
 
 // /metrics 端点用:导出全量指标文本 + 对应 Content-Type。

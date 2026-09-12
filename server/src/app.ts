@@ -17,6 +17,7 @@ import internalRouter from './routes/internal.js';
 import turnRouter from './routes/turn.js';
 import metricsRouter from './routes/metrics.js';
 import rumRouter from './routes/rum.js';
+import { observeHttpRequestDuration } from './metrics/metrics.js';
 
 const app = express(); //Express监听（http）服务器
 
@@ -65,6 +66,26 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
+// Prometheus 抓取端点,挂在根路径(非 /api 下),且不经鉴权中间件——见 routes/metrics.ts 注释。
+// 刻意放在下面的 HTTP 耗时中间件之前挂载:/metrics 自身命中这个路由就直接响应、不再往下走,
+// 从而不会把抓取请求本身也计入 http_request_duration_seconds(避免自监控自举)。
+app.use(metricsRouter);
+
+// HTTP 请求耗时指标:挂在其余业务路由之前,才能包住它们的处理耗时。
+// 用 res 'finish' 事件计时(此时响应已完整送达/连接已终止,是这条请求的终点)。
+// route 标签取路由模式而非原始 path:req.route 由 Express 路由匹配后挂在 req 上,
+// 取其 .path 拼 baseUrl(如 /user + /:id → /user/:id),未匹配到路由(404/中途出错)则记 'unmatched',
+// 避免真实 path 里的 id/token 等变量把标签基数打爆。
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : 'unmatched';
+    const seconds = Number(process.hrtime.bigint() - start) / 1e9;
+    observeHttpRequestDuration(req.method, route, res.statusCode, seconds);
+  });
+  next();
+});
+
 // 路由
 // 认证端点(登录/注册)限流,挂在对应 router 之前
 app.use('/api/login', authRateLimiter);
@@ -79,8 +100,6 @@ app.use('/user', userRouter);
 app.use('/user', friendRouter);
 app.use('/api/upload', uploadAdvancedRouter);
 app.use('/internal', internalRouter);
-// Prometheus 抓取端点,挂在根路径(非 /api 下),且不经鉴权中间件——见 routes/metrics.ts 注释。
-app.use(metricsRouter);
 // 前端 RUM(web-vitals)信标上报,POST /api/rum。
 app.use('/api', rumRouter);
 

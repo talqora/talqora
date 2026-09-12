@@ -28,6 +28,12 @@ import {
   observeMessageDuration,
   messageInTotal,
   messageOutTotal,
+  incOnlineUsers,
+  decOnlineUsers,
+  incCallEvent,
+  incActiveCalls,
+  decActiveCalls,
+  incWsDisconnect,
 } from '../metrics/metrics.js';
 
 // 握手验签后把用户身份挂到 socket 上，房间号即用户 id。
@@ -49,6 +55,28 @@ interface TokenPayload {
 // 设备级房间:用于把通话信令(accept/rejoin)精确投递到「拥有这通话的那台设备/标签页」,
 // 而非用户的所有在线连接。deviceId 由客户端在握手自报(每标签页一个稳定 id)。
 const deviceRoom = (deviceId: string): string => `device:${deviceId}`;
+
+// server_online_users 的本进程计数状态:userId → 该用户在本进程上的活跃连接(设备)数。
+// 只在「0→1」「1→0」的转换点动 gauge,同一用户多开标签页/多设备不会重复计数。
+// 精度说明见 metrics.ts 里 onlineUsers 的注释(单副本本地值,多副本需 Prometheus 侧 sum 近似)。
+const userConnectionCounts = new Map<number, number>();
+
+function trackUserConnect(userId: number): void {
+  const next = (userConnectionCounts.get(userId) ?? 0) + 1;
+  userConnectionCounts.set(userId, next);
+  if (next === 1) incOnlineUsers();
+}
+
+function trackUserDisconnect(userId: number): void {
+  const cur = userConnectionCounts.get(userId) ?? 0;
+  const next = cur - 1;
+  if (next <= 0) {
+    userConnectionCounts.delete(userId);
+    if (cur > 0) decOnlineUsers();
+  } else {
+    userConnectionCounts.set(userId, next);
+  }
+}
 
 const allowedOrigins = (
   process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173'
@@ -100,6 +128,8 @@ export const initSocket = (server: HttpServer): Server => {
 
     // 活跃连接数 Gauge +1,disconnect 时对称 -1(见下方 disconnect 处理)。
     incConnections();
+    // 在线用户数(去重同一用户的多设备):0→1 转换才 +1,disconnect 对称处理。
+    trackUserConnect(socket.userId as number);
 
     // 连接即自动加入「自己」的房间，房间号取服务端验签得到的 userId
     socket.join(room(socket.userId as number));
@@ -236,6 +266,7 @@ export const initSocket = (server: HttpServer): Server => {
     // 通话发起(含 offer)。先做忙线裁决:被叫已在另一通通话则回 call:busy、不振铃;
     // 否则登记会话并把振铃投给被叫的所有在线设备/标签页。
     socket.on('call:start', async (event) => {
+      incCallEvent('start');
       try {
         const callerId = socket.userId as number;
         const calleeId = Number(event.to.id);
@@ -247,9 +278,12 @@ export const initSocket = (server: HttpServer): Server => {
           callerDevice: socket.deviceId as string,
         });
         if (!ok) {
+          incCallEvent('busy');
           socket.emit('call:busy', { callId: event.callId }); // 仅回主叫本设备,不打扰被叫
           return;
         }
+        // 会话建立即计入 active_calls(含振铃阶段,非严格"已接通"数,见 metrics.ts activeCalls 注释)。
+        incActiveCalls();
         io.to(room(calleeId)).emit('call:start', event);
       } catch (error) {
         console.error('转发通话邀请失败:', error);
@@ -259,6 +293,7 @@ export const initSocket = (server: HttpServer): Server => {
     // 通话接受(含 answer)。绑定接听设备 → connected;answer 回投给 offer 方;
     // 并通知同一被叫用户的其它设备/标签页「已在别处接听」,停止振铃。
     socket.on('call:accept', async (event) => {
+      incCallEvent('accept');
       try {
         await markAccepted(event.callId, socket.deviceId as string);
         io.to(room(Number(event.to))).emit('call:accept', event);
@@ -272,8 +307,11 @@ export const initSocket = (server: HttpServer): Server => {
 
     // 通话拒绝:清会话 → 通知主叫;并让被叫其它设备停止振铃。
     socket.on('call:reject', async (event) => {
+      incCallEvent('reject');
       try {
         const s = await clearSession(event.callId);
+        // 只有会话确实存在(clearSession 返回非空)才对称 -1,避免重复 reject/无对应 start 时把计数打负。
+        if (s) decActiveCalls();
         const callerId = s ? s.callerId : parseInt(event.callId.split('_')[1]);
         if (Number.isFinite(callerId)) io.to(room(callerId)).emit('call:reject', event);
         socket
@@ -286,8 +324,11 @@ export const initSocket = (server: HttpServer): Server => {
 
     // 通话结束:清会话 → 广播给双方所有设备。
     socket.on('call:end', async (event) => {
+      incCallEvent('end');
       try {
-        await clearSession(event.callId);
+        const s = await clearSession(event.callId);
+        // 同上:只有会话确实存在才 -1,与 call:start 的 +1 对称。
+        if (s) decActiveCalls();
         const [, user1, user2] = event.callId.split('_');
         io.to(room(parseInt(user1))).emit('call:end', event);
         io.to(room(parseInt(user2))).emit('call:end', event);
@@ -299,6 +340,7 @@ export const initSocket = (server: HttpServer): Server => {
     // 刷新/断连后重新入会:校验会话仍在 → 更新该侧属主设备并恢复 connected →
     // 把新 offer 投给对端「属主设备」重协商;会话已不存在则让重连方干净收场。
     socket.on('call:rejoin', async (event) => {
+      incCallEvent('rejoin');
       try {
         const s = await getSession(event.callId);
         if (!s) {
@@ -318,6 +360,7 @@ export const initSocket = (server: HttpServer): Server => {
 
     // ICE候选交换:只转发给对方(socket.to 排除发送方自己),双方房间各发一次。
     socket.on('call:ice', (event) => {
+      incCallEvent('ice');
       try {
         const [, user1, user2] = event.callId.split('_');
         socket.to(room(parseInt(user1))).emit('call:ice', event);
@@ -329,9 +372,13 @@ export const initSocket = (server: HttpServer): Server => {
 
     // 断开连接:① presence 摘除该设备;② 若该设备是某通通话的属主,进入 grace 重连窗:
     //   通知对端「对方重连中」,GRACE_MS 内等 call:rejoin;超时仍未恢复则结束并广播 call:end。
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
       // 活跃连接数 Gauge -1,与上方 connection 时的 +1 对称。
       decConnections();
+      // 在线用户数:与上方 connection 时的 trackUserConnect 对称,1→0 转换才 -1。
+      trackUserDisconnect(socket.userId as number);
+      // 断连原因分布:reason 是 socket.io 内置枚举字符串(如 'transport close'/'ping timeout'/'client namespace disconnect'),基数可控,直接当标签值。
+      incWsDisconnect(reason);
 
       void remove(socket.userId as number, socket.deviceId as string).catch((err) =>
         console.error('presence 摘除失败:', err)
