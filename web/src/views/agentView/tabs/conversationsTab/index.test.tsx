@@ -126,6 +126,73 @@ describe('<ConversationsTab>', () => {
 
     // 调用契约
     expect(mStream).toHaveBeenCalledWith(1, 'what is X?', 6, expect.anything());
+
+    // done 后刷新对话列表(服务端首轮会回填标题/排序)
+    await waitFor(() => expect(mList).toHaveBeenCalledTimes(2));
+  });
+
+  it('流式中途切换对话(abort)→ 不弹"发送失败"toast,占位不残留', async () => {
+    const user = userEvent.setup();
+    mList.mockResolvedValue([conv({ id: 1, title: '聊天 1' }), conv({ id: 2, title: '聊天 2' })]);
+    mMsgs.mockResolvedValue([]);
+    // 模拟真实链路:读到被 abort 的流时,Chrome 抛 TypeError("BodyStreamBuffer was aborted")
+    // (不是 DOMException(AbortError))——修复点是按 signal.aborted 判定"主动中止"
+    mStream.mockImplementation((_id, _q, _k, signal?: AbortSignal) =>
+      (async function* () {
+        yield { type: 'token', value: 'partial' } as ChatStreamEvent;
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) return resolve();
+          signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        throw new TypeError('BodyStreamBuffer was aborted');
+      })(),
+    );
+
+    renderWithProviders(<ConversationsTab />);
+    await user.click(await screen.findByText(/聊天 1/));
+    const ta = await screen.findByPlaceholderText(/问点什么/);
+    await user.type(ta, 'q1');
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('partial')).toBeInTheDocument();
+
+    // 切到对话 2:组件 abort 当前流(设计如此,防旧会话 token 串台)
+    await user.click(screen.getByText(/聊天 2/));
+
+    // 主动中止不是失败:不得弹错误 toast;旧对话的占位内容也不应残留
+    await waitFor(() => expect(screen.queryByText(/发送失败/)).not.toBeInTheDocument());
+    expect(screen.queryByText('partial')).not.toBeInTheDocument();
+  });
+
+  it('删除正在生成的对话 → 先 abort 流(避免写回已删会话)', async () => {
+    const user = userEvent.setup();
+    mList.mockResolvedValue([conv({ id: 5, title: 'kill-me' })]);
+    mMsgs.mockResolvedValue([]);
+    mDel.mockResolvedValue(undefined);
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    let seenSignal: AbortSignal | undefined;
+    mStream.mockImplementation((_id, _q, _k, signal?: AbortSignal) => {
+      seenSignal = signal;
+      return (async function* () {
+        yield { type: 'token', value: 'partial' } as ChatStreamEvent;
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) return resolve();
+          signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        throw new TypeError('BodyStreamBuffer was aborted');
+      })();
+    });
+
+    renderWithProviders(<ConversationsTab />);
+    await user.click(await screen.findByText('kill-me'));
+    const ta = await screen.findByPlaceholderText(/问点什么/);
+    await user.type(ta, 'q');
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('partial')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /delete/ }));
+    await waitFor(() => expect(mDel).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(seenSignal?.aborted).toBe(true));
+    await waitFor(() => expect(screen.queryByText(/发送失败/)).not.toBeInTheDocument());
   });
 
   it('流式 error:placeholder 被移除,用户消息保留', async () => {

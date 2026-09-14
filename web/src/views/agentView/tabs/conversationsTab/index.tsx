@@ -71,6 +71,11 @@ function ConversationsTab() {
 
   const onDelete = async (id: number) => {
     if (!confirm(t('agent.chat.confirmDelete'))) return;
+    // 删的是正在流式生成的会话:先中止流——否则服务端生成完会往已删会话写回答(外键报错)
+    if (activeId === id) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    }
     try {
       await deleteConversation(id);
       setConvs((xs) => xs.filter((c) => c.id !== id));
@@ -122,14 +127,23 @@ function ConversationsTab() {
                 : m,
             ),
           );
+          // 服务端首轮问答会回填标题/刷新排序:拉一次列表让侧边栏同步
+          void loadConvs();
         } else if (evt.type === 'error') {
           toast.err(evt.message);
           setMessages((xs) => xs.filter((m) => m.id !== placeholder.id));
         }
       }
     } catch (e) {
+      // 主动中止不是失败:切换对话/离开 tab/删除会话都会 abort 当前流,不应弹错误。
+      // 注意:读被 abort 的 fetch body 时 Chrome 抛的是 TypeError("BodyStreamBuffer was aborted"),
+      // 并非 DOMException(AbortError),所以以 signal.aborted 为准,消息匹配只作兜底。
+      const aborted =
+        ctrl.signal.aborted ||
+        (e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && /abort/i.test(e.message));
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg !== 'unauthorized') toast.err(`${t('agent.chat.sendFail')}: ${msg}`);
+      if (!aborted && msg !== 'unauthorized') toast.err(`${t('agent.chat.sendFail')}: ${msg}`);
       setMessages((xs) => xs.filter((m) => m.id !== placeholder.id));
     } finally {
       setSending(false);
