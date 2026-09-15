@@ -52,6 +52,13 @@ func (c *Conn) close() {
 		if err := c.hub.presence.Remove(ctx, c.userID, c.deviceID); err != nil {
 			c.hub.log.Warn("presence 摘除失败", "userId", c.userID, "deviceId", c.deviceID, "err", err)
 		}
+		// 通知 Node 业务侧连接已断开(通话 grace 重连等,对齐 socket.io disconnect 事件语义)。
+		// upstream 为 nil 仅出现在测试装配,跳过。
+		if c.hub.upstream != nil {
+			if err := c.hub.upstream.NotifyDisconnect(ctx, c.userID, c.deviceID); err != nil {
+				c.hub.log.Warn("断连通知失败", "userId", c.userID, "deviceId", c.deviceID, "err", err)
+			}
+		}
 		close(c.send)
 		_ = c.ws.Close()
 		metrics.Connections.Dec()

@@ -55,3 +55,27 @@ func (c *Client) Forward(ctx context.Context, userID int64, deviceID string, fra
 	}
 	return body, nil
 }
+
+// NotifyDisconnect 通知 Node 一条连接已断开(优雅/异常断开的统一出口)。
+// 语义对齐 socket.io 的 disconnect 事件:Node 据此做通话 grace 重连等业务处理。
+// fire-and-forget:调用方只关心是否送达,失败仅记日志;身份与内部令牌注入方式与 Forward 一致。
+func (c *Client) NotifyDisconnect(ctx context.Context, userID int64, deviceID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/internal/gateway/disconnect", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Gateway-Token", c.internalToken)
+	req.Header.Set("X-User-Id", strconv.FormatInt(userID, 10))
+	req.Header.Set("X-Device-Id", deviceID)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("disconnect 通知返回 %d", resp.StatusCode)
+	}
+	return nil
+}
