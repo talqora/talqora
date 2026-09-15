@@ -60,15 +60,17 @@ class WsClient {
     return true;
   }
 
-  /** 订阅某 type 的下行帧。返回取消订阅函数。 */
-  on(type: string, fn: WsFrameListener): () => void {
+  /** 订阅某 type 的下行帧,回调收到信封 data(类型 T 由回调参数推断)。返回取消订阅函数。 */
+  on<T>(type: string, fn: (data: T) => void): () => void {
     let set = this.listeners.get(type);
     if (!set) {
       set = new Set();
       this.listeners.set(type, set);
     }
-    set.add(fn);
-    return () => this.off(type, fn);
+    // 收窄封装:对外保留回调的类型签名,内部统一按 unknown 分发。
+    const wrapped: WsFrameListener = (data) => fn(data as T);
+    set.add(wrapped);
+    return () => this.off(type, wrapped);
   }
 
   off(type: string, fn: WsFrameListener): void {

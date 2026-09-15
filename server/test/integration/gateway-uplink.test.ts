@@ -81,8 +81,8 @@ describe('网关上行端点 /internal/gateway/uplink(集成,真 PG+Redis)', () 
 
     expect(res.status).toBe(200);
     expect(res.body.type).toBe('message.ack');
-    expect(res.body.clientMsgId).toBe(clientMsgId);
-    expect(Number(res.body.seq)).toBe(1);
+    expect(res.body.data.clientMsgId).toBe(clientMsgId);
+    expect(Number(res.body.data.seq)).toBe(1);
 
     // 真落库:会话内 1 行,发送者为 a。
     const rows = await prisma.message.findMany({ where: { conversationId: conv } });
@@ -112,7 +112,7 @@ describe('网关上行端点 /internal/gateway/uplink(集成,真 PG+Redis)', () 
     const r2 = await send();
     expect(r2.status).toBe(200);
     // 去重命中:seq 与首次一致。
-    expect(Number(r2.body.seq)).toBe(Number(r1.body.seq));
+    expect(Number(r2.body.data.seq)).toBe(Number(r1.body.data.seq));
     // 给点时间确认「确实没有」新下行(去重路径不扇出)。
     await new Promise((r) => setTimeout(r, 200));
     expect(downlinks.filter((d) => d.frame.type === 'receiveMessage')).toHaveLength(0);

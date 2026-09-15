@@ -58,7 +58,7 @@ export async function handleCallEvent(
       if (!ok) {
         incCallEvent('busy');
         // 仅回主叫本设备,不打扰被叫。
-        return { status: 200, body: { type: 'call:busy', callId } };
+        return { status: 200, body: { type: 'call:busy', data: { callId } } };
       }
       incActiveCalls();
       await publishDownlink(calleeId, 'call:start', event);
@@ -112,7 +112,7 @@ export async function handleCallEvent(
       const s = await getSession(callId);
       if (!s) {
         // 会话已不存在:让重连方干净收场。
-        return { status: 200, body: { type: 'call:end', callId } };
+        return { status: 200, body: { type: 'call:end', data: { callId } } };
       }
       const side = userId === s.callerId ? 'caller' : 'callee';
       const updated = await markRejoined(callId, side, deviceId);

@@ -5,7 +5,8 @@ import type { Conversation } from '@/globalType/chat';
 import type { Message } from '@/globalType/message';
 import { List } from 'antd';
 import chatViewStyle from './style.module.scss';
-import SocketService, { markMessageSent } from '@/utils/socket';
+import { wsClient } from '@/ws/wsClient';
+import { reportRealtimeRtt } from '@/rum';
 import { getConversationMessages } from '@/globalApi/chatApi';
 import { initGlobalMessages, initActiveConversation } from '@/store/chatStore';
 import type { ApiResponse } from '@/globalType/apiResponse';
@@ -46,7 +47,6 @@ function ChatView() {
     const lastMessages = useSelector((state: RootState) => state.chat.lastMessages); // 从redux中获取最后一条消息
     // 展示名:有备注优先备注,否则用户名
     const friendDisplayName = (friendId: number) => globalFriendList[friendId] || globalFriendInfoList[friendId]?.username;
-    const socket = SocketService.getInstance(); // 获取socket实例
     const [callSheetOpen, setCallSheetOpen] = useState(false); // 视频/语音通话选择弹层(移动端)
     const chatBodyRef = useRef<HTMLDivElement>(null); // 消息列表的ref，用来实现滚动
     // 点他人头像弹出的好友资料卡(fixed 定位 + 点击外部关闭)
@@ -119,32 +119,25 @@ function ChatView() {
     // 发送消息（文本由输入组件传入，草稿态不再驻留本组件）
     const sendMessage = (text: string) => {
         if (!text.trim() || !activeConversation) return;
-        // RTT 打点：生成 clientMsgId 关联本次发送与其后的 receiveMessage 回显（服务端广播 receiveMessage 时，
-        // 发送者自己也在会话在线成员范围内，故能收到自己这条消息，近似当作 send 的 ack 时机）。
-        // 之前这里恒传 ''，服务端收到空值会自行生成 clientMsgId，本地也就无法关联；
-        // 现在由客户端生成非空 id 一并带上，仅用于本地 RTT 关联，顺带也让服务端既有的按 clientMsgId 幂等去重可用。
+        // 可靠上行:clientMsgId 幂等键,等服务端 message.ack 确认;超时自动同键重发。
+        // 消息展示仍由 receiveMessage 下行回显驱动(这里不本地插入)。
         const clientMsgId = crypto.randomUUID();
-        const msg:Message = {
-            id: 0,
-            clientMsgId,
-            seq: 0,
-            conversationId: activeConversation,
-            senderId: userId,
-            content: text,
-            type: 'text',
-            status: 'sent',
-            mentions: [],
-            isEdited: false,
-            isDeleted: false,
-            extra: {},
-            editHistory: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            timestamp: new Date().toISOString(),
-        };
-        markMessageSent(clientMsgId);
-        socket.emit('sendMessage', msg);
-        // 由 socket 监听 receiveMessage 事件来更新消息列表，这里不更新
+        const sentAt = Date.now();
+        wsClient
+            .sendMessage({
+                clientMsgId,
+                conversationId: activeConversation,
+                content: text,
+                type: 'text',
+                mentions: [],
+            })
+            .then(() => {
+                // RTT 打点:发出到收到 message.ack 的往返(可靠上行确认口径)。
+                reportRealtimeRtt('ws', Date.now() - sentAt, 'message.send');
+            })
+            .catch((err: Error) => {
+                console.error('消息发送未确认:', err.message);
+            });
     };
     const handleSearchChange = (value: string) => {
         console.log(value);
@@ -185,37 +178,25 @@ function ChatView() {
     const handleFileUploadSuccess = (files: FileItem[]) => {
         try {
             files.forEach(file => {
-                // RTT 打点：同 sendMessage，用本地生成的 clientMsgId 关联发出与回显。
                 const clientMsgId = crypto.randomUUID();
-                const fileMessage: Message = {
-                    id: 0,
-                    clientMsgId,
-                    seq: 0,
-                    conversationId: activeConversation!,
-                    senderId: userId,
-                    content: t('chat.sentFile'),
-                    type: 'file',
-                    status: 'sent',
-                    mentions: [],
-                    isEdited: false,
-                    isDeleted: false,
-                    extra: {},
-                    fileInfo: {
-                        fileName: file.name,
-                        fileSize: file.size,
-                        fileUrl: file.url ?? '',
-                        fileType: file.type || 'application/octet-stream',
-                        fileMd5: file.md5 ?? ''
-                    },
-                    timestamp: new Date().toISOString(),
-                    editHistory: [],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                };
-
-                markMessageSent(clientMsgId);
-                // 通过socket发送文件消息
-                socket.emit('sendMessage', fileMessage);
+                const sentAt = Date.now();
+                wsClient
+                    .sendMessage({
+                        clientMsgId,
+                        conversationId: activeConversation!,
+                        content: t('chat.sentFile'),
+                        type: 'file',
+                        mentions: [],
+                        fileInfo: {
+                            fileName: file.name,
+                            fileSize: file.size,
+                            fileUrl: file.url ?? '',
+                            fileType: file.type || 'application/octet-stream',
+                            fileMd5: file.md5 ?? ''
+                        },
+                    })
+                    .then(() => reportRealtimeRtt('ws', Date.now() - sentAt, 'message.send'))
+                    .catch((err: Error) => console.error('文件消息发送未确认:', err.message));
             });            
         } catch (error) {
             console.error(t('chat.errors.uploadFailed'), error);

@@ -64,8 +64,10 @@ router.post('/gateway/uplink', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({
         type: 'message.error',
-        message: '消息参数非法',
-        clientMsgId: (frame as { clientMsgId?: string })?.clientMsgId,
+        data: {
+          message: '消息参数非法',
+          clientMsgId: (frame as { clientMsgId?: string })?.clientMsgId,
+        },
       });
     }
     const data = parsed.data;
@@ -113,16 +115,17 @@ router.post('/gateway/uplink', async (req: Request, res: Response) => {
 
       return res.json({
         type: 'message.ack',
-        clientMsgId: data.clientMsgId,
-        seq: message.seq,
-        serverMsgId: message.id,
+        data: {
+          clientMsgId: data.clientMsgId,
+          seq: message.seq,
+          serverMsgId: message.id,
+        },
       });
     } catch (err) {
       console.error('网关上行处理失败:', err);
       return res.status(500).json({
         type: 'message.error',
-        message: '消息发送失败',
-        clientMsgId: data.clientMsgId,
+        data: { message: '消息发送失败', clientMsgId: data.clientMsgId },
       });
     }
   }

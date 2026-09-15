@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store/rootStore';
 import { WebRTCManager } from '../utils/webrtc';
 import { ensureIceServers } from '../utils/iceServers';
-import SocketService from '../utils/socket';
+import { wsClient } from '../ws/wsClient';
 // 通话状态
 import {
   startCall,
@@ -46,7 +46,6 @@ export const useCall = () => {
   const currentUser = useSelector((state: RootState) => state.user);// 当前用户
   
   const webrtcRef = useRef<WebRTCManager | null>(null); // WebRTC 管理器
-  const socketRef = useRef(SocketService.getInstance()); // Socket引用
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null); // 通话时长计时器
 
   // 添加事件处理标记，防止重复处理
@@ -92,7 +91,7 @@ export const useCall = () => {
       if (currentCallId) {
         console.log('生成ICE候选，发送给对端');
         // console.log('候选类型:', candidate.candidate?.split(' ')[7]); // host/srflx/relay等
-        socketRef.current.emit('call:ice', {
+        wsClient.send('call:ice', {
           callId: currentCallId, // 当前通话的id
           candidate, // ICE候选
         });
@@ -150,10 +149,8 @@ export const useCall = () => {
     };
   }, []);
 
-  // Socket事件监听
+  // 实时信令事件监听(gateway /ws)
   useEffect(() => {
-    const socket = socketRef.current;
-
     // 收到通话邀请
     const handleCallStart = async (event: CallStartEvent) => {
       console.log('收到通话邀请:', event.callId);
@@ -302,7 +299,7 @@ export const useCall = () => {
         const localStream = await webrtcRef.current.getUserMedia(callState.callType === 'video');
         dispatch(setLocalStream(localStream));
         const answer = await webrtcRef.current.handleOffer(toRtcSdp(event.offer));
-        socketRef.current.emit('call:accept', {
+        wsClient.send('call:accept', {
           callId: event.callId,
           from: callState.localUser?.id,
           to: callState.remoteUser?.id,
@@ -343,30 +340,30 @@ export const useCall = () => {
       }
     };
 
-    // 绑定事件监听器
-    socket.on('call:start', handleCallStart);
-    socket.on('call:accept', handleCallAccept);
-    socket.on('call:reject', handleCallReject);
-    socket.on('call:end', handleCallEnd);
-    socket.on('call:ice', handleCallIce);
-    socket.on('call:rejoin', handleCallRejoin);
-    socket.on('call:busy', handleCallBusy);
-    socket.on('call:handled', handleCallHandled);
-    socket.on('call:peer-reconnecting', handlePeerReconnecting);
+    // 绑定事件监听器(wsClient.on 返回取消订阅函数,清理时逐个调用)
+    const offStart = wsClient.on('call:start', handleCallStart);
+    const offAccept = wsClient.on('call:accept', handleCallAccept);
+    const offReject = wsClient.on('call:reject', handleCallReject);
+    const offEnd = wsClient.on('call:end', handleCallEnd);
+    const offIce = wsClient.on('call:ice', handleCallIce);
+    const offRejoin = wsClient.on('call:rejoin', handleCallRejoin);
+    const offBusy = wsClient.on('call:busy', handleCallBusy);
+    const offHandled = wsClient.on('call:handled', handleCallHandled);
+    const offPeerRec = wsClient.on('call:peer-reconnecting', handlePeerReconnecting);
 
     // 清理监听器
     return () => {
-      console.log('清理Socket事件监听器');
+      console.log('清理 ws 事件监听器');
       processedEvents.current.clear();
-      socket.off('call:start', handleCallStart);
-      socket.off('call:accept', handleCallAccept);
-      socket.off('call:reject', handleCallReject);
-      socket.off('call:end', handleCallEnd);
-      socket.off('call:ice', handleCallIce);
-      socket.off('call:rejoin', handleCallRejoin);
-      socket.off('call:busy', handleCallBusy);
-      socket.off('call:handled', handleCallHandled);
-      socket.off('call:peer-reconnecting', handlePeerReconnecting);
+      offStart();
+      offAccept();
+      offReject();
+      offEnd();
+      offIce();
+      offRejoin();
+      offBusy();
+      offHandled();
+      offPeerRec();
     };
   }, [callState.callId, callState.status, callState.callType, callState.localUser, callState.remoteUser, currentUser, dispatch]);
 
@@ -475,7 +472,7 @@ export const useCall = () => {
       // 注意：setLocalDescription后就会自动开始ICE候选收集
       // ICE候选会通过onicecandidate监听事件异步发送给对端
       console.log('发送通话邀请，ICE候选收集已启动');
-      socketRef.current.emit('call:start', {
+      wsClient.send('call:start', {
         callId,
         from: {
           id: currentUser.id,
@@ -516,7 +513,7 @@ export const useCall = () => {
       const localStream = await webrtcRef.current.getUserMedia(persisted.callType === 'video');
       dispatch(setLocalStream(localStream));
       const offer = await webrtcRef.current.createOffer();
-      socketRef.current.emit('call:rejoin', {
+      wsClient.send('call:rejoin', {
         callId: persisted.callId,
         from: {
           id: currentUser.id,
@@ -626,7 +623,7 @@ export const useCall = () => {
       
       acceptSentRef.current.add(acceptKey);
       console.log('发送Answer给发起方');
-      socketRef.current.emit('call:accept', {
+      wsClient.send('call:accept', {
         callId: callState.callId,
         from: callState.localUser?.id,
         to: callState.remoteUser?.id,
@@ -649,7 +646,7 @@ export const useCall = () => {
     console.log('拒绝通话');
     
     if (callState.callId) {
-      socketRef.current.emit('call:reject', {
+      wsClient.send('call:reject', {
         callId: callState.callId,
       });
     }
@@ -663,7 +660,7 @@ export const useCall = () => {
     console.log('结束通话');
     
     if (callState.callId) {
-      socketRef.current.emit('call:end', {
+      wsClient.send('call:end', {
         callId: callState.callId,
       });
     }

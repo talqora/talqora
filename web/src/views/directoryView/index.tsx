@@ -8,8 +8,7 @@ import SearchHeader from '@/globalComponents/searchHeader';
 import { searchUser, replyFriendReq } from '@/globalApi/friendApi';
 import AddFriendModal from '@/globalComponents/addFriendModal';
 import { setFriendReqStatus } from '@/store/friendStore';
-import {type Message } from '@/globalType/message';
-import SocketService from '@/utils/socket';
+import { wsClient } from '@/ws/wsClient';
 import { addGlobalFriend, addGlobalFriendInfo } from '@/store/chatStore';
 import { buildServerUrl } from '@/utils/runtime';
 import { defaultAvatar, searchUserIcon, newFriendIcon } from '@/assets/images';
@@ -23,7 +22,6 @@ function DirectoryView() {
     const dispatch = useDispatch();
     const userId = useSelector((state: RootState) => state.user.id);
     const [isCheckingFriendReq, setIsCheckingFriendReq] = useState(false);
-    const socket = SocketService.getInstance();
     // 点击好友
     const handleFriendClick = (friend: { friendId: number, remark: string | null }) => {
         setIsCheckingFriendReq(false);
@@ -87,29 +85,17 @@ function DirectoryView() {
                 if (!otherUser) {
                     return;
                 }
-                const conversationId = `single_${Math.min(userId, friendId)}_${Math.max(userId, friendId)}`;                
-                // 创建会话记录
-                
-                // 创建初始消息 
-                const msg:Message = {
-                    id: 0,
-                    clientMsgId: '',
-                    seq: 0,
-                    conversationId: conversationId,
-                    senderId: friendId,
-                    content: t('directory.hello') + otherUser.username,
-                    type: 'text',
-                    status: 'sent',
-                    mentions: [],
-                    isEdited: false,
-                    isDeleted: false,
-                    extra: {},
-                    editHistory: [],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    timestamp: new Date().toISOString(),
-                };
-                socket.emit('sendMessage', msg);
+                const conversationId = `single_${Math.min(userId, friendId)}_${Math.max(userId, friendId)}`;
+                // 通过 gateway 可靠上行发寒暄消息(clientMsgId 必须非空,服务端据此幂等去重)。
+                wsClient
+                    .sendMessage({
+                        clientMsgId: crypto.randomUUID(),
+                        conversationId,
+                        content: t('directory.hello') + otherUser.username,
+                        type: 'text',
+                        mentions: [],
+                    })
+                    .catch((err: Error) => console.error('寒暄消息发送未确认:', err.message));
                 // 更新好友列表
                 dispatch(addGlobalFriend({friendId, remark: null}));
                 dispatch(addGlobalFriendInfo({friendId, friendInfo: {

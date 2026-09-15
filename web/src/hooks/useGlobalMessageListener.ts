@@ -1,8 +1,8 @@
-// 全局 socket 监听器，监听 socket 消息，并更新全局消息状态,在app.tsx中使用
+// 全局实时监听器,监听 gateway 下行帧,并更新全局消息状态,在 app.tsx 中使用。
+// 实时路径已切到 Go gateway(原生 WS /ws),消息 RTT 打点改在 chatView 的可靠上行 ack 处。
 import { useEffect, useRef} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import SocketService, { takeMessageRtt } from '@/utils/socket';
-import { reportRealtimeRtt } from '@/rum';
+import { wsClient } from '@/ws/wsClient';
 import { addGlobalMessage, initGlobalUserConversations, initGlobalConversations,
 initGlobalFriendList, initGlobalFriendInfoList, initLastMessages, addLastMessage, addConversation, addGlobalFriend, addGlobalFriendInfo } from '@/store/chatStore';
 import type { Message } from '@/globalType/message';
@@ -19,7 +19,6 @@ import messageSound from '@/assets/audios/message.wav';
 export default function useGlobalMessageListener() {
     const userId = useSelector((state: RootState) => state.user.id);
     const dispatch = useDispatch();
-    const socket = SocketService.getInstance();
     // 用于绑定从后端获取的最新值，避免闭包陷阱
     const globalConversationsRef = useRef<Record<string, Conversation>>({});
     const globalFriendInfoListRef = useRef<FriendInfoList>({});
@@ -67,19 +66,11 @@ export default function useGlobalMessageListener() {
   // dispatch通常是稳定的
 
   useEffect(() => {
-       // 连接socket
-       socket.connect();
-       socket.emit('join', userId); // 发送连接事件，后端处理连接后的配置（加入会话等
+       // 连接 gateway(原生 WS /ws;网关无房间概念,身份由 JWT 派生,无需 join)
+       wsClient.connect('/ws');
        // 新消息处理函数
        const handleMessage = async (msg: Message) => {
-            // RTT 打点：receiveMessage 是服务端对 sendMessage 的读扩散广播，发送者自己也在收件范围内，
-            // 故这里收到的消息若 clientMsgId 命中本地发送时记录的表（chatView 发送时 markMessageSent），
-            // 即为该条消息"发出到自己收到回显"的往返；对方发来的消息 clientMsgId 不在表中，takeMessageRtt 返回 null，不上报。
-            // 注：测的是 socket.io 上 sendMessage 事件从客户端发出到服务端落库广播回到同一客户端的端到端往返，不是纯网络 RTT。
-            const rttMs = takeMessageRtt(msg.clientMsgId);
-            if (rttMs !== null) {
-              reportRealtimeRtt('socketio', rttMs, 'message.send');
-            }
+            // RTT 打点已改在 chatView 的 message.ack 处(可靠上行确认口径),这里只做消息落地。
             // setState 可以接受两种参数：
             // 直接值 ：setMessages(newMessages);
             // 函数式更新 ：注： 当某个会话是第一次收到消息时，其结构为[id] : undefined，需要使用空数组初始化
@@ -130,18 +121,16 @@ export default function useGlobalMessageListener() {
           globalFriendInfoListRef.current = res.data.friendInfo ?? {};
         });
        }
-       // 仅监听 receiveMessage 事件，更新消息列表，消息派发逻辑由后端实现
-        socket.on('receiveMessage', handleMessage);
-        socket.on('receiveFriendReq', handleNewFriendReq);
-        socket.on('friendListChanged', handleFriendListChanged);
+       // 监听 gateway 下行帧,更新消息列表,消息派发逻辑由后端实现
+        const offMsg = wsClient.on('receiveMessage', handleMessage);
+        const offFriendReq = wsClient.on('receiveFriendReq', handleNewFriendReq);
+        const offFriendChanged = wsClient.on('friendListChanged', handleFriendListChanged);
        return () => {
           console.log('退出登录时，移除事件监听');
-          socket.off('receiveMessage', handleMessage); // 退出登录时，移除事件监听
-          socket.off('receiveFriendReq', handleNewFriendReq);
-          socket.off('friendListChanged', handleFriendListChanged);
-          socket.disconnect(); // 断开socket连接
-          //注：在 socket.io-client 中，"disconnect" 是内置的保留事件名，内部自动管理，仅能.on 监听和使用它，不能.emit 和 .off
-          // socket.emit('disconnect', { userId }); 
+          offMsg(); // 退出登录时，移除事件监听
+          offFriendReq();
+          offFriendChanged();
+          wsClient.disconnect(); // 断开 ws 连接
        };
 
   }, []);
