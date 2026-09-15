@@ -49,6 +49,12 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:3007',
         changeOrigin: true,
       },
+      // 实时路径已切到 Go gateway:原生 WS 走 /ws → gateway:8090(保留 /socket.io 供回滚)。
+      '/ws': {
+        target: 'http://127.0.0.1:8090',
+        ws: true,
+        changeOrigin: true,
+      },
       '/socket.io': {
         target: 'http://127.0.0.1:3007',
         ws: true,
