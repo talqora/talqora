@@ -92,13 +92,24 @@ func (h *Hub) unregister(c *Conn) {
 	}
 }
 
-// RouteToUser 把一条下行帧投给某用户在本副本的全部连接(多端同收)。
-// 任一连接 send 缓冲打满即逐出该慢消费者(背压),但不影响同用户其它正常连接。
-func (h *Hub) RouteToUser(userID int64, payload []byte) {
+// RouteToUser 把一条下行帧投给某用户在本副本的连接,支持设备级过滤:
+//   - targetDeviceID 非空 → 仅投该设备(call:rejoin 属主路由);
+//   - exceptDeviceID 非空 → 投该用户除指定设备外的全部连接(read.sync 排除本端);
+//   - 两者皆空 → 投该用户全部连接(多端同收)。
+//
+// 二者语义互斥(由上游保证不同时非空);任一连接 send 缓冲打满即逐出该慢消费者(背压),
+// 但不影响同用户其它正常连接。
+func (h *Hub) RouteToUser(userID int64, targetDeviceID, exceptDeviceID string, payload []byte) {
 	h.mu.RLock()
 	devices := h.conns[userID]
 	targets := make([]*Conn, 0, len(devices))
 	for _, c := range devices {
+		if targetDeviceID != "" && c.deviceID != targetDeviceID {
+			continue
+		}
+		if exceptDeviceID != "" && c.deviceID == exceptDeviceID {
+			continue
+		}
 		targets = append(targets, c)
 	}
 	h.mu.RUnlock()

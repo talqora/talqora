@@ -81,7 +81,7 @@ func TestBackpressureEviction(t *testing.T) {
 			t.Fatal("超时未触发慢消费者逐出")
 		default:
 		}
-		h.RouteToUser(uid, frame)
+		h.RouteToUser(uid, "", "", frame)
 		if testutil.ToFloat64(metrics.Evicted) > before {
 			break // 已逐出,进程仍正常运转(本测试继续跑即证明未崩)
 		}
