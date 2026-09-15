@@ -70,13 +70,20 @@ func (h *Handler) checkOrigin(r *http.Request) bool {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 先验签再升级:鉴权不过直接 401,不浪费一次协议升级。
-	cookie, err := r.Cookie(tokenCookie)
-	if err != nil || cookie.Value == "" {
+	// token 通道与 server 的 extractHandshakeToken 对齐:cookie(Web)优先,
+	// 其次 query token(无 cookie 环境:原生端/CLI/测试脚本)。
+	token := ""
+	if ck, err := r.Cookie(tokenCookie); err == nil && ck.Value != "" {
+		token = ck.Value
+	} else if q := r.URL.Query().Get("token"); q != "" {
+		token = q
+	}
+	if token == "" {
 		metrics.Handshakes.WithLabelValues("unauthorized").Inc()
 		http.Error(w, "未认证:缺少登录凭据", http.StatusUnauthorized)
 		return
 	}
-	ident, err := auth.Verify(cookie.Value, h.secret)
+	ident, err := auth.Verify(token, h.secret)
 	if err != nil {
 		metrics.Handshakes.WithLabelValues("unauthorized").Inc()
 		http.Error(w, "认证失败:登录凭据无效或已过期", http.StatusUnauthorized)

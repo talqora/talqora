@@ -102,6 +102,30 @@ func TestHandshakeEmptyWhitelistAllowsAny(t *testing.T) {
 	conn.Close()
 }
 
+// TestHandshakeQueryToken 验证无 cookie 环境(原生端/CLI)可用 query token 握手。
+func TestHandshakeQueryToken(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?deviceId=devQ&token=" + mintWsToken(t, 9)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("query token 握手应成功: %v", err)
+	}
+	conn.Close()
+}
+
+// TestHandshakeInvalidQueryTokenRejected 验证 query token 无效时 401。
+func TestHandshakeInvalidQueryTokenRejected(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?deviceId=devQ&token=bad-token"
+	_, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("无效 query token 应被拒,实际成功")
+	}
+	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("期望 401,实际 %v", resp)
+	}
+}
+
 func TestShutdownAllSendsCloseCode(t *testing.T) {
 	srv, h := newTestServer(t, nil)
 	conn, _, err := dialWs(t, srv, 5, "")
