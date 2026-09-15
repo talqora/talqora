@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,9 @@ type Config struct {
 	HeartbeatTimeout time.Duration
 	// 副本标识,写入 presence:meta,供跨副本定位连接所在网关。
 	ReplicaID string
+	// WS 握手的 Origin 白名单(与 server 的 CLIENT_ORIGINS 同款 env)。
+	// 空列表 = 全部放行(dev 兼容);非空时仅放行列表内 Origin,无 Origin 头放行(非浏览器客户端)。
+	AllowedOrigins []string
 }
 
 func Load() (*Config, error) {
@@ -46,8 +50,23 @@ func Load() (*Config, error) {
 		SendBuffer:       envInt("GATEWAY_SEND_BUFFER", 256),
 		HeartbeatTimeout: time.Duration(envInt("GATEWAY_HEARTBEAT_TIMEOUT_SEC", 60)) * time.Second,
 		ReplicaID:        envOr("REPLICA_ID", "gw-"+host),
+		AllowedOrigins:   parseOrigins(os.Getenv("CLIENT_ORIGINS")),
 	}
 	return cfg, nil
+}
+
+// parseOrigins 把逗号分隔的 Origin 白名单解析为去空白、去空项的列表。
+func parseOrigins(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		if o := strings.TrimSpace(p); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func envOr(key, def string) string {

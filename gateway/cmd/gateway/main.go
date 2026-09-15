@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/our-chat/gateway/internal/backplane"
@@ -52,7 +53,7 @@ func main() {
 	reg := presence.New(rdb, cfg.HeartbeatTimeout, cfg.ReplicaID)
 	up := upstream.New(cfg.UpstreamBaseURL, cfg.InternalToken)
 	h := hub.New(cfg.MaxConns, cfg.SendBuffer, cfg.HeartbeatTimeout, reg, up, log)
-	wsHandler := ws.NewHandler(h, reg, cfg.JWTSecret, log)
+	wsHandler := ws.NewHandler(h, reg, cfg.JWTSecret, log, cfg.AllowedOrigins)
 
 	// 下行 backplane:订阅 gw:downlink 路由到本地连接,随 ctx 取消退出。
 	go func() {
@@ -83,6 +84,8 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// drain:先向存量连接发 1012(Service Restart)引导客户端重连其它副本,再关 HTTP 服务。
+	h.ShutdownAll(websocket.CloseServiceRestart, "gateway restarting")
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("HTTP 优雅关闭失败", "err", err)
 	}

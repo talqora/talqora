@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"sync"
@@ -11,12 +12,19 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/our-chat/gateway/internal/metrics"
-	"github.com/our-chat/gateway/internal/presence"
 	"github.com/our-chat/gateway/internal/upstream"
 )
 
 // ErrOverQuota 表示本副本连接数已达硬上限,拒绝新连接(防 fd/内存爆,docs 16 坑6)。
 var ErrOverQuota = errors.New("网关连接数已达上限")
+
+// presenceRegistry 是连接登记表的最小抽象,生产实现为 presence.Registry(Redis),
+// 测试装配可用 fake 替换,避免硬依赖 Redis。
+type presenceRegistry interface {
+	Register(ctx context.Context, userID int64, deviceID, socketID string) error
+	Refresh(ctx context.Context, userID int64, deviceID string) error
+	Remove(ctx context.Context, userID int64, deviceID string) error
+}
 
 type Hub struct {
 	mu    sync.RWMutex
@@ -26,12 +34,12 @@ type Hub struct {
 	sendBuffer       int
 	heartbeatTimeout time.Duration
 
-	presence *presence.Registry
+	presence presenceRegistry
 	upstream *upstream.Client
 	log      *slog.Logger
 }
 
-func New(maxConns, sendBuffer int, heartbeatTimeout time.Duration, p *presence.Registry, up *upstream.Client, log *slog.Logger) *Hub {
+func New(maxConns, sendBuffer int, heartbeatTimeout time.Duration, p presenceRegistry, up *upstream.Client, log *slog.Logger) *Hub {
 	return &Hub{
 		conns:            make(map[int64]map[string]*Conn),
 		maxConns:         maxConns,
@@ -135,6 +143,26 @@ func (h *Hub) countLocked() int {
 		n += len(devices)
 	}
 	return n
+}
+
+// ShutdownAll 向全部存量连接写一条 close 帧(默认 1012 Service Restart),
+// 引导客户端主动重连到其它副本,配合缩容/滚动发布的 drain 流程。
+// 只发帧不关连接:让客户端侧先感知迁移,底层连接随后由 HTTP 服务关闭统一收尾。
+func (h *Hub) ShutdownAll(code int, text string) {
+	h.mu.RLock()
+	all := make([]*Conn, 0)
+	for _, devices := range h.conns {
+		for _, c := range devices {
+			all = append(all, c)
+		}
+	}
+	h.mu.RUnlock()
+
+	msg := websocket.FormatCloseMessage(code, text)
+	for _, c := range all {
+		// WriteControl 单条连接写失败只影响该连接,不阻塞批量流程。
+		_ = c.ws.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+	}
 }
 
 // Start 启动一条连接的读写循环(各占一个 goroutine)。

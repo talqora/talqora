@@ -46,7 +46,7 @@ func TestBackpressureEviction(t *testing.T) {
 	reg := presence.New(rdb, 60*time.Second, "gw-test")
 	// 极小缓冲:只要客户端读得慢,缓冲很快打满 → 逐出。
 	h := hub.New(100, 1, 60*time.Second, reg, nil, log)
-	handler := ws.NewHandler(h, reg, []byte(secret), log)
+	handler := ws.NewHandler(h, reg, []byte(secret), log, nil)
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 

@@ -71,7 +71,7 @@ func TestGatewaySmoke(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reg := presence.New(rdb, 60*time.Second, "gw-test")
 	h := hub.New(100, 8, 60*time.Second, reg, nil, log)
-	handler := ws.NewHandler(h, reg, []byte(secret), log)
+	handler := ws.NewHandler(h, reg, []byte(secret), log, nil)
 
 	srv := httptest.NewServer(handler)
 	defer srv.Close()

@@ -20,11 +20,12 @@ import (
 const tokenCookie = "token" // 与 Node authCookies.ts 的 TOKEN_COOKIE 一致
 
 type Handler struct {
-	hub      *hub.Hub
-	presence presenceRegistrar
-	secret   []byte
-	log      *slog.Logger
-	upgrader websocket.Upgrader
+	hub            *hub.Hub
+	presence       presenceRegistrar
+	secret         []byte
+	log            *slog.Logger
+	allowedOrigins []string
+	upgrader       websocket.Upgrader
 }
 
 // presenceRegistrar 只取 hub.presence 的 Register 一个方法,握手成功后把连接镜像进 Redis。
@@ -32,20 +33,39 @@ type presenceRegistrar interface {
 	Register(ctx context.Context, userID int64, deviceID, socketID string) error
 }
 
-func NewHandler(h *hub.Hub, p presenceRegistrar, secret []byte, log *slog.Logger) *Handler {
-	return &Handler{
-		hub:      h,
-		presence: p,
-		secret:   secret,
-		log:      log,
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  4096,
-			WriteBufferSize: 4096,
-			// PoC:跨域由 JWT cookie(HttpOnly+SameSite)兜底,这里放行升级。
-			// 生产应按 CLIENT_ORIGINS 白名单校验 Origin。
-			CheckOrigin: func(*http.Request) bool { return true },
-		},
+func NewHandler(h *hub.Hub, p presenceRegistrar, secret []byte, log *slog.Logger, allowedOrigins []string) *Handler {
+	hd := &Handler{
+		hub:            h,
+		presence:       p,
+		secret:         secret,
+		log:            log,
+		allowedOrigins: allowedOrigins,
 	}
+	hd.upgrader = websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin:     hd.checkOrigin,
+	}
+	return hd
+}
+
+// checkOrigin 校验握手 Origin:白名单为空放行一切(dev);非空时仅放行列表内 Origin;
+// 无 Origin 头(非浏览器客户端,如 curl/压测脚本)放行。与 server 的 CLIENT_ORIGINS 语义一致。
+func (h *Handler) checkOrigin(r *http.Request) bool {
+	if len(h.allowedOrigins) == 0 {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	for _, o := range h.allowedOrigins {
+		if o == origin {
+			return true
+		}
+	}
+	metrics.Handshakes.WithLabelValues("origin_rejected").Inc()
+	return false
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
