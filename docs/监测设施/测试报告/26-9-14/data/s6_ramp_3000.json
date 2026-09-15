@@ -1,0 +1,130 @@
+{
+  "label": "s6_ramp",
+  "mode": "socketio",
+  "params": {
+    "START": 500,
+    "STEP": 500,
+    "MAX": 3000,
+    "HOLD_MS": 5000,
+    "SUCCESS_THRESHOLD": 0.9,
+    "LAG_THRESHOLD_MS": 200
+  },
+  "startedAt": 1789392844721,
+  "endedAt": 1789392877806,
+  "stopReason": "达到 MAX=3000(用户数 3000)",
+  "levels": [
+    {
+      "target": 500,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 91,
+        "p95": 125,
+        "p99": 138,
+        "min": 57,
+        "max": 140
+      },
+      "heldAfter": 500,
+      "serverConnections": 501,
+      "eventloopP99Ms": 12.78,
+      "serverRssMB": 180.8
+    },
+    {
+      "target": 1000,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 78,
+        "p95": 109,
+        "p99": 119,
+        "min": 55,
+        "max": 120
+      },
+      "heldAfter": 1000,
+      "serverConnections": 1001,
+      "eventloopP99Ms": 12.18,
+      "serverRssMB": 183.6
+    },
+    {
+      "target": 1500,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 93,
+        "p95": 153,
+        "p99": 159,
+        "min": 46,
+        "max": 161
+      },
+      "heldAfter": 1500,
+      "serverConnections": 1501,
+      "eventloopP99Ms": 12.16,
+      "serverRssMB": 184.5
+    },
+    {
+      "target": 2000,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 87,
+        "p95": 137,
+        "p99": 139,
+        "min": 41,
+        "max": 140
+      },
+      "heldAfter": 2000,
+      "serverConnections": 2001,
+      "eventloopP99Ms": 12.34,
+      "serverRssMB": 191.9
+    },
+    {
+      "target": 2500,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 100,
+        "p95": 134,
+        "p99": 136,
+        "min": 33,
+        "max": 137
+      },
+      "heldAfter": 2500,
+      "serverConnections": 2501,
+      "eventloopP99Ms": 12.31,
+      "serverRssMB": 203
+    },
+    {
+      "target": 3000,
+      "batchAttempted": 500,
+      "batchOk": 500,
+      "successRate": 1,
+      "connectMs": {
+        "count": 500,
+        "p50": 81,
+        "p95": 129,
+        "p99": 130,
+        "min": 53,
+        "max": 131
+      },
+      "heldAfter": 3000,
+      "serverConnections": 3001,
+      "eventloopP99Ms": 12.11,
+      "serverRssMB": 204.3
+    }
+  ],
+  "summary": {
+    "maxStableConnections": 3000,
+    "peakLevelServerRssMB": 204.3,
+    "peakLevelEventloopP99Ms": 12.11
+  }
+}

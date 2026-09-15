@@ -1,0 +1,358 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>纯 Node(socket.io) 性能基线报告 — 无 gateway</title>
+<style>
+  :root{color-scheme:light dark;
+    --bg:#ffffff;--text:#222222;--muted:#888888;--grid:#eeeeee;--chart-bg:#ffffff;
+    --table-border:#dddddd;--th-bg:#f3f6fa;
+    --box-bg:#f7f9fc;--box-border:#dde6f0;
+    --warn-bg:#fff7e6;--warn-border:#ffe0a3;
+    --key-bg:#eef7ee;--key-border:#c9e6c9;
+    --h-color:#33517a;--code-bg:#f0f0f0;
+    --accent:#4e79a7;--bad:#c0392b;--ok:#27ae60;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1b1c21;--text:#e4e6ea;--muted:#9ba1ab;--grid:#383b44;--chart-bg:#22242b;
+      --table-border:#3d414b;--th-bg:#2a2d36;
+      --box-bg:#252730;--box-border:#3d414b;
+      --warn-bg:#3a3122;--warn-border:#6b5826;
+      --key-bg:#20302a;--key-border:#3c5748;
+      --h-color:#9dbce0;--code-bg:#30333c;
+      --accent:#7fa9d4;--bad:#ff7a6e;--ok:#5ec98d;
+    }
+  }
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:var(--text);background:var(--bg);max-width:980px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid var(--accent);padding-bottom:8px;color:var(--text)}
+  h2{margin-top:36px;border-left:5px solid var(--accent);padding-left:10px;color:var(--text)}
+  h3{margin-top:24px;color:var(--h-color)}
+  .chart{width:100%;height:auto;border:1px solid var(--grid);border-radius:6px;margin:12px 0;background:var(--chart-bg)}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;color:var(--text)}
+  th,td{border:1px solid var(--table-border);padding:6px 8px;text-align:center}
+  th{background:var(--th-bg);color:var(--text)}
+  .bad{color:var(--bad);font-weight:700}.ok{color:var(--ok)}
+  .box{background:var(--box-bg);border:1px solid var(--box-border);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--text)}
+  .warn{background:var(--warn-bg);border-color:var(--warn-border)}
+  .key{background:var(--key-bg);border-color:var(--key-border)}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--text)}
+  .muted{color:var(--muted);font-size:13px}
+  a{color:var(--accent)}
+</style></head><body>
+
+<h1>纯 Node(socket.io) 性能基线报告（无 gateway）</h1>
+<p class="muted">生成时间(数据窗口结束):2026-09-15T02:22:33.017Z ｜ 分支 feat/perf-monitoring ｜ 被测:server(Node/Express/Socket.io :3007) ｜ <b>gateway(Go)未启动、未参与任何流量</b> ｜ 数据源:26-9-14/data/*.json(真实压测采集)</p>
+
+<div class="box warn">
+<b>测量诚实性声明（务必先读）</b><br>
+① 压测器(harness)与 server 跑在<b>同一台 macOS 开发机</b>、共用 CPU,绝对毫秒数有噪声、非生产代表值;本报告价值在<b>同一环境下的相对趋势、拐点与失败模式</b>。<br>
+② 本报告是<b>纯 Node 基线</b>:只启动 server + docker 中间件(pg/redis)+ 监测栈,<b>gateway 全程未运行</b>——目的是先留存"引入 Go 层之前"的完整性能记录,作为后续 A/B 的对照基座。<br>
+③ 中间件(pg/redis)为 docker 容器(colima),server 跑宿主机,Prometheus 每 5s 抓 /metrics;资源数据(RSS/eventloop/堆/GC/CPU)来自真实采样,harness/接口统计来自真实压测输出。
+</div>
+
+<h2>一、结论速览</h2>
+<div class="box key">
+<b>1. 中等负载(≤1500 msg/s)表现优异、零错误。</b> S1(100 连接 × 10 msg/s)RTT p50=33ms / p99=57ms / p999=undefinedms,19800 条消息 <b>100% ack、0 错误</b>;S5 连续 2 分钟稳态同样 100% ack、0 错误、RTT 无漂移。<br>
+<b>2. 吞吐饱和拐点定位在 1500~2000 msg/s 之间。</b> 固定 100 连接、RATE 递增:1500 msg/s 仍零错误,2000 msg/s 开始 7.6% 失败且 RTT 断崖式排队到 ~2s,3000 msg/s 失败率高达 62.5%。<b>一旦过饱和点,RTT 不是渐进恶化而是瞬间跳到 ~2s 排队</b>——这是 DB 写路径(发号行锁 + Prisma 连接池)成为第一瓶颈的典型特征。<br>
+<b>3. RTT 随连接数上升而上升(本机口径,低消息率下)。</b> 50→100→300→500 连接,RTT p50 19→33→85→2027ms;事件循环/GC 全程健康(lag p99≤16.89ms),增量来自每连接维护成本(presence/心跳/Redis)与同机噪声,而非事件循环饱和。<br>
+<b>4. 连接容量:10000 连接 100% 建连成功,上限未探到。</b> 爬坡 2000→10000 全程零失败;10000 连接稳态 RSS 仅 331.8MB(<b>约 34KB/连接</b>),建连耗时 p50 409ms、eventloop p99 14.79ms。Node 单实例连接上限远高于 10000。<br>
+<b>5. 群扇出极快。</b> 100 成员在线、1 人发消息:fan-out 扩散 span(最后收到-最先收到)p99 仅 <b>3ms</b>,端到端(最后收到-发送)p99 <b>21ms</b>。socket.io 房间广播到百人近乎同步。<br>
+<b>6. 惊群重连零失败、无资源尖峰。</b> 300 连接同一瞬间全断再全连:<b>100% 成功</b>,重连 p50=43ms,eventloop 尖峰仅 12.11ms。<br>
+<b>7. HTTP 层两大瓶颈(新发现)。</b> ①<code>POST /api/login</code> 吞吐仅 <b>19.3 rps</b>(bcrypt 12 轮单次 ~1s 的 CPU 代价);②<code>GET /user/messages</code> 仅 <b>73 rps</b>、p99 484ms——该接口 <b>无 limit 全量返回会话历史消息</b>,大会话下退化为慢查询。<br>
+<b>8. 纯 Node 基线显著优于旧 26-9-12 A/B 的 socketio 侧数据。</b> 同参数 S1 旧 RTT p99=392ms → 新 57ms;旧测受同机 gateway 干扰且方法本末倒置。本基线是后续一切对比的唯一参照。
+</div>
+
+<h2>二、测试方法与场景总览</h2>
+<ul>
+<li><b>实时消息路径</b>:<code>harness.mjs</code>(socket.io-client 直连 /socket.io,纯 WS):注册/登录 → 爬坡建连 → 稳态按 RATE 发 <code>message.send</code> → 用 <code>message.ack</code> 匹配测 RTT(含 p999) → 错误分类。</li>
+<li><b>编排与采样</b>:<code>node-run.mjs</code> 跑 harness 同时每 2s 采样资源(ps RSS + Prometheus:连接/eventloop/堆/GC/CPU),结束查窗口内服务内直方图分位(消息/HTTP/DB/GC 四类)。</li>
+<li><b>吞吐饱和扫描</b>:固定 100 连接,RATE 10/15/20/25/30 五档各 20s,定位吞吐拐点。</li>
+<li><b>爬坡探顶</b>:<code>ramp-probe.mjs</code> 阶梯加压并保持连接,阈值判定拐点。</li>
+<li><b>惊群重连</b>:<code>storm-reconnect.mjs</code> 同瞬间全断→全连。</li>
+<li><b>群扇出</b>:<code>fanout-bench.mjs</code> 直写 DB 建群 + 100 成员在线,测 fan-out span/e2e。</li>
+<li><b>HTTP API</b>:<code>http-bench.mjs</code> 并发压测典型接口,统计吞吐/时延/错误。</li>
+<li><b>被测拓扑</b>:client(宿主机) → server(Node :3007,宿主机) → Postgres/Redis(colima docker);Prometheus+Grafana 只读观测;gateway 不启动。</li>
+</ul>
+
+<h2>三、实时消息路径(socket.io)</h2>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息 RTT p50(客户端往返)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p50(客户端往返)（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">750</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">2250</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">3000</text><rect x="94.33333333333334" y="248.67" width="38" height="1.3300000000000125" fill="#4e79a7"><title>Smoke: 19ms</title></rect><text x="113.33333333333334" y="244.67" text-anchor="middle" font-size="9" fill="#4e79a7">19</text><rect x="201.00000000000003" y="247.69" width="38" height="2.3100000000000023" fill="#4e79a7"><title>常规吞吐: 33ms</title></rect><text x="220.00000000000003" y="243.69" text-anchor="middle" font-size="9" fill="#4e79a7">33</text><rect x="307.6666666666667" y="244.05" width="38" height="5.949999999999989" fill="#4e79a7"><title>连接规模: 85ms</title></rect><text x="326.6666666666667" y="240.05" text-anchor="middle" font-size="9" fill="#4e79a7">85</text><rect x="414.3333333333333" y="108.11000000000001" width="38" height="141.89" fill="#4e79a7"><title>过载压力: 2027ms</title></rect><text x="433.3333333333333" y="104.11000000000001" text-anchor="middle" font-size="9" fill="#4e79a7">2027</text><rect x="521" y="240.48" width="38" height="9.52000000000001" fill="#4e79a7"><title>大连接: 136ms</title></rect><text x="540" y="236.48" text-anchor="middle" font-size="9" fill="#4e79a7">136</text><rect x="627.6666666666667" y="247.55" width="38" height="2.4499999999999886" fill="#4e79a7"><title>长时稳态: 35ms</title></rect><text x="646.6666666666667" y="243.55" text-anchor="middle" font-size="9" fill="#4e79a7">35</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息 RTT p99(客户端往返)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p99(客户端往返)（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">750</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">2250</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">3000</text><rect x="94.33333333333334" y="246.08" width="38" height="3.9199999999999875" fill="#e15759"><title>Smoke: 56ms</title></rect><text x="113.33333333333334" y="242.08" text-anchor="middle" font-size="9" fill="#e15759">56</text><rect x="201.00000000000003" y="246.01" width="38" height="3.990000000000009" fill="#e15759"><title>常规吞吐: 57ms</title></rect><text x="220.00000000000003" y="242.01" text-anchor="middle" font-size="9" fill="#e15759">57</text><rect x="307.6666666666667" y="238.03" width="38" height="11.969999999999999" fill="#e15759"><title>连接规模: 171ms</title></rect><text x="326.6666666666667" y="234.03" text-anchor="middle" font-size="9" fill="#e15759">171</text><rect x="414.3333333333333" y="105.87" width="38" height="144.13" fill="#e15759"><title>过载压力: 2059ms</title></rect><text x="433.3333333333333" y="101.87" text-anchor="middle" font-size="9" fill="#e15759">2059</text><rect x="521" y="230.68" width="38" height="19.319999999999993" fill="#e15759"><title>大连接: 276ms</title></rect><text x="540" y="226.68" text-anchor="middle" font-size="9" fill="#e15759">276</text><rect x="627.6666666666667" y="245.73" width="38" height="4.27000000000001" fill="#e15759"><title>长时稳态: 61ms</title></rect><text x="646.6666666666667" y="241.73" text-anchor="middle" font-size="9" fill="#e15759">61</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息投递成功率(ack/发送)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息投递成功率(ack/发送)（%）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">25</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">50</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">75</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">100</text><rect x="94.33333333333334" y="40" width="38" height="210" fill="#59a14f"><title>Smoke: 100%</title></rect><text x="113.33333333333334" y="36" text-anchor="middle" font-size="9" fill="#59a14f">100</text><rect x="201.00000000000003" y="40" width="38" height="210" fill="#59a14f"><title>常规吞吐: 100%</title></rect><text x="220.00000000000003" y="36" text-anchor="middle" font-size="9" fill="#59a14f">100</text><rect x="307.6666666666667" y="40" width="38" height="210" fill="#59a14f"><title>连接规模: 100%</title></rect><text x="326.6666666666667" y="36" text-anchor="middle" font-size="9" fill="#59a14f">100</text><rect x="414.3333333333333" y="144.16" width="38" height="105.84" fill="#59a14f"><title>过载压力: 50.4%</title></rect><text x="433.3333333333333" y="140.16" text-anchor="middle" font-size="9" fill="#59a14f">50.4</text><rect x="521" y="40" width="38" height="210" fill="#59a14f"><title>大连接: 100%</title></rect><text x="540" y="36" text-anchor="middle" font-size="9" fill="#59a14f">100</text><rect x="627.6666666666667" y="40" width="38" height="210" fill="#59a14f"><title>长时稳态: 100%</title></rect><text x="646.6666666666667" y="36" text-anchor="middle" font-size="9" fill="#59a14f">100</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="错误数(message.error 等)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">错误数(message.error 等)（条）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">7500</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">15000</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">22500</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">30000</text><rect x="94.33333333333334" y="250" width="38" height="0" fill="#c0392b"><title>Smoke: 0条</title></rect><text x="113.33333333333334" y="246" text-anchor="middle" font-size="9" fill="#c0392b">0</text><rect x="201.00000000000003" y="250" width="38" height="0" fill="#c0392b"><title>常规吞吐: 0条</title></rect><text x="220.00000000000003" y="246" text-anchor="middle" font-size="9" fill="#c0392b">0</text><rect x="307.6666666666667" y="250" width="38" height="0" fill="#c0392b"><title>连接规模: 0条</title></rect><text x="326.6666666666667" y="246" text-anchor="middle" font-size="9" fill="#c0392b">0</text><rect x="414.3333333333333" y="94.70499999999998" width="38" height="155.29500000000002" fill="#c0392b"><title>过载压力: 22185条</title></rect><text x="433.3333333333333" y="90.70499999999998" text-anchor="middle" font-size="9" fill="#c0392b">22185</text><rect x="521" y="250" width="38" height="0" fill="#c0392b"><title>大连接: 0条</title></rect><text x="540" y="246" text-anchor="middle" font-size="9" fill="#c0392b">0</text><rect x="627.6666666666667" y="250" width="38" height="0" fill="#c0392b"><title>长时稳态: 0条</title></rect><text x="646.6666666666667" y="246" text-anchor="middle" font-size="9" fill="#c0392b">0</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="server 进程 RSS 峰值">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">server 进程 RSS 峰值（MB）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">125</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">250</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">375</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">500</text><rect x="94.33333333333334" y="174.82" width="38" height="75.18" fill="#4e79a7"><title>Smoke: 179MB</title></rect><text x="113.33333333333334" y="170.82" text-anchor="middle" font-size="9" fill="#4e79a7">179</text><rect x="201.00000000000003" y="130.678" width="38" height="119.322" fill="#4e79a7"><title>常规吞吐: 284.1MB</title></rect><text x="220.00000000000003" y="126.678" text-anchor="middle" font-size="9" fill="#4e79a7">284.1</text><rect x="307.6666666666667" y="123.74799999999999" width="38" height="126.25200000000001" fill="#4e79a7"><title>连接规模: 300.6MB</title></rect><text x="326.6666666666667" y="119.74799999999999" text-anchor="middle" font-size="9" fill="#4e79a7">300.6</text><rect x="414.3333333333333" y="43.696000000000026" width="38" height="206.30399999999997" fill="#4e79a7"><title>过载压力: 491.2MB</title></rect><text x="433.3333333333333" y="39.696000000000026" text-anchor="middle" font-size="9" fill="#4e79a7">491.2</text><rect x="521" y="45.922" width="38" height="204.078" fill="#4e79a7"><title>大连接: 485.9MB</title></rect><text x="540" y="41.922" text-anchor="middle" font-size="9" fill="#4e79a7">485.9</text><rect x="627.6666666666667" y="120.26200000000003" width="38" height="129.73799999999997" fill="#4e79a7"><title>长时稳态: 308.9MB</title></rect><text x="646.6666666666667" y="116.26200000000003" text-anchor="middle" font-size="9" fill="#4e79a7">308.9</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="server 堆峰值">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">server 堆峰值（MB）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">50</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">100</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">150</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">200</text><rect x="94.33333333333334" y="197.815" width="38" height="52.185" fill="#76b7b2"><title>Smoke: 49.7MB</title></rect><text x="113.33333333333334" y="193.815" text-anchor="middle" font-size="9" fill="#76b7b2">49.7</text><rect x="201.00000000000003" y="128.935" width="38" height="121.065" fill="#76b7b2"><title>常规吞吐: 115.3MB</title></rect><text x="220.00000000000003" y="124.935" text-anchor="middle" font-size="9" fill="#76b7b2">115.3</text><rect x="307.6666666666667" y="98.905" width="38" height="151.095" fill="#76b7b2"><title>连接规模: 143.9MB</title></rect><text x="326.6666666666667" y="94.905" text-anchor="middle" font-size="9" fill="#76b7b2">143.9</text><rect x="414.3333333333333" y="53.54499999999999" width="38" height="196.455" fill="#76b7b2"><title>过载压力: 187.1MB</title></rect><text x="433.3333333333333" y="49.54499999999999" text-anchor="middle" font-size="9" fill="#76b7b2">187.1</text><rect x="521" y="67.405" width="38" height="182.595" fill="#76b7b2"><title>大连接: 173.9MB</title></rect><text x="540" y="63.405" text-anchor="middle" font-size="9" fill="#76b7b2">173.9</text><rect x="627.6666666666667" y="83.67999999999998" width="38" height="166.32000000000002" fill="#76b7b2"><title>长时稳态: 158.4MB</title></rect><text x="646.6666666666667" y="79.67999999999998" text-anchor="middle" font-size="9" fill="#76b7b2">158.4</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="事件循环滞后 p99 峰值">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">事件循环滞后 p99 峰值（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">5</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">10</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">15</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">20</text><rect x="94.33333333333334" y="128.515" width="38" height="121.48500000000001" fill="#f28e2b"><title>Smoke: 11.57ms</title></rect><text x="113.33333333333334" y="124.51499999999999" text-anchor="middle" font-size="9" fill="#f28e2b">11.57</text><rect x="201.00000000000003" y="110.35" width="38" height="139.65" fill="#f28e2b"><title>常规吞吐: 13.3ms</title></rect><text x="220.00000000000003" y="106.35" text-anchor="middle" font-size="9" fill="#f28e2b">13.3</text><rect x="307.6666666666667" y="115.91500000000002" width="38" height="134.08499999999998" fill="#f28e2b"><title>连接规模: 12.77ms</title></rect><text x="326.6666666666667" y="111.91500000000002" text-anchor="middle" font-size="9" fill="#f28e2b">12.77</text><rect x="414.3333333333333" y="72.655" width="38" height="177.345" fill="#f28e2b"><title>过载压力: 16.89ms</title></rect><text x="433.3333333333333" y="68.655" text-anchor="middle" font-size="9" fill="#f28e2b">16.89</text><rect x="521" y="114.025" width="38" height="135.975" fill="#f28e2b"><title>大连接: 12.95ms</title></rect><text x="540" y="110.025" text-anchor="middle" font-size="9" fill="#f28e2b">12.95</text><rect x="627.6666666666667" y="112.13499999999999" width="38" height="137.865" fill="#f28e2b"><title>长时稳态: 13.13ms</title></rect><text x="646.6666666666667" y="108.13499999999999" text-anchor="middle" font-size="9" fill="#f28e2b">13.13</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="GC 停顿次数(窗口内增量)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">GC 停顿次数(窗口内增量)（次）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">125</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">250</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">375</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">500</text><rect x="94.33333333333334" y="238.24" width="38" height="11.759999999999991" fill="#b07aa1"><title>Smoke: 28次</title></rect><text x="113.33333333333334" y="234.24" text-anchor="middle" font-size="9" fill="#b07aa1">28</text><rect x="201.00000000000003" y="192.88" width="38" height="57.120000000000005" fill="#b07aa1"><title>常规吞吐: 136次</title></rect><text x="220.00000000000003" y="188.88" text-anchor="middle" font-size="9" fill="#b07aa1">136</text><rect x="307.6666666666667" y="225.64" width="38" height="24.360000000000014" fill="#b07aa1"><title>连接规模: 58次</title></rect><text x="326.6666666666667" y="221.64" text-anchor="middle" font-size="9" fill="#b07aa1">58</text><rect x="414.3333333333333" y="187.42000000000002" width="38" height="62.579999999999984" fill="#b07aa1"><title>过载压力: 149次</title></rect><text x="433.3333333333333" y="183.42000000000002" text-anchor="middle" font-size="9" fill="#b07aa1">149</text><rect x="521" y="229" width="38" height="21" fill="#b07aa1"><title>大连接: 50次</title></rect><text x="540" y="225" text-anchor="middle" font-size="9" fill="#b07aa1">50</text><rect x="627.6666666666667" y="81.16" width="38" height="168.84" fill="#b07aa1"><title>长时稳态: 402次</title></rect><text x="646.6666666666667" y="77.16" text-anchor="middle" font-size="9" fill="#b07aa1">402</text><text x="113.33333333333334" y="268" text-anchor="middle" font-size="11" fill="var(--text)">Smoke</text><text x="220.00000000000003" y="268" text-anchor="middle" font-size="11" fill="var(--text)">常规吞吐</text><text x="326.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">连接规模</text><text x="433.3333333333333" y="268" text-anchor="middle" font-size="11" fill="var(--text)">过载压力</text><text x="540" y="268" text-anchor="middle" font-size="11" fill="var(--text)">大连接</text><text x="646.6666666666667" y="268" text-anchor="middle" font-size="11" fill="var(--text)">长时稳态</text></svg>
+
+<h3>3.1 吞吐饱和曲线(固定 100 连接,RATE 递增)——本报告核心发现</h3>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息失败率 vs 目标吞吐">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息失败率 vs 目标吞吐（%）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">18</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">36</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">54</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">72</text><polyline points="60,250 220,250 380,227.79478260869564 540,139.55826086956523 700,67.3913043478261" fill="none" stroke="#c0392b" stroke-width="2"/><circle cx="60" cy="250" r="3" fill="#c0392b"><title>1000 msg/s: 0%</title></circle><circle cx="220" cy="250" r="3" fill="#c0392b"><title>1500 msg/s: 0%</title></circle><circle cx="380" cy="227.79478260869564" r="3" fill="#c0392b"><title>2000 msg/s: 7.6%</title></circle><circle cx="540" cy="139.55826086956523" r="3" fill="#c0392b"><title>2500 msg/s: 37.8%</title></circle><circle cx="700" cy="67.3913043478261" r="3" fill="#c0392b"><title>3000 msg/s: 62.5%</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1000 msg/s</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1500 msg/s</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000 msg/s</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2500 msg/s</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">3000 msg/s</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息投递成功率 vs 目标吞吐">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息投递成功率 vs 目标吞吐（%）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">29</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">57</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">86</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">115</text><polyline points="60,67.39130434782606 220,67.39130434782606 380,81.26956521739126 540,136.4173913043478 700,181.52173913043475" fill="none" stroke="#59a14f" stroke-width="2"/><circle cx="60" cy="67.39130434782606" r="3" fill="#59a14f"><title>1000 msg/s: 100%</title></circle><circle cx="220" cy="67.39130434782606" r="3" fill="#59a14f"><title>1500 msg/s: 100%</title></circle><circle cx="380" cy="81.26956521739126" r="3" fill="#59a14f"><title>2000 msg/s: 92.4%</title></circle><circle cx="540" cy="136.4173913043478" r="3" fill="#59a14f"><title>2500 msg/s: 62.2%</title></circle><circle cx="700" cy="181.52173913043475" r="3" fill="#59a14f"><title>3000 msg/s: 37.5%</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1000 msg/s</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1500 msg/s</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000 msg/s</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2500 msg/s</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">3000 msg/s</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="消息 RTT p99 vs 目标吞吐(断崖)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p99 vs 目标吞吐(断崖)（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">603</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1205</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">1808</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">2410</text><polyline points="60,244.59840690341852 220,244.94689678061732 380,72.18304015930963 540,70.7019581812147 700,67.39130434782606" fill="none" stroke="#e15759" stroke-width="2"/><circle cx="60" cy="244.59840690341852" r="3" fill="#e15759"><title>1000 msg/s: 62ms</title></circle><circle cx="220" cy="244.94689678061732" r="3" fill="#e15759"><title>1500 msg/s: 58ms</title></circle><circle cx="380" cy="72.18304015930963" r="3" fill="#e15759"><title>2000 msg/s: 2041ms</title></circle><circle cx="540" cy="70.7019581812147" r="3" fill="#e15759"><title>2500 msg/s: 2058ms</title></circle><circle cx="700" cy="67.39130434782606" r="3" fill="#e15759"><title>3000 msg/s: 2096ms</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1000 msg/s</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">1500 msg/s</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000 msg/s</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2500 msg/s</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">3000 msg/s</text></svg>
+<p class="muted">饱和拐点:1500 msg/s 零错误、RTT p99 58ms;2000 msg/s 起失败率 7.6%、RTT p99 跳到 2041ms——<b>断崖式饱和,无中间态</b>。</p>
+<table>
+<tr><th>每连接速率</th><th>目标 msg/s</th><th>发送/ack</th><th>错误(失败率)</th><th>RTT p50/<b>p99</b>(ms)</th><th>RSS(MB)</th></tr>
+<tr>
+      <td>10 msg/s/连接</td><td>1000</td>
+      <td>19800/19800</td>
+      <td class="ok">0 (0%)</td>
+      <td>35/<b>62</b></td>
+      <td>332.9</td>
+    </tr><tr>
+      <td>15 msg/s/连接</td><td>1500</td>
+      <td>30000/30000</td>
+      <td class="ok">0 (0%)</td>
+      <td>32/<b>58</b></td>
+      <td>333.3</td>
+    </tr><tr>
+      <td>20 msg/s/连接</td><td>2000</td>
+      <td>39803/36771</td>
+      <td class="bad">3032 (7.6%)</td>
+      <td>1460/<b>2041</b></td>
+      <td>430.5</td>
+    </tr><tr>
+      <td>25 msg/s/连接</td><td>2500</td>
+      <td>49735/30959</td>
+      <td class="bad">18776 (37.8%)</td>
+      <td>2027/<b>2058</b></td>
+      <td>459</td>
+    </tr><tr>
+      <td>30 msg/s/连接</td><td>3000</td>
+      <td>60198/22593</td>
+      <td class="bad">37605 (62.5%)</td>
+      <td>2027/<b>2096</b></td>
+      <td>490</td>
+    </tr>
+</table>
+
+<h2>四、连接容量(爬坡 2000→10000)</h2>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="建连耗时 p50/p99 随连接数">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">建连耗时 p50/p99 随连接数（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">211</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">423</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">634</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">845</text><polyline points="60,170.99378881987576 220,165.0310559006211 380,161.80124223602485 540,142.17391304347825 700,148.38509316770183" fill="none" stroke="#4e79a7" stroke-width="2"/><polyline points="60,86.77018633540371 220,87.01863354037266 380,84.5341614906832 540,67.39130434782606 700,69.13043478260866" fill="none" stroke="#e15759" stroke-width="2"/><circle cx="60" cy="170.99378881987576" r="3" fill="#4e79a7"><title>2000: 318ms</title></circle><circle cx="220" cy="165.0310559006211" r="3" fill="#4e79a7"><title>4000: 342ms</title></circle><circle cx="380" cy="161.80124223602485" r="3" fill="#4e79a7"><title>6000: 355ms</title></circle><circle cx="540" cy="142.17391304347825" r="3" fill="#4e79a7"><title>8000: 434ms</title></circle><circle cx="700" cy="148.38509316770183" r="3" fill="#4e79a7"><title>10000: 409ms</title></circle><circle cx="60" cy="86.77018633540371" r="3" fill="#e15759"><title>2000: 657ms</title></circle><circle cx="220" cy="87.01863354037266" r="3" fill="#e15759"><title>4000: 656ms</title></circle><circle cx="380" cy="84.5341614906832" r="3" fill="#e15759"><title>6000: 666ms</title></circle><circle cx="540" cy="67.39130434782606" r="3" fill="#e15759"><title>8000: 735ms</title></circle><circle cx="700" cy="69.13043478260866" r="3" fill="#e15759"><title>10000: 728ms</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">4000</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">6000</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">8000</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">10000</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="server RSS 随连接数">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">server RSS 随连接数（MB）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">95</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">191</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">286</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">382</text><polyline points="60,129.30654925701705 220,112.74078150798019 380,99.75233902036322 540,87.31425426527241 700,67.39130434782606" fill="none" stroke="#59a14f" stroke-width="2"/><circle cx="60" cy="129.30654925701705" r="3" fill="#59a14f"><title>2000: 219.3MB</title></circle><circle cx="220" cy="112.74078150798019" r="3" fill="#59a14f"><title>4000: 249.4MB</title></circle><circle cx="380" cy="99.75233902036322" r="3" fill="#59a14f"><title>6000: 273MB</title></circle><circle cx="540" cy="87.31425426527241" r="3" fill="#59a14f"><title>8000: 295.6MB</title></circle><circle cx="700" cy="67.39130434782606" r="3" fill="#59a14f"><title>10000: 331.8MB</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">4000</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">6000</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">8000</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">10000</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="eventloop p99 随连接数">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">eventloop p99 随连接数（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">5.2</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">10</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">16</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">21</text><polyline points="60,122.77591973244144 220,120.86956521739128 380,128.39464882943145 540,67.39130434782606 700,101.60535117056855" fill="none" stroke="#f28e2b" stroke-width="2"/><circle cx="60" cy="122.77591973244144" r="3" fill="#f28e2b"><title>2000: 12.68ms</title></circle><circle cx="220" cy="120.86956521739128" r="3" fill="#f28e2b"><title>4000: 12.87ms</title></circle><circle cx="380" cy="128.39464882943145" r="3" fill="#f28e2b"><title>6000: 12.12ms</title></circle><circle cx="540" cy="67.39130434782606" r="3" fill="#f28e2b"><title>8000: 18.2ms</title></circle><circle cx="700" cy="101.60535117056855" r="3" fill="#f28e2b"><title>10000: 14.79ms</title></circle><text x="60" y="268" text-anchor="middle" font-size="10" fill="var(--text)">2000</text><text x="220" y="268" text-anchor="middle" font-size="10" fill="var(--text)">4000</text><text x="380" y="268" text-anchor="middle" font-size="10" fill="var(--text)">6000</text><text x="540" y="268" text-anchor="middle" font-size="10" fill="var(--text)">8000</text><text x="700" y="268" text-anchor="middle" font-size="10" fill="var(--text)">10000</text></svg>
+<p class="muted">爬坡停止原因:达到 MAX=10000(用户数 10000)——到 10000 上限即停,未触发任何恶化阈值,<b>单实例连接上限未探到</b>。</p>
+<table>
+<tr><th>目标连接</th><th>建连成功(率)</th><th>建连 p50/95/<b>99</b>(ms)</th><th>server 连接数</th><th>RSS(MB)</th><th>lag p99(ms)</th></tr>
+<tr>
+      <td>2000</td><td>2000/2000 (100%)</td>
+      <td>318/641/<b>657</b></td>
+      <td>2000</td><td>219.3</td><td>12.68</td>
+    </tr><tr>
+      <td>4000</td><td>2000/2000 (100%)</td>
+      <td>342/647/<b>656</b></td>
+      <td>4000</td><td>249.4</td><td>12.87</td>
+    </tr><tr>
+      <td>6000</td><td>2000/2000 (100%)</td>
+      <td>355/649/<b>666</b></td>
+      <td>6000</td><td>273</td><td>12.12</td>
+    </tr><tr>
+      <td>8000</td><td>2000/2000 (100%)</td>
+      <td>434/720/<b>735</b></td>
+      <td>8000</td><td>295.6</td><td>18.2</td>
+    </tr><tr>
+      <td>10000</td><td>2000/2000 (100%)</td>
+      <td>409/709/<b>728</b></td>
+      <td>10000</td><td>331.8</td><td>14.79</td>
+    </tr>
+</table>
+
+<h2>五、群扇出(fan-out)</h2>
+<table>
+<tr><th>成员在线</th><th>发送轮次</th><th>完整送达</th><th>扇出 span p50/95/<b>99</b>(ms)</th><th>端到端 e2e p50/95/<b>99</b>(ms)</th></tr>
+<tr><td>100</td><td>20</td><td>20</td>
+<td>3/3/<b>3</b></td>
+<td>13/19/<b>21</b></td></tr>
+</table>
+<p class="muted">扇出 span = 最后一名成员收到 vs 第一名成员收到(纯扩散时间差);e2e = 最后收到 vs 发送(含落库 + 发号 + 广播)。</p>
+
+<h2>六、惊群重连(S7:300 连接)</h2>
+<table>
+<tr><th>阶段</th><th>结果</th><th>耗时 p50/95/<b>99</b>(ms)</th></tr>
+<tr><td>初次建连</td><td class="ok">300/300 成功</td><td>9/13/<b>14</b></td></tr>
+<tr><td>惊群重连(全量同瞬间)</td><td class="ok">300/300 成功</td><td>43/65/<b>67</b></td></tr>
+<tr><td colspan="3">资源:断连前 RSS 235.6MB → 重连窗口峰值 196.7MB;连接数 301 → 峰值 301 → 终值 301;eventloop p99 12.07 → 12.11ms</td></tr>
+</table>
+
+<h2>七、HTTP API 层(并发 20 × 10s)</h2>
+<table>
+<tr><th>接口</th><th>吞吐(rps)</th><th>时延 p50/95/<b>99</b>(ms)</th><th>时延 max(ms)</th><th>错误</th></tr>
+<tr>
+      <td>GET /health</td>
+      <td>10756.8</td>
+      <td>2/3/<b>4</b></td>
+      <td>18</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>POST /api/login (bcrypt)</td>
+      <td>19.3</td>
+      <td>1027/1060/<b>1062</b></td>
+      <td>1063</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>GET /user/userConversations</td>
+      <td>3599.4</td>
+      <td>5/8/<b>9</b></td>
+      <td>24</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>GET /user/messages</td>
+      <td>73</td>
+      <td>268/430/<b>484</b></td>
+      <td>506</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>GET /user/lastMessages</td>
+      <td>1165.3</td>
+      <td>17/26/<b>32</b></td>
+      <td>43</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>GET /user/sync</td>
+      <td>1391.8</td>
+      <td>14/19/<b>22</b></td>
+      <td>37</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td>GET /user/mentions</td>
+      <td>4038.7</td>
+      <td>5/7/<b>8</b></td>
+      <td>13</td>
+      <td class="ok">0</td>
+    </tr>
+</table>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="HTTP 接口吞吐(rps)">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">HTTP 接口吞吐(rps)（rps）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">10000</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">15000</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">20000</text><rect x="86.71428571428572" y="137.05360000000002" width="38" height="112.94639999999998" fill="#4e79a7"><title>/health: 10756.8rps</title></rect><text x="105.71428571428572" y="133.05360000000002" text-anchor="middle" font-size="9" fill="#4e79a7">10756.8</text><rect x="178.14285714285717" y="249.79735" width="38" height="0.20265000000000555" fill="#4e79a7"><title>/api/login (bcrypt): 19.3rps</title></rect><text x="197.14285714285717" y="245.79735" text-anchor="middle" font-size="9" fill="#4e79a7">19.3</text><rect x="269.57142857142856" y="212.2063" width="38" height="37.7937" fill="#4e79a7"><title>/user/userConversations: 3599.4rps</title></rect><text x="288.57142857142856" y="208.2063" text-anchor="middle" font-size="9" fill="#4e79a7">3599.4</text><rect x="361" y="249.2335" width="38" height="0.7665000000000077" fill="#4e79a7"><title>/user/messages: 73rps</title></rect><text x="380" y="245.2335" text-anchor="middle" font-size="9" fill="#4e79a7">73</text><rect x="452.42857142857144" y="237.76435" width="38" height="12.235649999999993" fill="#4e79a7"><title>/user/lastMessages: 1165.3rps</title></rect><text x="471.42857142857144" y="233.76435" text-anchor="middle" font-size="9" fill="#4e79a7">1165.3</text><rect x="543.8571428571428" y="235.3861" width="38" height="14.613900000000001" fill="#4e79a7"><title>/user/sync: 1391.8rps</title></rect><text x="562.8571428571428" y="231.3861" text-anchor="middle" font-size="9" fill="#4e79a7">1391.8</text><rect x="635.2857142857142" y="207.59365" width="38" height="42.40635" fill="#4e79a7"><title>/user/mentions: 4038.7rps</title></rect><text x="654.2857142857142" y="203.59365" text-anchor="middle" font-size="9" fill="#4e79a7">4038.7</text><text x="105.71428571428572" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/health</text><text x="197.14285714285717" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/api/login (bcrypt)</text><text x="288.57142857142856" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/userConversations</text><text x="380" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/messages</text><text x="471.42857142857144" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/lastMessages</text><text x="562.8571428571428" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/sync</text><text x="654.2857142857142" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/mentions</text></svg>
+<svg viewBox="0 0 720 300" class="chart" role="img" aria-label="HTTP 接口时延 p99">
+    <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">HTTP 接口时延 p99（ms）</text>
+    <line x1="60" y1="250" x2="700" y2="250" stroke="var(--grid)"/><text x="52" y="254" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="60" y1="197.5" x2="700" y2="197.5" stroke="var(--grid)"/><text x="52" y="201.5" text-anchor="end" font-size="11" fill="var(--muted)">500</text><line x1="60" y1="145" x2="700" y2="145" stroke="var(--grid)"/><text x="52" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1000</text><line x1="60" y1="92.5" x2="700" y2="92.5" stroke="var(--grid)"/><text x="52" y="96.5" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="60" y1="40" x2="700" y2="40" stroke="var(--grid)"/><text x="52" y="44" text-anchor="end" font-size="11" fill="var(--muted)">2000</text><rect x="86.71428571428572" y="249.58" width="38" height="0.4199999999999875" fill="#e15759"><title>/health: 4ms</title></rect><text x="105.71428571428572" y="245.58" text-anchor="middle" font-size="9" fill="#e15759">4</text><rect x="178.14285714285717" y="138.49" width="38" height="111.50999999999999" fill="#e15759"><title>/api/login (bcrypt): 1062ms</title></rect><text x="197.14285714285717" y="134.49" text-anchor="middle" font-size="9" fill="#e15759">1062</text><rect x="269.57142857142856" y="249.055" width="38" height="0.9449999999999932" fill="#e15759"><title>/user/userConversations: 9ms</title></rect><text x="288.57142857142856" y="245.055" text-anchor="middle" font-size="9" fill="#e15759">9</text><rect x="361" y="199.18" width="38" height="50.81999999999999" fill="#e15759"><title>/user/messages: 484ms</title></rect><text x="380" y="195.18" text-anchor="middle" font-size="9" fill="#e15759">484</text><rect x="452.42857142857144" y="246.64" width="38" height="3.3600000000000136" fill="#e15759"><title>/user/lastMessages: 32ms</title></rect><text x="471.42857142857144" y="242.64" text-anchor="middle" font-size="9" fill="#e15759">32</text><rect x="543.8571428571428" y="247.69" width="38" height="2.3100000000000023" fill="#e15759"><title>/user/sync: 22ms</title></rect><text x="562.8571428571428" y="243.69" text-anchor="middle" font-size="9" fill="#e15759">22</text><rect x="635.2857142857142" y="249.16" width="38" height="0.8400000000000034" fill="#e15759"><title>/user/mentions: 8ms</title></rect><text x="654.2857142857142" y="245.16" text-anchor="middle" font-size="9" fill="#e15759">8</text><text x="105.71428571428572" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/health</text><text x="197.14285714285717" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/api/login (bcrypt)</text><text x="288.57142857142856" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/userConversations</text><text x="380" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/messages</text><text x="471.42857142857144" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/lastMessages</text><text x="562.8571428571428" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/sync</text><text x="654.2857142857142" y="268" text-anchor="middle" font-size="11" fill="var(--text)">/user/mentions</text></svg>
+<p class="muted">health 为 HTTP 栈裸能力(~10756.8 rps,无 DB);login 受 bcrypt 12 轮 CPU 限制;messages 无 limit 全量返回历史消息导致慢;其余接口命中索引、表现良好。</p>
+
+<h2>八、完整数据表(场景 S0-S5)</h2>
+<table>
+<tr><th>场景</th><th>参数</th><th>连接</th><th>发送/ack</th><th>错误</th><th>RTT p50/95/<b>99</b>/p999(ms)</th><th>服务内 p50/95/<b>99</b>(ms)</th><th>建连 p50/<b>p99</b>(ms)</th><th>RSS(MB)</th><th>堆(MB)</th><th>lag p99(ms)</th><th>GC(次)</th></tr>
+<tr>
+      <td>S0 Smoke</td><td>50 连接 × 2 msg/s × 15s(≈100 msg/s)</td>
+      <td>50/50</td><td>1450/1450</td>
+      <td class="ok">0</td>
+      <td>19/34/<b>56</b>/—</td>
+      <td>18.3/43.61/<b>67.86</b></td>
+      <td>5/8</td>
+      <td>179</td><td>49.7</td>
+      <td>11.57</td><td>28</td>
+    </tr><tr>
+      <td>S1 常规吞吐</td><td>100 连接 × 10 msg/s × 20s(≈1000 msg/s)</td>
+      <td>100/100</td><td>19800/19800</td>
+      <td class="ok">0</td>
+      <td>33/50/<b>57</b>/—</td>
+      <td>30.1/48.85/<b>77.57</b></td>
+      <td>6/8</td>
+      <td>284.1</td><td>115.3</td>
+      <td>13.3</td><td>136</td>
+    </tr><tr>
+      <td>S2 连接规模</td><td>300 连接 × 2 msg/s × 15s(≈600 msg/s)</td>
+      <td>300/300</td><td>8700/8700</td>
+      <td class="ok">0</td>
+      <td>85/150/<b>171</b>/—</td>
+      <td>81.23/229.47/<b>245.89</b></td>
+      <td>6/10</td>
+      <td>300.6</td><td>143.9</td>
+      <td>12.77</td><td>58</td>
+    </tr><tr>
+      <td>S3 过载压力</td><td>150 连接 × 20 msg/s × 15s(≈3000 msg/s)</td>
+      <td>150/150</td><td>44714/22529</td>
+      <td class="bad">22185</td>
+      <td>2027/2050/<b>2059</b>/—</td>
+      <td>1667.46/2416.75/<b>2483.35</b></td>
+      <td>5/42</td>
+      <td>491.2</td><td>187.1</td>
+      <td>16.89</td><td>149</td>
+    </tr><tr>
+      <td>S4 大连接</td><td>500 连接 × 1 msg/s × 15s(≈500 msg/s)</td>
+      <td>500/500</td><td>7000/7000</td>
+      <td class="ok">0</td>
+      <td>136/242/<b>276</b>/—</td>
+      <td>131.89/243.62/<b>397.06</b></td>
+      <td>9/13</td>
+      <td>485.9</td><td>173.9</td>
+      <td>12.95</td><td>50</td>
+    </tr><tr>
+      <td>S5 长时稳态</td><td>100 连接 × 5 msg/s × 120s(≈500 msg/s)</td>
+      <td>100/100</td><td>59500/59500</td>
+      <td class="ok">0</td>
+      <td>35/53/<b>61</b>/—</td>
+      <td>32.23/51.43/<b>90.29</b></td>
+      <td>6/9</td>
+      <td>308.9</td><td>158.4</td>
+      <td>13.13</td><td>402</td>
+    </tr>
+</table>
+<p class="muted">"服务内" = <code>server_message_duration_seconds</code> 经 <code>histogram_quantile</code> 算得(桶宽较粗,尾分位偏插值估计);RTT 为客户端原始分位,更精确。</p>
+
+<h2>九、深入分析</h2>
+
+<h3>9.1 吞吐饱和点:为什么在 1500~2000 msg/s 断崖?(最重要的结论)</h3>
+<p>吞吐扫描给出了清晰的拐点:1500 msg/s 仍零错误(RTT p99 58ms),2000 msg/s 起 7.6% 失败且成功消息 RTT p99 瞬间跳到 2041ms。这不是渐进退化,而是<b>到达某个临界点后排队系统瞬间饱和</b>。结合监测数据(eventloop p99 ≤16.89ms 健康、DB 单次查询 p50 仅 2.92ms),瓶颈不在 Node 事件循环,而在:</p>
+<ul>
+<li><b>会话发号行锁</b>:<code>persistMessage</code> 对每条消息执行 <code>UPDATE conversations SET next_seq=next_seq+1 ... RETURNING</code>,同一会话的写入被行锁串行化。100 连接两两配对 50 个会话,每会话 ~40 msg/s(2000 msg/s ÷ 50),单行锁吞吐接近上限时开始排队。</li>
+<li><b>Prisma 连接池</b>:瞬时并发写打满连接池后,新事务等待,等待超时/累积 → <code>message.error</code>。</li>
+</ul>
+<p>工程含义:<b>要提升单实例消息吞吐,先优化 DB 写路径(发号批量化 / 连接池扩容 / 写合并),而不是换协议或换运行时</b>。这也是后续"Node vs Go"对比时最容易误判的点——Go 网关不替代这段 DB 写路径,单靠换连接层不会让饱和点右移。</p>
+
+<h3>9.2 过载失败模式:快速失败 + 明确报错(可复现)</h3>
+<p>S3(≈3000 msg/s)与吞吐扫描 tp_r30 一致:约 50% 被 <code>message.error</code> 拒绝,成功消息 RTT 挤到 ~2s,RSS 飙至 491.2MB。以"拒绝而非无限排队"失败,配合 <code>message.error</code> 回执让客户端可感知重试——对"消息必达"友好。注意:<b>过载压测曾使 colima docker(PostgreSQL)短暂失联(P1001)</b>,属同机争抢下环境稳定性现象,需在独立环境复测确认是否影响生产判断。</p>
+
+<h3>9.3 RTT 随连接数上升的归因</h3>
+<p>低消息率下 RTT p50 随连接数近似线性(19→33→85→2027ms),但 eventloop/GC 全程健康、DB 查询很快。增量主要来自:每连接的 presence/心跳 Redis 往返、消息落库事务的 <code>UserConversation.createMany</code>、以及同机 harness 与 server 的 CPU 争抢。真实容量应以服务内直方图(几乎不随连接数变化)与多机压测为准。</p>
+
+<h3>9.4 HTTP 层:bcrypt 与无 limit 查询是两个真实瓶颈</h3>
+<p>①<code>POST /api/login</code> 仅 19.3 rps、单次 ~1s——bcrypt 12 轮是认证吞吐的硬上限,也是压测登录阶段的耗时主因。②<code>GET /user/messages</code> 仅 73 rps、p99 484ms——该接口 <code>findMany({conversationId, orderBy: timestamp asc})</code> <b>无 limit</b>,大会话历史全量返回。其余接口(sync/lastMessages/userConversations/mentions)命中索引、表现良好。</p>
+
+<h3>9.5 长时稳态与 GC:2 分钟无漂移</h3>
+<p>S5(100 连接 × 5 msg/s × 120s,59500 条)全程 100% ack、0 错误,RTT p99=276ms 与 20s 短窗一致;GC 50 次、eventloop p99 12.95ms、RSS 485.9MB。该负载点距能力边界很远,无泄漏/退化。</p>
+
+<h3>9.6 连接密度:10000 连接轻松、~34KB/连接</h3>
+<p>纯连接(不发消息)下 10000 连接 100% 建连成功、RSS 仅 331.8MB。Node socket.io 单实例连接上限通常在数万级(受 ulimit/内存约束),10000 远未到顶。要继续探顶需更大 MAX + 压测端多进程(单进程 socket.io-client 数千连接已吃内存)。</p>
+
+<h3>9.7 与旧 26-9-12 报告的关系(为什么重测)</h3>
+<p>旧报告把"含 gateway 的 A/B"作为首次产出,方法本末倒置:<b>无纯 Node 基线则 A/B 差异无法归因</b>;旧测同参数数据受同机 gateway 干扰。本次基线:①gateway 全程未启动;②场景从 3 个扩到 11 类(吞吐扫描/爬坡 1 万/惊群/群扇出/HTTP 层/长稳);③采样新增堆/GC/CPU/GC 停顿分位/p999。后续 gateway 对比<b>必须以此基座、同场景同参数复测</b>。</p>
+
+<h2>十、建议与后续</h2>
+<ul>
+<li><b>优先修两个真实瓶颈</b>:①<code>/user/messages</code> 加 limit + 分页;②评估 bcrypt 轮数/哈希方案(如登录限流下保持 12 轮,但批量注册走异步)。</li>
+<li><b>吞吐再上探先动 DB</b>:发号 <code>UPDATE ... RETURNING</code> 是 2000 msg/s 饱和主因,评估批量发号/连接池扩容/写合并。</li>
+<li><b>多机隔离复测</b>:压测端与被测端分机,消除同机争抢噪声;并把过载导致的 docker 失联在独立环境复验。</li>
+<li><b>探真实连接上限</b>:ramp MAX 提到 3 万+,压测端多进程。</li>
+<li><b>群扇出规模化</b>:本轮 N=100,后续测 N=500/1000(需更大群 + 更多连接)。</li>
+<li><b>gateway 对比基线已就绪</b>:gateway 补 parity(ack/心跳/重连/顺序)后,严格按本报告 S0-S7 + 吞吐扫描 + HTTP 层 + 扇出全套同参复测。</li>
+<li><b>直方图尾桶加细</b>:<code>server_message_duration_seconds</code> 在 [0.1,0.25] 插值高估尾分位,加 .15/.2 桶。</li>
+</ul>
+
+<p class="muted" style="margin-top:40px;border-top:1px solid #eee;padding-top:12px">本报告由 <code>perf/gen-node-report.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。工具:<code>harness.mjs</code>/<code>node-run.mjs</code>/<code>ramp-probe.mjs</code>/<code>storm-reconnect.mjs</code>/<code>fanout-bench.mjs</code>/<code>http-bench.mjs</code>。</p>
+</body></html>

@@ -75,3 +75,18 @@ Socket 连接成功: 198 / 尝试 200
 - **conversationId 不需要走好友/建会话 API,零额外调用即可发消息**:读 `server/src/services/message.ts` 确认 `persistMessage` 用 `INSERT ... ON CONFLICT (id) DO NOTHING` 在首条消息时自动建会话;`getConversationMembers`/`deriveParticipants` 对 `single_<u1>_<u2>` 格式的 conversationId 直接从 id 字符串解析双方 id,不查 DB 成员关系。因此 harness 把相邻两个 bench 用户配对,直接用 `single_<minId>_<maxId>` 发 `message.send` 即可,**未走 `server/src/routes/friend.ts` 的 addFriend/replyFriendReq 流程**(那条路径是给真实产品语义用的双向好友关系 + 自动寒暄消息,压测不需要)。落单的连接(CONNS 为奇数时)自聊 `single_<id>_<id>`。
 - **连接负载是底线,消息负载是尽力而为**:若某次 server 变更导致 conversationId 规则/message.send 契约改变,harness 的阶段2(建连)与阶段3(发消息)是解耦的——阶段3 内部 try/catch 且有 `message.ack_timeout` 兜底,不会导致整个 harness 卡死或误报阶段2 失败;`RATE<=0` 可直接关闭消息负载只压连接数。
 - **不做的事**:没有引入 Artillery 作为主路径(仅作为可选加分放在 `artillery-socketio.yml`,且明确标注 socket.io v4 协议兼容性未验证,推荐仍用 `harness.mjs`)。没有验证真实压测跑通(未启动 server/DB),仅做了 `node --check` 语法校验与 `npm install` 依赖校验。
+
+## 纯 Node 基线测试(gateway 不参与)
+
+留存"引入 Go 层之前"纯 Node 性能记录的标准流程(报告与数据在 `docs/监测设施/测试报告/26-9-14/`):
+
+| 工具 | 用途 |
+|---|---|
+| `node-run.mjs` | 跑 harness + 每 2s 采样 server 资源(RSS/连接/eventloop/堆/GC/CPU) + 服务内直方图分位(消息/HTTP/DB/GC) → 落 JSON。用法 `node node-run.mjs <label> [CONNS RATE DURATION RAMP]` |
+| `ramp-probe.mjs` | 连接爬坡探顶:阶梯加压并保持连接,成功率/eventloop 阈值判定拐点。**参数走 env** `env START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 node ramp-probe.mjs` |
+| `storm-reconnect.mjs` | 惊群重连:N 连接同瞬间全断→全连,测成功率/耗时/资源尖峰。用法 `node storm-reconnect.mjs [CONNS RAMP]` |
+| `fanout-bench.mjs` | 群扇出:直写 DB 建群 + N 成员在线,测 fan-out 扩散 span/端到端 e2e。用法 `node fanout-bench.mjs [MEMBERS ROUNDS GROUP_ID]` |
+| `http-bench.mjs` | HTTP API 层并发压测(health/login/userConversations/messages/lastMessages/sync/mentions 的吞吐/时延/错误)。用法 `node http-bench.mjs [CONCURRENCY DURATION]` |
+| `gen-node-report.mjs` | 读 `26-9-14/data/*.json` 生成自包含 HTML 基线报告(跟随系统深浅色) |
+
+前置:`node-run.mjs`/`ramp-probe.mjs`/`storm-reconnect.mjs`/`http-bench.mjs` 依赖 Prometheus(:9090)采资源指标与 `lsof`/`ps` 读进程 RSS;`fanout-bench.mjs` 依赖 docker 直写 DB 建群。跑之前确认 server 已按 `docs/监测设施/测试报告/26-9-14/README.md` 的 runbook 启动(gateway 不要启动)。

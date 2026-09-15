@@ -1,0 +1,43 @@
+{
+  "label": "s7_storm",
+  "mode": "socketio",
+  "params": {
+    "CONNS": 300,
+    "RAMP": 50
+  },
+  "startedAt": 1789392942483,
+  "endedAt": 1789392958696,
+  "initialConnect": {
+    "ok": 300,
+    "attempted": 300,
+    "count": 300,
+    "p50": 9,
+    "p95": 13,
+    "p99": 14,
+    "min": 4,
+    "max": 15
+  },
+  "stormDisconnect": {
+    "allClosedAt": 1789392947475
+  },
+  "stormReconnect": {
+    "startedAt": 1789392950485,
+    "ok": 300,
+    "attempted": 300,
+    "count": 300,
+    "p50": 43,
+    "p95": 65,
+    "p99": 67,
+    "min": 32,
+    "max": 67
+  },
+  "resource": {
+    "baselineServerRssMB": 235.6,
+    "baselineConnections": 301,
+    "baselineEventloopP99Ms": 12.07,
+    "spikePeakServerRssMB": 196.7,
+    "spikePeakConnections": 301,
+    "spikePeakEventloopP99Ms": 12.11,
+    "finalConnections": 301
+  }
+}

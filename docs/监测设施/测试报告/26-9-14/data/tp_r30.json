@@ -1,0 +1,70 @@
+{
+  "label": "tp_r30",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 30,
+    "DURATION": 20,
+    "RAMP": 25
+  },
+  "startedAt": 1789437657739,
+  "endedAt": 1789437689179,
+  "windowSec": 32,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 60198,
+    "ack": 22593,
+    "connectMs": {
+      "p50": 6,
+      "p95": 7,
+      "p99": 8,
+      "p999": 11,
+      "min": 4,
+      "max": 11,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 2027,
+      "p95": 2055,
+      "p99": 2096,
+      "p999": 2182,
+      "min": 12,
+      "max": 2382,
+      "n": 22593
+    },
+    "errors": {
+      "message.error": 37605
+    }
+  },
+  "resource": {
+    "peakConnections": 100,
+    "peakServerRssMB": 490,
+    "baseServerRssMB": 454.8,
+    "peakEventloopP99Ms": 16.47,
+    "peakHeapMB": 256.5,
+    "gcPausesDelta": 134,
+    "cpuSecondsDelta": 47.38
+  },
+  "serverInternalDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "httpDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "dbDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "gcPauseMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "label": "fanout_bench",
+  "mode": "socketio",
+  "params": {
+    "MEMBERS": 100,
+    "ROUNDS": 20,
+    "GROUP_ID": "9000001",
+    "conversationId": "group_9000001"
+  },
+  "connected": 100,
+  "roundsSent": 20,
+  "roundsDelivered": 20,
+  "fanoutSpanMs": {
+    "p50": 3,
+    "p95": 3,
+    "p99": 3,
+    "min": 2,
+    "max": 3,
+    "n": 20
+  },
+  "fanoutE2EMs": {
+    "p50": 13,
+    "p95": 19,
+    "p99": 21,
+    "min": 11,
+    "max": 21,
+    "n": 20
+  },
+  "endedAt": 1789437519759
+}

@@ -38,6 +38,7 @@ function summarize(arr) {
     p50: percentile(sorted, 50),
     p95: percentile(sorted, 95),
     p99: percentile(sorted, 99),
+    p999: percentile(sorted, 99.9),
     min: sorted.length ? sorted[0] : NaN,
     max: sorted.length ? sorted[sorted.length - 1] : NaN,
   };
@@ -349,11 +350,11 @@ function printSummary({ totalUsers, connectedCount, connectTimes, sentCount, ack
   console.log(`用户注册/登录成功: ${totalUsers}`);
   console.log(`Socket 连接成功: ${connectedCount} / 尝试 ${totalUsers}`);
   console.log(
-    `连接建立耗时(ms): p50=${fmt(connStats.p50)} p95=${fmt(connStats.p95)} p99=${fmt(connStats.p99)} min=${fmt(connStats.min)} max=${fmt(connStats.max)} (n=${connStats.count})`,
+    `连接建立耗时(ms): p50=${fmt(connStats.p50)} p95=${fmt(connStats.p95)} p99=${fmt(connStats.p99)} p999=${fmt(connStats.p999)} min=${fmt(connStats.min)} max=${fmt(connStats.max)} (n=${connStats.count})`,
   );
   console.log(`消息发送数: ${sentCount}, 收到 ack 数: ${ackCount}`);
   console.log(
-    `消息 RTT(ms): p50=${fmt(rttStats.p50)} p95=${fmt(rttStats.p95)} p99=${fmt(rttStats.p99)} min=${fmt(rttStats.min)} max=${fmt(rttStats.max)} (n=${rttStats.count})`,
+    `消息 RTT(ms): p50=${fmt(rttStats.p50)} p95=${fmt(rttStats.p95)} p99=${fmt(rttStats.p99)} p999=${fmt(rttStats.p999)} min=${fmt(rttStats.min)} max=${fmt(rttStats.max)} (n=${rttStats.count})`,
   );
   console.log('错误分类计数:');
   if (errors.size === 0) {
