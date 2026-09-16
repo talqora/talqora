@@ -1,0 +1,47 @@
+{
+  "label": "s7_storm_gateway",
+  "mode": "gateway",
+  "params": {
+    "CONNS": 300,
+    "RAMP": 50
+  },
+  "startedAt": 1789530590958,
+  "endedAt": 1789530607237,
+  "initialConnect": {
+    "ok": 300,
+    "attempted": 300,
+    "count": 300,
+    "p50": 7,
+    "p95": 9,
+    "p99": 9,
+    "min": 2,
+    "max": 9
+  },
+  "stormDisconnect": {
+    "allClosedAt": 1789530595950
+  },
+  "stormReconnect": {
+    "startedAt": 1789530598955,
+    "ok": 300,
+    "attempted": 300,
+    "count": 300,
+    "p50": 26,
+    "p95": 37,
+    "p99": 39,
+    "min": 21,
+    "max": 40
+  },
+  "resource": {
+    "baselineGatewayRssMB": 412.1,
+    "baselineServerRssMB": 133,
+    "baselineGatewayConnections": 300,
+    "baselineGoroutines": 612,
+    "baselineEventloopP99Ms": 11.08,
+    "spikePeakGatewayRssMB": 412.1,
+    "spikePeakServerRssMB": 133,
+    "spikePeakGatewayConnections": 300,
+    "spikePeakGoroutines": 616,
+    "spikePeakEventloopP99Ms": 11.08,
+    "finalConnections": 300
+  }
+}

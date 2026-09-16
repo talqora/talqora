@@ -1,0 +1,113 @@
+{
+  "label": "s6_ramp",
+  "mode": "socketio",
+  "params": {
+    "START": 2000,
+    "STEP": 2000,
+    "MAX": 10000,
+    "HOLD_MS": 5000,
+    "SUCCESS_THRESHOLD": 0.9,
+    "LAG_THRESHOLD_MS": 200
+  },
+  "startedAt": 1789438921970,
+  "endedAt": 1789438953017,
+  "stopReason": "达到 MAX=10000(用户数 10000)",
+  "levels": [
+    {
+      "target": 2000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 318,
+        "p95": 641,
+        "p99": 657,
+        "min": 213,
+        "max": 660
+      },
+      "heldAfter": 2000,
+      "serverConnections": 2000,
+      "eventloopP99Ms": 12.68,
+      "serverRssMB": 219.3
+    },
+    {
+      "target": 4000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 342,
+        "p95": 647,
+        "p99": 656,
+        "min": 193,
+        "max": 658
+      },
+      "heldAfter": 4000,
+      "serverConnections": 4000,
+      "eventloopP99Ms": 12.87,
+      "serverRssMB": 249.4
+    },
+    {
+      "target": 6000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 355,
+        "p95": 649,
+        "p99": 666,
+        "min": 169,
+        "max": 668
+      },
+      "heldAfter": 6000,
+      "serverConnections": 6000,
+      "eventloopP99Ms": 12.12,
+      "serverRssMB": 273
+    },
+    {
+      "target": 8000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 434,
+        "p95": 720,
+        "p99": 735,
+        "min": 175,
+        "max": 738
+      },
+      "heldAfter": 8000,
+      "serverConnections": 8000,
+      "eventloopP99Ms": 18.2,
+      "serverRssMB": 295.6
+    },
+    {
+      "target": 10000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 409,
+        "p95": 709,
+        "p99": 728,
+        "min": 191,
+        "max": 730
+      },
+      "heldAfter": 10000,
+      "serverConnections": 10000,
+      "eventloopP99Ms": 14.79,
+      "serverRssMB": 331.8
+    }
+  ],
+  "summary": {
+    "maxStableConnections": 10000,
+    "peakLevelServerRssMB": 331.8,
+    "peakLevelEventloopP99Ms": 14.79
+  },
+  "source": "26-9-14 纯 Node 基线(复制改名,原始数据见 26-9-14/data)"
+}

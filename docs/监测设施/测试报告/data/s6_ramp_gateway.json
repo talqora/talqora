@@ -1,0 +1,124 @@
+{
+  "label": "s6_ramp_gateway",
+  "mode": "gateway",
+  "params": {
+    "START": 2000,
+    "STEP": 2000,
+    "MAX": 10000,
+    "HOLD_MS": 5000,
+    "SUCCESS_THRESHOLD": 0.9,
+    "LAG_THRESHOLD_MS": 200
+  },
+  "startedAt": 1789530493451,
+  "endedAt": 1789530522443,
+  "stopReason": "达到 MAX=10000(用户数 10000)",
+  "levels": [
+    {
+      "target": 2000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 134,
+        "p95": 256,
+        "p99": 267,
+        "min": 69,
+        "max": 269
+      },
+      "heldAfter": 2000,
+      "gatewayConnections": 2000,
+      "goroutines": 4012,
+      "eventloopP99Ms": 11.28,
+      "gatewayRssMB": 82.9,
+      "serverRssMB": 183.5
+    },
+    {
+      "target": 4000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 133,
+        "p95": 264,
+        "p99": 276,
+        "min": 78,
+        "max": 278
+      },
+      "heldAfter": 4000,
+      "gatewayConnections": 4000,
+      "goroutines": 8012,
+      "eventloopP99Ms": 11.22,
+      "gatewayRssMB": 147.9,
+      "serverRssMB": 183.5
+    },
+    {
+      "target": 6000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 138,
+        "p95": 272,
+        "p99": 288,
+        "min": 75,
+        "max": 292
+      },
+      "heldAfter": 6000,
+      "gatewayConnections": 6000,
+      "goroutines": 12012,
+      "eventloopP99Ms": 11.12,
+      "gatewayRssMB": 203.2,
+      "serverRssMB": 183.4
+    },
+    {
+      "target": 8000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 163,
+        "p95": 317,
+        "p99": 330,
+        "min": 78,
+        "max": 333
+      },
+      "heldAfter": 8000,
+      "gatewayConnections": 8000,
+      "goroutines": 16012,
+      "eventloopP99Ms": 11.12,
+      "gatewayRssMB": 268.5,
+      "serverRssMB": 180.6
+    },
+    {
+      "target": 10000,
+      "batchAttempted": 2000,
+      "batchOk": 2000,
+      "successRate": 1,
+      "connectMs": {
+        "count": 2000,
+        "p50": 161,
+        "p95": 307,
+        "p99": 320,
+        "min": 75,
+        "max": 323
+      },
+      "heldAfter": 10000,
+      "gatewayConnections": 10000,
+      "goroutines": 20012,
+      "eventloopP99Ms": 11.1,
+      "gatewayRssMB": 315.5,
+      "serverRssMB": 180.5
+    }
+  ],
+  "summary": {
+    "maxStableConnections": 10000,
+    "peakLevelGatewayRssMB": 315.5,
+    "peakLevelServerRssMB": 180.5,
+    "peakLevelGoroutines": 20012,
+    "peakLevelEventloopP99Ms": 11.1
+  }
+}

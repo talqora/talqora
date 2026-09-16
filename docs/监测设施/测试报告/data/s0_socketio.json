@@ -1,0 +1,62 @@
+{
+  "label": "s0_smoke",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 50,
+    "RATE": 2,
+    "DURATION": 15,
+    "RAMP": 10
+  },
+  "startedAt": 1789392178148,
+  "endedAt": 1789392205518,
+  "windowSec": 28,
+  "harness": {
+    "connectedCount": 50,
+    "attempted": 50,
+    "sent": 1450,
+    "ack": 1450,
+    "connectMs": {
+      "p50": 5,
+      "p95": 6,
+      "p99": 8,
+      "min": 2,
+      "max": 8,
+      "n": 50
+    },
+    "rttMs": {
+      "p50": 19,
+      "p95": 34,
+      "p99": 56,
+      "min": 8,
+      "max": 67,
+      "n": 1450
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 51,
+    "peakServerRssMB": 179,
+    "baseServerRssMB": 102,
+    "peakEventloopP99Ms": 11.57,
+    "peakHeapMB": 49.7,
+    "gcPausesDelta": 28,
+    "cpuSecondsDelta": 23.12
+  },
+  "serverInternalDurationMs": {
+    "p50": 18.3,
+    "p95": 43.61,
+    "p99": 67.86
+  },
+  "httpDurationMs": {
+    "p50": 861.11,
+    "p95": 2315.91,
+    "p99": 2463.18
+  },
+  "dbDurationMs": {
+    "p50": 2.82,
+    "p95": 4.88,
+    "p99": 7.99
+  },
+  "source": "26-9-14 纯 Node 基线(复制改名,原始数据见 26-9-14/data)"
+}
