@@ -51,6 +51,14 @@ async function start(): Promise<void> {
   // 回滚:设 REALTIME_MODE=socketio 重新挂载 initSocket(推送已走 downlink 的部分需同步回退,
   // 见 docs/plans/2026-09-15-web直切gateway连接层替换-design.md 的回滚说明)。
   const io = process.env.REALTIME_MODE === 'socketio' ? initSocket(server) : null;
+
+  // gateway↔server 的 gRPC 流通道(26-9-16 演进方案 P1):承接网关上行帧与断连通知。
+  // gateway 默认 http 模式时此服务空转无连接,无害;EDGE_GRPC_ENABLED=false 可显式关闭。
+  if (process.env.EDGE_GRPC_ENABLED !== 'false') {
+    const { startEdgeGrpc } = await import('./realtime/edgeGrpc.js');
+    startEdgeGrpc(process.env.EDGE_GRPC_ADDR || '127.0.0.1:3008', console.log);
+  }
+
   registerGracefulShutdown(server, io);
 }
 

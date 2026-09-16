@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package ourchat.edge.v1;
+
+// gateway(Go) 与 server(Node) 之间的内部实时通信契约(连接层⇄业务层)。
+//
+// 背景:接入 Go gateway 后,上行曾用 HTTP-per-message 转发(每消息一次 POST + 每连接串行等待),
+// 26-9-16 压测证实其在 ≈1000 msg/s 出现 dial 耗尽、在 2500 msg/s 出现深队列(RTT p99=2.8s)。
+// 本契约把上行改为「双向流 + 异步确认」:单长连接复用、帧按 userId 哈希分片、ack 按
+// client_msg_id 回投,见 docs/监测设施/测试报告/26-9-16/26-9-16-连接层业务层通信架构演进方案-RPC改造.md。
+//
+// 帧载荷 raw_frame 沿用客户端信封 {type,data} 的 JSON:网关不解析业务语义,原样透传,
+// 与既有 HTTP 模式(/internal/gateway/uplink)与 gw:downlink 下行帧的字节形态完全一致。
+
+service Realtime {
+  // 双向流:gateway 为每条流建立连接并按 userId 哈希分片(同用户帧恒落同一流,
+  // ack/断连与上行帧同流返回,无需跨流关联)。目标态下行帧亦经此流(过渡期保留 Redis gw:downlink)。
+  rpc Stream(stream EdgeFrame) returns (stream EdgeFrame);
+}
+
+message EdgeFrame {
+  oneof kind {
+    UplinkFrame    uplink    = 1; // gateway → server:业务上行帧(原样透传客户端信封)
+    UplinkAck      ack       = 2; // server → gateway:message.ack / message.error 回投
+    ConnClosed     closed    = 3; // gateway → server:连接断开通知(替代 POST /internal/gateway/disconnect)
+    DownlinkFrame  downlink  = 4; // server → gateway:下行帧(目标态,替代 Redis gw:downlink)
+  }
+}
+
+// 业务上行帧。raw_frame 为客户端信封 {type,data} 的 JSON(message.send / read.report / call:* / heartbeat 除外)。
+message UplinkFrame {
+  int64  user_id        = 1; // 身份以网关 JWT 验签结果为准(与 X-User-Id 同义),不信任帧内自报
+  string device_id      = 2;
+  string client_msg_id  = 3; // 幂等键(重发复用;服务端 (conversation_id, sender_id, client_msg_id) 唯一约束兜底)
+  bytes  raw_frame      = 4; // 信封 JSON:{"type":"message.send","data":{...}}
+}
+
+// 上行确认:按 client_msg_id 关联回投给发送方连接。
+// ok=false 时必须带 error 与 client_msg_id(客户端据此收敛 pending,不再依赖超时重发)。
+message UplinkAck {
+  string client_msg_id  = 1;
+  bool   ok             = 2;
+  int64  seq            = 3;
+  int64  server_msg_id  = 4;
+  string error          = 5;
+  // 回投给客户端的原始信封 JSON(对齐 HTTP 模式的响应体语义):
+  //   message.send → {"type":"message.ack","data":{...}};call:* 信令响应同理;
+  //   空 = 仅收敛 pending 不回投(read.report 等 204 语义)。
+  bytes  raw_response   = 6;
+  // 确认归属的用户(网关据此定位分片内的等待者;与上行帧同值)。
+  int64  user_id        = 7;
+}
+
+// 连接断开通知(fire-and-forget 语义,与 /internal/gateway/disconnect 等价)。
+message ConnClosed {
+  int64  user_id   = 1;
+  string device_id = 2;
+}
+
+// 下行帧:server 定向推给某用户在某网关副本上的连接。
+// target_device_id / except_device_id 语义与 gw:downlink 载荷一致(属主路由 / 排除本端)。
+message DownlinkFrame {
+  int64  user_id           = 1;
+  string target_device_id  = 2; // 非空:仅投指定设备(call:rejoin);与 except 互斥
+  string except_device_id  = 3; // 非空:投除指定设备外的全部连接(read.sync);与 target 互斥
+  bytes  raw_frame         = 4; // 客户端最终收到的 WS 帧信封 JSON
+}

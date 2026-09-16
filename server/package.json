@@ -31,6 +31,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
     "@aws-sdk/lib-storage": "^3.1073.0",
+    "@bufbuild/protobuf": "^2.15.0",
+    "@grpc/grpc-js": "^1.14.4",
     "@prisma/client": "^6.19.3",
     "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^6.0.0",

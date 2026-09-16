@@ -35,19 +35,26 @@ type Hub struct {
 	heartbeatTimeout time.Duration
 
 	presence presenceRegistry
-	upstream *upstream.Client
-	log      *slog.Logger
+	upstream upstream.Upstream // 上行通道抽象(http 或 grpc 流实现)
+	// concurrentUpstream 表示上行通道支持每连接并发上行(grpc 流);false 时读循环串行等回包(http 模式)。
+	concurrentUpstream bool
+	log                *slog.Logger
 }
 
-func New(maxConns, sendBuffer int, heartbeatTimeout time.Duration, p presenceRegistry, up *upstream.Client, log *slog.Logger) *Hub {
+func New(maxConns, sendBuffer int, heartbeatTimeout time.Duration, p presenceRegistry, up upstream.Upstream, log *slog.Logger) *Hub {
+	concurrent := false
+	if up != nil {
+		concurrent = up.ConcurrentSafe()
+	}
 	return &Hub{
-		conns:            make(map[int64]map[string]*Conn),
-		maxConns:         maxConns,
-		sendBuffer:       sendBuffer,
-		heartbeatTimeout: heartbeatTimeout,
-		presence:         p,
-		upstream:         up,
-		log:              log,
+		conns:              make(map[int64]map[string]*Conn),
+		maxConns:           maxConns,
+		sendBuffer:         sendBuffer,
+		heartbeatTimeout:   heartbeatTimeout,
+		presence:           p,
+		upstream:           up,
+		concurrentUpstream: concurrent,
+		log:                log,
 	}
 }
 
@@ -61,6 +68,9 @@ func (h *Hub) NewConn(userID int64, deviceID, socketID string, ws *websocket.Con
 		ws:       ws,
 		send:     make(chan []byte, h.sendBuffer),
 		hub:      h,
+		closed:   make(chan struct{}),
+		sem:      make(chan struct{}, inflightLimit),
+		inflight: make(map[string]struct{}),
 	}
 
 	h.mu.Lock()
