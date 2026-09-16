@@ -66,7 +66,7 @@ describe('网关上行端点 /internal/gateway/uplink(集成,真 PG+Redis)', () 
       .post('/internal/gateway/uplink')
       .set('X-Gateway-Token', TOKEN)
       .set('X-User-Id', String(a.id))
-      .send({ type: 'read.report', conversationId: conv, uptoSeq: '1' });
+      .send({ type: 'unknown.type', data: {} });
     expect(res.status).toBe(400);
   });
 
@@ -93,6 +93,35 @@ describe('网关上行端点 /internal/gateway/uplink(集成,真 PG+Redis)', () 
     await waitDownlinks(2);
     const got = downlinks.filter((d) => d.frame.type === 'receiveMessage');
     expect(new Set(got.map((d) => d.userId))).toEqual(new Set([Number(a.id), Number(b.id)]));
+  });
+
+  it('已读上报 → 204,并 publish read.sync(排除上报设备)', async () => {
+    downlinks.length = 0;
+    const res = await request(app)
+      .post('/internal/gateway/uplink')
+      .set('X-Gateway-Token', TOKEN)
+      .set('X-User-Id', String(a.id))
+      .set('X-Device-Id', 'devA')
+      .send({ type: 'read.report', data: { conversationId: conv, uptoSeq: '1' } });
+    expect(res.status).toBe(204);
+    await waitDownlinks(1);
+    const got = downlinks.find((d) => d.frame.type === 'read.sync');
+    expect(got).toBeTruthy();
+    expect(got!.userId).toBe(Number(a.id));
+    expect(got!.exceptDeviceId).toBe('devA');
+    expect(got!.frame.data).toEqual({ conversationId: conv, uptoSeq: 1 });
+  });
+
+  it('已读上报:非会话成员 → 403', async () => {
+    const c = await createUser();
+    const res = await request(app)
+      .post('/internal/gateway/uplink')
+      .set('X-Gateway-Token', TOKEN)
+      .set('X-User-Id', String(c.id))
+      .set('X-Device-Id', 'devC')
+      .send({ type: 'read.report', data: { conversationId: conv, uptoSeq: '1' } });
+    expect(res.status).toBe(403);
+    await prisma.user.delete({ where: { id: c.id } });
   });
 
   it('同 clientMsgId 重发 → 幂等去重,回 ack 但不重复落库/不再扇出下行', async () => {

@@ -6,12 +6,14 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { Prisma } from '../generated/prisma/index.js';
-import { sendMessageInput } from '../contracts/message.js';
+import { sendMessageInput, readReportInput } from '../contracts/message.js';
+import { buildDownlink } from '../contracts/ws.js';
 import {
   persistMessage,
   getConversationMembers,
   markMentions,
 } from '../services/message.js';
+import { isConversationMember, advanceLastRead } from '../services/read.js';
 import { filterOnline } from '../realtime/presence.js';
 import { handleCallEvent, handleDisconnect } from '../realtime/callRelay.js';
 import { redis } from '../database/redis.js';
@@ -22,8 +24,13 @@ const INTERNAL_TOKEN = process.env.GATEWAY_INTERNAL_TOKEN || 'dev-internal-token
 const DOWNLINK_CHANNEL = 'gw:downlink';
 
 // 把一条下行帧 publish 给指定用户(网关订阅 gw:downlink 后投给该用户在其副本的全部连接)。
-const publishDownlink = (userId: number, type: string, data: unknown): Promise<number> =>
-  redis.publish(DOWNLINK_CHANNEL, JSON.stringify({ userId, frame: { type, data } }));
+const publishDownlink = (
+  userId: number,
+  type: string,
+  data: unknown,
+  opts?: { exceptDeviceId?: string },
+): Promise<number> =>
+  redis.publish(DOWNLINK_CHANNEL, JSON.stringify(buildDownlink(userId, type, data, opts)));
 
 // 从客户端上报的 mentions 里只保留「确实是本会话成员」的 id,杜绝跨会话伪造 @(与 socket.ts 同源约束)。
 const parseMentionIds = (raw: unknown, participants: bigint[]): bigint[] => {
@@ -127,6 +134,34 @@ router.post('/gateway/uplink', async (req: Request, res: Response) => {
         type: 'message.error',
         data: { message: '消息发送失败', clientMsgId: data.clientMsgId },
       });
+    }
+  }
+
+  // ===== 已读上报:单调推进用户级 lastReadSeq,再推 read.sync 给同用户其它设备 =====
+  // 平移自 socket.ts 的 read.report 处理器:只发其它端(排除上报本设备),既不回声给操作端,
+  // 也不发给会话对方(已读是用户私有状态)。
+  if (frameType === 'read.report') {
+    const parsed = readReportInput.safeParse(frame.data);
+    if (!parsed.success) {
+      return res.status(400).json({ type: 'message.error', message: '已读上报参数非法' });
+    }
+    const { conversationId, uptoSeq } = parsed.data;
+    const userIdBig = BigInt(userId);
+    try {
+      if (!(await isConversationMember(userIdBig, conversationId))) {
+        return res.status(403).json({ type: 'message.error', message: '无权操作该会话' });
+      }
+      const { advanced } = await advanceLastRead(userIdBig, conversationId, uptoSeq);
+      // 单调未推进(乱序旧值)时无需扰动其它端。
+      if (advanced) {
+        await publishDownlink(userId, 'read.sync', { conversationId, uptoSeq }, {
+          exceptDeviceId: deviceId,
+        });
+      }
+      return res.status(204).end();
+    } catch (err) {
+      console.error('已读上报处理失败:', err);
+      return res.status(500).json({ type: 'message.error', message: '已读上报失败' });
     }
   }
 

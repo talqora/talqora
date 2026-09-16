@@ -147,6 +147,25 @@ describe('wsClient — 可靠上行(message.send → message.ack)', () => {
     return assertion;
   });
 
+  it('ack 到达后不再重发(竞态防护):首次超时前的 ack 与重发窗口交错不产生重复帧', async () => {
+    wsClient.connect('/ws');
+    last()!.simulateOpen();
+    const data = input();
+    const p = wsClient.sendMessage(data);
+
+    // 场景:首发 5s 超时触发重发(timer 回调已入队),ack 紧随其后到达。
+    vi.advanceTimersByTime(5_000); // timer 触发 → 重发(第 2 帧)
+    expect(last()!.sent).toHaveLength(2);
+    last()!.simulateFrame({ type: 'message.ack', data: { clientMsgId: data.clientMsgId, seq: '1' } });
+    await p;
+
+    // 若竞态防护缺失,上一轮 timer 会再触发一次 sendNow → message.send 出现第 3 帧。
+    // 推进 10s(避开 25s 心跳干扰,足以暴露残留的 5s 重发 timer)。
+    vi.advanceTimersByTime(10_000);
+    const sends = last()!.sent.filter((s) => JSON.parse(s).type === 'message.send');
+    expect(sends).toHaveLength(2);
+  });
+
   it('message.error → reject', () => {
     wsClient.connect('/ws');
     last()!.simulateOpen();

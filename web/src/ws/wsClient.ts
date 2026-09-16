@@ -99,8 +99,12 @@ class WsClient {
           reject(new Error('连接已断开,消息未确认'));
           return;
         }
+        // 竞态防护:ack 若恰在上一轮 timer 触发前后到达,pending 已被收敛,
+        // 此处必须停止发送,否则会重复投递且留下悬空 timer。
+        if (this.pending.get(input.clientMsgId) !== entry) return;
         this.ws!.send(JSON.stringify({ type: 'message.send', data: input }));
         entry.timer = setTimeout(() => {
+          if (this.pending.get(input.clientMsgId) !== entry) return; // ack 已到,不再重发
           entry.retries += 1;
           if (entry.retries >= ACK_MAX_RETRIES) {
             this.pending.delete(input.clientMsgId);
