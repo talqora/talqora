@@ -25,6 +25,17 @@ function rssMB(pid) {
   try { const kb = Number(execSync(`ps -o rss= -p ${pid}`, { encoding: 'utf8' }).trim()); return kb ? +(kb / 1024).toFixed(1) : null; }
   catch { return null; }
 }
+// 累计 CPU 时间(秒)。gateway 在 macOS 上不导出 process_cpu_seconds_total,回退 ps -o time(MM:SS / HH:MM:SS)。
+function cpuSec(pid) {
+  if (!pid) return null;
+  try {
+    const t = execSync(`ps -o time= -p ${pid}`, { encoding: 'utf8' }).trim();
+    const parts = t.split(':').map(Number);
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return parts[0] || 0;
+  } catch { return null; }
+}
 
 async function promInstant(query) {
   try {
@@ -78,16 +89,16 @@ async function main() {
   };
   const connMetric = mode === 'gateway' ? 'gateway_connections' : 'server_ws_connections';
   const poll = setInterval(async () => {
-    const [c, el, gr, goGc, ngc, scpu, gcpu] = await Promise.all([
+    const [c, el, gr, goGc, ngc, scpu] = await Promise.all([
       promInstant(connMetric),
       promInstant(`nodejs_eventloop_lag_p99_seconds{job="server"}`),
       promInstant(`go_goroutines{job="gateway"}`),
       promInstant(`go_gc_duration_seconds_sum{job="gateway"}`),
       promInstant(`nodejs_gc_pause_seconds_count{job="server"}`),
       promInstant(`process_cpu_seconds_total{job="server"}`),
-      promInstant(`process_cpu_seconds_total{job="gateway"}`),
     ]);
     const srss = rssMB(serverPid), grss = rssMB(gatewayPid);
+    const gcpu = cpuSec(gatewayPid); // macOS 下 gateway 无 process_cpu_seconds_total,用 ps -o time
     if (c != null) samples.connections.push(c);
     if (srss != null) samples.serverRss.push(srss);
     if (grss != null) samples.gatewayRss.push(grss);

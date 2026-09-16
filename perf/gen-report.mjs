@@ -1,95 +1,284 @@
 // 读取 测试报告/data/*.json,生成自包含 HTML 报告(内联 SVG 图表,无外网依赖,可长期归档)。
+// 数据命名约定:<key>_socketio.json(26-9-14 纯 Node 基线,复制改名)/ <key>_gateway.json(本次 gateway 路径)。
+// 覆盖:S0-S5 主场景 A/B + 吞吐饱和扫描 + S6 爬坡 + S7 惊群 + 群扇出 + HTTP API 层。
 // 用法:node gen-report.mjs
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPORT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告');
 const DATA = join(REPORT_DIR, 'data');
-const load = (n) => JSON.parse(readFileSync(join(DATA, n + '.json'), 'utf8'));
+const load = (n) => {
+  const p = join(DATA, n + '.json');
+  return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null;
+};
+const loadAB = (key) => ({ a: load(key + '_socketio'), b: load(key + '_gateway') });
 
 const scenarios = [
-  { key: 's1', title: 'S1 吞吐/RTT', desc: '100 连接 × 10 msg/s × 20s(≈1000 msg/s)' },
+  { key: 's0', title: 'S0 Smoke', desc: '50 连接 × 2 msg/s × 15s(冒烟)' },
+  { key: 's1', title: 'S1 常规吞吐', desc: '100 连接 × 10 msg/s × 20s(≈1000 msg/s)' },
   { key: 's2', title: 'S2 连接规模', desc: '300 连接 × 2 msg/s × 15s(≈600 msg/s,低消息率、看连接与资源)' },
   { key: 's3', title: 'S3 过载压力', desc: '150 连接 × 20 msg/s × 15s(≈3000 msg/s,探失败模式)' },
+  { key: 's4', title: 'S4 大连接', desc: '500 连接 × 1 msg/s × 15s(≈500 msg/s,看连接与资源)' },
+  { key: 's5', title: 'S5 长时稳态', desc: '100 连接 × 5 msg/s × 120s(长稳漂移/心跳有效性)' },
 ];
+const tpKeys = [10, 15, 20, 25, 30].map((r) => `tp_r${r}`);
 const data = {};
-for (const s of scenarios) { data[s.key] = { a: load(s.key + '_socketio'), b: load(s.key + '_gateway') }; }
+for (const s of scenarios) data[s.key] = loadAB(s.key);
+const tpData = tpKeys.map((k) => loadAB(k));
+const ramp = loadAB('s6_ramp');
+const storm = loadAB('s7_storm');
+const fanout = loadAB('fanout');
+const http = loadAB('http');
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const errSum = (h) => Object.values(h.errors || {}).reduce((a, b) => a + b, 0);
+const errSum = (h) => Object.values(h?.errors || {}).reduce((a, b) => a + b, 0);
+const f1 = (v) => (v == null || Number.isNaN(v) ? '—' : Math.round(v * 10) / 10);
+const f2 = (v) => (v == null || Number.isNaN(v) ? '—' : Math.round(v * 100) / 100);
+const errRate = (h) => (h?.sent ? +(100 * errSum(h) / h.sent).toFixed(1) : null);
+const ackRate = (h) => (h?.sent ? +(100 * h.ack / h.sent).toFixed(1) : null);
+const COLOR_A = '#4e79a7', COLOR_B = '#e15759';
 
-// 分组柱状图(A=Node vs B=Go),自动纵轴缩放。
+// 分组柱状图(A=Node 蓝 vs B=Go 红),自动纵轴缩放。
 function groupedBar(title, unit, cats, seriesA, seriesB, opts = {}) {
-  const W = 720, H = 300, padL = 60, padR = 20, padT = 40, padB = 50;
+  const W = 760, H = 320, padL = 64, padR = 20, padT = 44, padB = 54;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const all = [...seriesA, ...seriesB].filter((v) => v != null && !Number.isNaN(v));
   let maxV = Math.max(1, ...all);
-  if (opts.log) maxV = Math.max(...all);
   const nice = Math.pow(10, Math.floor(Math.log10(maxV)));
   maxV = Math.ceil(maxV / nice) * nice || maxV;
   const groups = cats.length, gw = plotW / groups, bw = Math.min(46, gw / 3);
   const y = (v) => padT + plotH - (v / maxV) * plotH;
   let bars = '', labels = '', ticks = '';
-  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eee"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#888">${(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
+  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eee"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#888">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
   cats.forEach((c, i) => {
     const cx = padL + gw * i + gw / 2;
     const a = seriesA[i], b = seriesB[i];
-    if (a != null) { const yy = y(a); bars += `<rect x="${cx - bw - 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="#4e79a7"><title>Node ${a}${unit}</title></rect><text x="${cx - bw / 2 - 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="#4e79a7">${a}</text>`; }
-    if (b != null) { const yy = y(b); bars += `<rect x="${cx + 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="#e15759"><title>Go ${b}${unit}</title></rect><text x="${cx + bw / 2 + 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="#e15759">${b}</text>`; }
+    if (a != null && !Number.isNaN(a)) { const yy = y(a); bars += `<rect x="${cx - bw - 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_A}"><title>Node(socket.io) ${f1(a)}${unit}</title></rect><text x="${cx - bw / 2 - 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_A}">${f1(a)}</text>`; }
+    if (b != null && !Number.isNaN(b)) { const yy = y(b); bars += `<rect x="${cx + 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_B}"><title>Go(gateway) ${f1(b)}${unit}</title></rect><text x="${cx + bw / 2 + 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_B}">${f1(b)}</text>`; }
     labels += `<text x="${cx}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="#333">${esc(c)}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(title)}">
     <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600">${esc(title)}（${unit}）</text>
     ${ticks}${bars}${labels}
-    <rect x="${W - 190}" y="6" width="12" height="12" fill="#4e79a7"/><text x="${W - 174}" y="16" font-size="11">Node(socket.io)</text>
-    <rect x="${W - 80}" y="6" width="12" height="12" fill="#e15759"/><text x="${W - 64}" y="16" font-size="11">Go(gateway)</text>
+    <rect x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
+  </svg>`;
+}
+
+// 折线图(吞吐扫描:横轴 RATE,两条折线 A/B)
+function lineChart(title, unit, xs, seriesA, seriesB) {
+  const W = 760, H = 320, padL = 64, padR = 20, padT = 44, padB = 54;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const all = [...seriesA, ...seriesB].filter((v) => v != null && !Number.isNaN(v));
+  let maxV = Math.max(1, ...all);
+  const nice = Math.pow(10, Math.floor(Math.log10(maxV)));
+  maxV = Math.ceil(maxV / nice) * nice || maxV;
+  const x = (i) => padL + (plotW * i) / (xs.length - 1);
+  const y = (v) => padT + plotH - (v / maxV) * plotH;
+  const mkPath = (arr, color) => {
+    let d = '', dots = '';
+    arr.forEach((v, i) => {
+      if (v == null || Number.isNaN(v)) return;
+      d += (d ? ' L' : 'M') + `${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+      dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5" fill="${color}"><title>RATE=${xs[i]} → ${f1(v)}${unit}</title></circle>`;
+    });
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5"/>${dots}`;
+  };
+  let ticks = '';
+  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eee"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#888">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
+  let labels = '';
+  xs.forEach((v, i) => { labels += `<text x="${x(i)}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="#333">${v}</text>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(title)}">
+    <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600">${esc(title)}（${unit}）</text>
+    ${ticks}${mkPath(seriesA, COLOR_A)}${mkPath(seriesB, COLOR_B)}${labels}
+    <rect x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
   </svg>`;
 }
 
 const cats = scenarios.map((s) => s.title.replace(/^S\d /, ''));
-const rttP99A = scenarios.map((s) => data[s.key].a.harness.rttMs?.p99);
-const rttP99B = scenarios.map((s) => data[s.key].b.harness.rttMs?.p99);
-const errA = scenarios.map((s) => errSum(data[s.key].a.harness));
-const errB = scenarios.map((s) => errSum(data[s.key].b.harness));
-const ackRateA = scenarios.map((s) => { const h = data[s.key].a.harness; return h.sent ? +(100 * h.ack / h.sent).toFixed(1) : null; });
-const ackRateB = scenarios.map((s) => { const h = data[s.key].b.harness; return h.sent ? +(100 * h.ack / h.sent).toFixed(1) : null; });
-const srvRssA = scenarios.map((s) => data[s.key].a.resource.peakServerRssMB);
-const gwRssB = scenarios.map((s) => data[s.key].b.resource.peakGatewayRssMB);
-const goroB = scenarios.map((s) => data[s.key].b.resource.peakGoroutines);
-const elA = scenarios.map((s) => data[s.key].a.resource.peakEventloopP99Ms);
-const elB = scenarios.map((s) => data[s.key].b.resource.peakEventloopP99Ms);
+const has = (d) => d?.a && d?.b;
+const pick = (d, fn) => (has(d) ? { a: fn(d.a), b: fn(d.b) } : { a: null, b: null });
 
-function dataTable() {
+// ---------------- 主场景图表数据 ----------------
+const rttP99 = scenarios.map((s) => pick(data[s.key], (r) => r.harness.rttMs?.p99));
+const rttP999 = scenarios.map((s) => pick(data[s.key], (r) => r.harness.rttMs?.p999));
+const errs = scenarios.map((s) => pick(data[s.key], (r) => errSum(r.harness)));
+const ackR = scenarios.map((s) => pick(data[s.key], (r) => ackRate(r.harness)));
+const srvRss = scenarios.map((s) => pick(data[s.key], (r) => r.resource.peakServerRssMB));
+const gwRss = scenarios.map((s) => pick(data[s.key], (r) => r.resource.peakGatewayRssMB));
+const el = scenarios.map((s) => pick(data[s.key], (r) => r.resource.peakEventloopP99Ms));
+const goro = scenarios.map((s) => pick(data[s.key], (r) => r.resource.peakGoroutines));
+
+// ---------------- 主场景数据表 ----------------
+function mainTable() {
   let rows = '';
   for (const s of scenarios) {
-    for (const [mode, r] of [['Node(socket.io)', data[s.key].a], ['Go(gateway)', data[s.key].b]]) {
-      const h = r.harness, res = r.resource, si = r.serverInternalDurationMs, e = errSum(h);
+    for (const [modeName, r] of [['Node(socket.io)', data[s.key]?.a], ['Go(gateway)', data[s.key]?.b]]) {
+      if (!r) continue;
+      const h = r.harness, res = r.resource, si = r.serverInternalDurationMs ?? {}, e = errSum(h);
       rows += `<tr>
-        <td>${s.title}</td><td>${mode}</td>
-        <td>${h.connectedCount}</td><td>${h.sent}/${h.ack}</td>
-        <td class="${e ? 'bad' : 'ok'}">${e}${h.sent ? ` (${(100 * e / h.sent).toFixed(1)}%)` : ''}</td>
-        <td>${h.rttMs?.p50}/${h.rttMs?.p95}/<b>${h.rttMs?.p99}</b></td>
-        <td>${si.p99 ?? '—'}</td>
-        <td>${res.peakServerRssMB ?? '—'}</td><td>${res.peakGatewayRssMB ?? '—'}</td>
-        <td>${res.peakEventloopP99Ms ?? '—'}</td><td>${res.peakGoroutines ?? '—'}</td>
+        <td>${s.title}</td><td>${modeName}</td>
+        <td>${h.connectedCount}/${h.attempted}</td><td>${h.sent}/${h.ack}</td>
+        <td class="${e ? 'bad' : 'ok'}">${e}${h.sent ? ` (${f1(100 * e / h.sent)}%)` : ''}</td>
+        <td>${f1(h.rttMs?.p50)}/${f1(h.rttMs?.p95)}/<b>${f1(h.rttMs?.p99)}</b>/${f1(h.rttMs?.p999)}</td>
+        <td>${f1(si.p99)}</td>
+        <td>${f1(res.peakServerRssMB)}</td><td>${f1(res.peakGatewayRssMB)}</td>
+        <td>${f2(res.peakEventloopP99Ms)}</td><td>${f1(res.peakGoroutines)}</td>
+        <td>${h.retriesSent ?? 0}</td>
       </tr>`;
     }
   }
   return rows;
 }
 
-const ts = new Date(Math.max(...scenarios.flatMap((s) => [data[s.key].a.endedAt, data[s.key].b.endedAt]))).toISOString();
+// ---------------- 吞吐饱和扫描表 ----------------
+function tpTable() {
+  let rows = '';
+  for (const k of tpKeys) {
+    const d = loadAB(k);
+    for (const [modeName, r] of [['Node', d.a], ['Go', d.b]]) {
+      if (!r) continue;
+      const h = r.harness, e = errSum(h);
+      rows += `<tr><td>${k}</td><td>${modeName}</td><td>${h.sent}</td><td>${h.ack}</td>
+        <td class="${e ? 'bad' : 'ok'}">${e} (${f1(h.sent ? 100 * e / h.sent : 0)}%)</td>
+        <td>${f1(h.rttMs?.p50)}</td><td>${f1(h.rttMs?.p95)}</td><td><b>${f1(h.rttMs?.p99)}</b></td><td>${f1(h.rttMs?.p999)}</td>
+        <td>${f1(r.resource?.peakServerRssMB)}</td><td>${f1(r.resource?.peakGatewayRssMB)}</td><td>${f2(r.resource?.peakEventloopP99Ms)}</td></tr>`;
+    }
+  }
+  return rows;
+}
+
+// ---------------- S6 爬坡表 ----------------
+function rampTable() {
+  if (!ramp?.b) return '<p class="muted">无 gateway 爬坡数据。</p>';
+  const b = ramp.b;
+  let rows = b.levels.map((l) => `<tr><td>${l.target}</td><td>${l.batchOk}/${l.batchAttempted} (${(l.successRate * 100).toFixed(1)}%)</td>
+    <td>${f1(l.connectMs?.p50)}/${f1(l.connectMs?.p95)}/${f1(l.connectMs?.p99)}</td>
+    <td>${l.heldAfter}</td><td>${f1(l.gatewayConnections)}</td><td>${f1(l.goroutines)}</td>
+    <td>${f2(l.eventloopP99Ms)}</td><td>${f1(l.gatewayRssMB)}</td><td>${f1(l.serverRssMB)}</td></tr>`).join('');
+  const a = ramp.a;
+  const aRows = a?.levels ? a.levels.map((l) => `<tr><td>${l.target}</td><td>${l.batchOk}/${l.batchAttempted} (${(l.successRate * 100).toFixed(1)}%)</td>
+    <td>${f1(l.connectMs?.p50)}/${f1(l.connectMs?.p95)}/${f1(l.connectMs?.p99)}</td>
+    <td>${l.heldAfter}</td><td>${f1(l.serverConnections)}</td><td>—</td>
+    <td>${f2(l.eventloopP99Ms)}</td><td>—</td><td>${f1(l.serverRssMB)}</td></tr>`).join('') : '';
+  return `<h4>gateway 路径(本次)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>gw 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr>${rows}</table>
+    <p class="muted">拐点:${esc(b.stopReason ?? '—')};最大稳定连接 ${b.summary?.maxStableConnections ?? '—'}。</p>
+    <h4>纯 Node 基线(26-9-14,对照)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>server 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr>${aRows}</table>
+    <p class="muted">拐点:${esc(a?.stopReason ?? '—')};最大稳定连接 ${a?.summary?.maxStableConnections ?? '—'}。</p>`;
+}
+
+// ---------------- S7 惊群表 ----------------
+function stormTable() {
+  if (!storm?.b) return '<p class="muted">无 gateway 惊群数据。</p>';
+  const mkRow = (modeName, r, gw) => {
+    const rc = r.stormReconnect, res = r.resource;
+    return `<tr><td>${modeName}</td><td>${rc.ok}/${rc.attempted}</td>
+      <td>${f1(rc.p50)}/${f1(rc.p95)}/<b>${f1(rc.p99)}</b></td><td>${f1(rc.max)}</td>
+      <td>${gw ? f1(res.baselineGatewayRssMB) + '→' + f1(res.spikePeakGatewayRssMB) : '—'}</td>
+      <td>${f1(res.baselineServerRssMB)}→${f1(res.spikePeakServerRssMB)}</td>
+      <td>${gw ? f1(res.baselineGatewayConnections) + '→' + f1(res.spikePeakGatewayConnections) : f1(res.baselineConnections) + '→' + f1(res.spikePeakConnections)}</td>
+      <td>${f2(res.baselineEventloopP99Ms)}→${f2(res.spikePeakEventloopP99Ms)}</td>
+      <td>${gw ? f1(res.spikePeakGoroutines) : '—'}</td></tr>`;
+  };
+  return `<table>
+    <tr><th>模式</th><th>重连成功</th><th>重连耗时 p50/95/99(ms)</th><th>max(ms)</th><th>gw RSS 基线→峰值(MB)</th><th>server RSS 基线→峰值(MB)</th><th>连接数 基线→峰值</th><th>eventloop p99 基线→峰值(ms)</th><th>goroutine 峰值</th></tr>
+    ${storm.a ? mkRow('Node(socket.io)', storm.a, false) : ''}
+    ${mkRow('Go(gateway)', storm.b, true)}</table>`;
+}
+
+// ---------------- 群扇出表 ----------------
+function fanoutTable() {
+  if (!fanout?.b) return '<p class="muted">无 gateway 扇出数据。</p>';
+  const mkRow = (modeName, r) => `<tr><td>${modeName}</td><td>${r.connected}</td><td>${r.roundsSent}</td><td>${r.roundsDelivered}</td>
+    <td>${f1(r.fanoutSpanMs?.p50)}/${f1(r.fanoutSpanMs?.p95)}/<b>${f1(r.fanoutSpanMs?.p99)}</b> (max ${f1(r.fanoutSpanMs?.max)})</td>
+    <td>${f1(r.fanoutE2EMs?.p50)}/${f1(r.fanoutE2EMs?.p95)}/<b>${f1(r.fanoutE2EMs?.p99)}</b> (max ${f1(r.fanoutE2EMs?.max)})</td></tr>`;
+  return `<table>
+    <tr><th>模式</th><th>成员在线</th><th>发送条数</th><th>完整送达</th><th>扇出扩散 span p50/95/99(ms)</th><th>扇出端到端 e2e p50/95/99(ms)</th></tr>
+    ${fanout.a ? mkRow('Node(socket.io)', fanout.a) : ''}
+    ${mkRow('Go(gateway)', fanout.b)}</table>`;
+}
+
+// ---------------- HTTP 表 ----------------
+function httpTable() {
+  if (!http?.b) return '<p class="muted">无 gateway 轮 HTTP 数据。</p>';
+  const mkRow = (modeName, r) => {
+    const m = (t) => r.targets.find((x) => x.target === t);
+    const cell = (t, fn) => { const x = m(t); return x ? fn(x) : '—'; };
+    return `<tr><td>${modeName}</td>
+      <td>${cell('GET /health', (x) => f1(x.rps))}</td>
+      <td>${cell('POST /api/login (bcrypt)', (x) => f1(x.rps) + '(' + f1(x.latencyMs?.p99) + 'ms)')}</td>
+      <td>${cell('GET /user/userConversations', (x) => f1(x.rps))}</td>
+      <td>${cell('GET /user/messages', (x) => f1(x.rps) + '(' + f1(x.latencyMs?.p99) + 'ms)')}</td>
+      <td>${cell('GET /user/lastMessages', (x) => f1(x.rps))}</td>
+      <td>${cell('GET /user/sync', (x) => f1(x.rps))}</td>
+      <td>${cell('GET /user/mentions', (x) => f1(x.rps))}</td></tr>`;
+  };
+  return `<table>
+    <tr><th>模式</th><th>/health rps</th><th>/api/login rps(p99)</th><th>userConversations rps</th><th>/user/messages rps(p99)</th><th>lastMessages rps</th><th>sync rps</th><th>mentions rps</th></tr>
+    ${http.a ? mkRow('Node 基线(26-9-14)', http.a) : ''}
+    ${mkRow('gateway 轮(本次)', http.b)}</table>
+    <p class="muted">HTTP 层两轮均直连 server REST(不经过 gateway),用于确认两轮压测环境一致(无差别即环境同口径)。</p>`;
+}
+
+// ---------------- 每连接资源成本表 ----------------
+function perConnTable() {
+  let rows = '';
+  for (const s of scenarios) {
+    const d = data[s.key];
+    for (const [modeName, r] of [['Node(socket.io)', d?.a], ['Go(gateway)', d?.b]]) {
+      if (!r) continue;
+      const res = r.resource ?? {};
+      const n = res.peakConnections ?? r.harness?.connectedCount ?? 1;
+      rows += `<tr><td>${s.title}</td><td>${modeName}</td><td>${f1(res.peakServerRssMB)}</td><td>${f1(res.peakGatewayRssMB)}</td>
+        <td>${f2(res.peakServerRssMB / n)}</td><td>${f2((res.peakGatewayRssMB ?? 0) / n)}</td>
+        <td>${f2(res.serverCpuSecondsDelta)}</td><td>${f2(res.gatewayCpuSecondsDelta)}</td></tr>`;
+    }
+  }
+  return rows;
+}
+
+// ---------------- 结论速览(自动从数据提取) ----------------
+function highlightBox() {
+  const s1 = data.s1, s2 = data.s2, s3 = data.s3;
+  const a = s1?.a, b = s1?.b;
+  const parts = [];
+  if (a && b) {
+    const pa = a.harness.rttMs?.p99, pb = b.harness.rttMs?.p99;
+    parts.push(`<b>1. 常规吞吐(S1,≈1000 msg/s)消息 RTT p99:Node ${f1(pa)}ms → Go ${f1(pb)}ms(${pb != null && pa ? ((pb / pa - 1) * 100).toFixed(0) : '—'}%)。</b>`);
+    const ea = errSum(a.harness), eb = errSum(b.harness);
+    parts.push(`错误:Node ${ea} 条 / Go ${eb} 条;Go 侧超时重发 ${f1(b.harness?.retriesSent ?? 0)} 帧。`);
+  }
+  if (s2?.a && s2?.b) {
+    parts.push(`<b>2. 连接层(S2,300 连接):</b>Node server RSS 峰值 ${f1(s2.a.resource.peakServerRssMB)}MB(每连接 ${f2(s2.a.resource.peakServerRssMB / 300)}KB);Go gateway 仅 ${f1(s2.b.resource.peakGatewayRssMB)}MB / ${f1(s2.b.resource.peakGoroutines)} goroutine(每连接 ${f2((s2.b.resource.peakGatewayRssMB ?? 0) / 300)}KB)。gateway 路径总内存 = server + gateway 两者之和。`);
+  }
+  if (s3?.a && s3?.b) {
+    const ea = errSum(s3.a.harness), eb = errSum(s3.b.harness);
+    parts.push(`<b>3. 过载(S3,≈3000 msg/s)失败模式:</b>Node 错误 ${ea} 条(错误率 ${f1(errRate(s3.a.harness))}%,快速失败);Go 错误 ${eb} 条(错误率 ${f1(errRate(s3.b.harness))}%)、RTT p99 ${f1(s3.b.harness.rttMs?.p99)}ms(排队而非拒绝)。`);
+  }
+  const rampB = ramp?.b, rampA = ramp?.a;
+  if (rampB) {
+    parts.push(`<b>4. 连接容量:</b>gateway 路径探到 ${rampB.summary?.maxStableConnections ?? '—'} 连接(gw RSS ${f1(rampB.summary?.peakLevelGatewayRssMB)}MB / ${f1(rampB.summary?.peakLevelGoroutines)} goroutine;${esc(rampB.stopReason ?? '')});Node 基线 ${rampA?.summary?.maxStableConnections ?? '—'} 连接(${esc(rampA?.stopReason ?? '')})。`);
+  }
+  return parts.map((p) => `<li>${p}</li>`).join('');
+}
+
+const hasAnyGateway = scenarios.some((s) => data[s.key]?.b);
+const maxTs = Math.max(...[].concat(...scenarios.map((s) => [data[s.key]?.a?.endedAt, data[s.key]?.b?.endedAt])).filter(Boolean));
 
 const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Node vs Go 实时层性能对比报告</title>
+<title>Node vs Go gateway 实时层性能对比报告</title>
 <style>
-  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:#222;max-width:960px;margin:0 auto;padding:24px;}
-  h1{border-bottom:3px solid #4e79a7;padding-bottom:8px}
-  h2{margin-top:36px;border-left:5px solid #4e79a7;padding-left:10px}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:#222;max-width:1000px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid ${COLOR_A};padding-bottom:8px}
+  h2{margin-top:36px;border-left:5px solid ${COLOR_A};padding-left:10px}
   h3{margin-top:24px;color:#33517a}
+  h4{margin:18px 0 6px;color:#33517a}
   .chart{width:100%;height:auto;border:1px solid #eee;border-radius:6px;margin:12px 0;background:#fff}
   table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
   th,td{border:1px solid #ddd;padding:6px 8px;text-align:center}
@@ -102,83 +291,74 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
   .muted{color:#888;font-size:13px}
 </style></head><body>
 
-<h1>Node vs Go 实时层性能对比报告</h1>
-<p class="muted">生成时间(数据窗口结束):${ts} ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/data/*.json(真实压测采集)</p>
+<h1>Node(socket.io) vs Go gateway 实时层性能对比报告</h1>
+<p class="muted">数据窗口结束时间:${maxTs ? new Date(maxTs).toISOString() : '—'} ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/data/*.json(真实压测采集)</p>
 
 <div class="box warn">
-<b>测量诚实性声明（务必先读）</b><br>
+<b>测量诚实性声明(务必先读)</b><br>
 ① 全部服务(harness 负载生成 + Node server + Go gateway + Docker 中间件/Prometheus)<b>跑在同一台 macOS 开发机</b>,彼此抢 CPU,故<b>绝对毫秒数有噪声、非生产代表值</b>;本报告价值在<b>同机同负载下的相对 A/B 对比与定性失败模式</b>。<br>
-② <b>gateway 路径 = Go 网关 + Node 后端两个进程</b>:业务/落库仍在 Node,网关只做连接 + 上行透传。故"引入 Go"是<b>加一层</b>,不是用 Go 替换 Node 消息处理。<br>
-③ 公平性:两路径服务端落库逻辑完全相同(gateway 经 <code>/internal/gateway/uplink</code> 复用同一 <code>persistMessage</code>);ack/心跳等实时特性两侧都具备。
+② A = 纯 Node 基线(26-9-14,socket.io 直连 server :3007,gateway 未启动);B = gateway 路径(26-9-16,web 同款:原生 WS → gateway :8090 → Node /internal/gateway/uplink)。<b>B 是 A 基础上"加一层"</b>,业务/落库仍在 Node。<br>
+③ 公平性:B 的压测客户端实现了与 socket.io 等价的 ack 匹配/5s 超时同键重发×3/25s 心跳/断线重连(对齐 web/src/ws/wsClient.ts),<b>不是裸发帧的假快路径</b>;两侧落库逻辑完全相同。<br>
+④ 每场景 ≥3 轮取中位轮(RTT p99)落盘;RTT 用往返(clientMsgId 关联);资源按两侧进程 RSS/CPU 分别采样。
 </div>
 
 <h2>一、结论速览</h2>
-<div class="box key">
-<b>1. "引入 Go 让消息更快"——不成立(现架构下)。</b> 中等负载(S1/S2)gateway 路径 RTT 与 Node 相当或略高,因为它多一跳(client→gateway→server→gateway)且上行是<b>每条消息一个 HTTP POST</b> 打到 Node。<br>
-<b>2. Go 网关的连接层极轻。</b> 持有 300 连接仅约 <b>${gwRssB[1]}MB</b> / ${goroB[1]} goroutine;而 Node server 稳态 ${srvRssA[1]}MB。但这不是"省内存"——gateway 是<b>额外</b>进程,总内存 = server + gateway 反而更高。Go 的价值在<b>连接密度</b>(海量空闲连接),本轮未压到 Node 的连接上限故未显现。<br>
-<b>3. 过载失败模式截然不同(S3,≈3000 msg/s,最有价值的发现):</b>
-<ul>
-<li><b>Node/socket.io:丢得快而响</b>——错误率 <b>${(100 * errA[2] / data.s3.a.harness.sent).toFixed(0)}%</b>(${errA[2]} 条 message.error)、RSS 飙到 <b>${srvRssA[2]}MB</b>、通过的消息 RTT p99 ≈ ${(rttP99A[2] / 1000).toFixed(1)}s。以<b>拒绝/报错</b>方式失败。</li>
-<li><b>Go/gateway:0 错误但排队</b>——RTT p99 爆到 <b>${(rttP99B[2] / 1000).toFixed(1)}s</b>(HTTP-per-message 上行积压),服务内处理仍 ${data.s3.b.serverInternalDurationMs.p99}ms。以<b>延迟</b>方式失败。</li>
-</ul>
-两者在 3000 msg/s 都"失败",但一个丢消息、一个爆延迟——<b>取决于你更怕丢消息还是更怕卡</b>。
-</div>
+<div class="box key"><ul>${highlightBox()}</ul></div>
 
 <h2>二、测试方法</h2>
-<p>同一套压测器,两种模式仅传输层不同,其余(注册/登录/会话配对/RTT 用 message.ack/统计口径)完全一致:</p>
 <ul>
-<li><b>A = Node</b>:<code>perf/harness.mjs</code>,socket.io-client → server <code>/socket.io</code>。</li>
-<li><b>B = Go</b>:<code>perf/harness-gw.mjs</code>,原生 WebSocket(Cookie token)→ gateway <code>/ws</code> → 上行 <code>{type:'message.send',data:{...}}</code>。</li>
-<li>编排 <code>perf/ab-run.mjs</code>:跑 harness + 每 2s 采样(Prometheus 连接/eventloop/goroutine + <code>ps</code> 采两进程 RSS)+ 解析统计 → 落 JSON。</li>
+<li><b>A = Node(socket.io)</b>:<code>perf/harness.mjs</code>,socket.io-client → server <code>/socket.io</code>(26-9-14 基线数据)。</li>
+<li><b>B = Go(gateway)</b>:<code>perf/harness-gw.mjs</code>,原生 WebSocket(query token/deviceId)→ gateway <code>/ws</code> → 信封帧 <code>{type:'message.send',data:{...}}</code> → 等 <code>message.ack</code> 计 RTT。</li>
+<li>编排 <code>perf/ab-run.mjs</code>:跑 harness + 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC + <code>ps</code> 两进程 RSS/CPU)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ 落 JSON。</li>
+<li>场景参数与 26-9-14 基线完全一致(S0-S5、吞吐扫描、爬坡、惊群、扇出、HTTP);爬坡探顶参数走 env(同 ramp-probe)。</li>
 </ul>
 <table><tr><th>场景</th><th>参数</th><th>目的</th></tr>
-${scenarios.map((s) => `<tr><td>${s.title}</td><td>${s.desc}</td><td>${s.key === 's1' ? '常规吞吐下的 RTT' : s.key === 's2' ? '连接规模下的资源占用' : '过载时的失败模式'}</td></tr>`).join('')}</table>
+${scenarios.map((s) => `<tr><td>${s.title}</td><td>${s.desc}</td><td>${s.key === 's1' ? '常规吞吐下的 RTT' : s.key === 's2' || s.key === 's4' ? '连接规模下的资源占用' : s.key === 's3' ? '过载时的失败模式' : s.key === 's5' ? '长稳漂移与心跳有效性' : '冒烟'}</td></tr>`).join('')}</table>
 
 <h2>三、图表(Node 蓝 vs Go 红)</h2>
-${groupedBar('消息 RTT p99(客户端往返)', 'ms', cats, rttP99A, rttP99B)}
-<p class="muted">S3 过载下 Go 的 RTT 远高:网关不丢消息,代价是上行积压导致往返飙到 ~10s。</p>
-${groupedBar('错误数(message.error)', '条', cats, errA, errB)}
-<p class="muted">S3:Node 丢 ${errA[2]} 条(过载即拒);Go 全程 0 错误(转化为延迟)。</p>
-${groupedBar('消息投递成功率(ack/发送)', '%', cats, ackRateA, ackRateB)}
-${groupedBar('连接层进程内存峰值(Node server RSS vs Go gateway RSS)', 'MB', cats, srvRssA, gwRssB)}
+${hasAnyGateway ? '' : '<p class="muted">尚无 gateway 数据文件。</p>'}
+${groupedBar('消息 RTT p99(客户端往返)', 'ms', cats, rttP99.map((x) => x.a), rttP99.map((x) => x.b))}
+${groupedBar('消息 RTT p999(尾延迟)', 'ms', cats, rttP999.map((x) => x.a), rttP999.map((x) => x.b))}
+${groupedBar('错误数(所有错误分类之和)', '条', cats, errs.map((x) => x.a), errs.map((x) => x.b))}
+${groupedBar('消息投递成功率(ack/发送)', '%', cats, ackR.map((x) => x.a), ackR.map((x) => x.b))}
+${groupedBar('进程内存峰值(server RSS vs gateway RSS)', 'MB', cats, srvRss.map((x) => x.a), gwRss.map((x) => x.b))}
 <p class="muted">注意口径:蓝=Node server 整体 RSS(含全部业务/DB),红=Go gateway 进程 RSS。gateway 路径实际总内存 = 两者之和。</p>
-${groupedBar('Go gateway goroutine 数(连接层并发单位)', '个', cats, [null, null, null], goroB)}
-${groupedBar('Node 事件循环滞后 p99', 'ms', cats, elA, elB)}
+${groupedBar('Node 事件循环滞后 p99', 'ms', cats, el.map((x) => x.a), el.map((x) => x.b))}
+${groupedBar('Go gateway goroutine 数', '个', cats, cats.map(() => null), goro.map((x) => x.b))}
 
-<h2>四、完整数据表</h2>
+<h3>3.1 吞吐饱和扫描(固定 100 连接,RATE 10→30,各 20s)</h3>
+${lineChart('RTT p99 vs RATE', 'ms', tpKeys, tpData.map((d) => d.a?.harness?.rttMs?.p99), tpData.map((d) => d.b?.harness?.rttMs?.p99))}
+${lineChart('错误率 vs RATE', '%', tpKeys, tpData.map((d) => errRate(d.a?.harness)), tpData.map((d) => errRate(d.b?.harness)))}
 <table>
-<tr><th>场景</th><th>模式</th><th>连接</th><th>发送/ack</th><th>错误</th><th>RTT p50/95/<b>99</b>(ms)</th><th>服务内 p99(ms)</th><th>server RSS(MB)</th><th>gateway RSS(MB)</th><th>eventloop p99(ms)</th><th>goroutine</th></tr>
-${dataTable()}
+<tr><th>场景</th><th>模式</th><th>发送</th><th>ack</th><th>错误(错误率)</th><th>RTT p50</th><th>RTT p95</th><th>RTT p99</th><th>RTT p999</th><th>server RSS(MB)</th><th>gw RSS(MB)</th><th>eventloop p99(ms)</th></tr>
+${tpTable()}
 </table>
-<p class="muted">"服务内 p99" = 服务端消息处理直方图分位(Node 为 server_message_duration,Go 为 gateway_uplink_duration),经 Prometheus <code>histogram_quantile</code> 算得,受桶宽影响偏粗。</p>
 
-<h2>五、深入分析</h2>
+<h2>四、完整数据表(主场景)</h2>
+<table>
+<tr><th>场景</th><th>模式</th><th>连接(成功/尝试)</th><th>发送/ack</th><th>错误(错误率)</th><th>RTT p50/95/<b>99</b>/999(ms)</th><th>服务内 p99(ms)</th><th>server RSS(MB)</th><th>gateway RSS(MB)</th><th>eventloop p99(ms)</th><th>goroutine</th><th>重发帧数</th></tr>
+${mainTable()}
+</table>
+<p class="muted">"服务内 p99" = 服务端消息处理直方图分位(Node 为 server_message_duration;Go 为 gateway_uplink_duration,收帧→Node ack),经 Prometheus histogram_quantile 算得,受桶宽影响偏粗。</p>
 
-<h3>5.1 为什么中等负载下 Go 网关并不更快</h3>
-<p>gateway 路径每发一条消息,网关要向 Node 的 <code>/internal/gateway/uplink</code> 发<b>一个独立 HTTP POST</b>,拿到 ack 再写回客户端连接。相比 socket.io 在同一 Node 进程内直接处理,gateway 多了:①一次额外网络跳转,②一次 HTTP 请求的建立/解析开销。在 S1(1000 msg/s)这体现为 RTT 相当或略高。<b>结论:当业务逻辑仍在 Node 时,把连接层换成 Go 不会让"单条消息"更快——反而更慢一点。</b></p>
+<h3>4.1 每连接资源成本</h3>
+<table>
+<tr><th>场景</th><th>模式</th><th>server RSS 峰值(MB)</th><th>gateway RSS 峰值(MB)</th><th>server KB/连接</th><th>gateway KB/连接</th><th>server CPU Δ(s)</th><th>gateway CPU Δ(s)</th></tr>
+${perConnTable()}
+</table>
 
-<h3>5.2 资源:Go 连接层极轻,但"总账"更高</h3>
-<p>Go gateway 持有 300 连接仅约 ${gwRssB[1]}MB、${goroB[1]} 个 goroutine(每连接 ~2-4 个),内存随连接数近乎线性且极缓。Node server 稳态就 ${srvRssA[1]}MB 起步(含 Prisma/Express/业务)。<b>但关键:gateway 不替代 server</b>——消息最终仍回到 Node 落库。所以现架构下,gateway 路径的总内存 = Node(${srvRssA[1]}MB)+ Go(${gwRssB[1]}MB),比纯 Node 更高。<b>Go 的真正省钱点在"海量空闲长连接"</b>:当连接数达到 Node 事件循环/内存扛不住的量级(通常数万条)时,Go 的 goroutine 模型才显出碾压优势——本轮只压到 300 连接,远未触及 Node 的连接上限,故该优势未被测出。</p>
+<h2>五、专项场景</h2>
+<h3>5.1 S6 连接爬坡探顶(2000 起每级 +2000 → 10000,每级保持 5s)</h3>
+${rampTable()}
+<h3>5.2 S7 惊群重连(300 连接同瞬间全断→全连)</h3>
+${stormTable()}
+<h3>5.3 群扇出(100 成员在线,1 人发 20 条)</h3>
+${fanoutTable()}
+<h3>5.4 HTTP API 层(7 接口,并发 20 × 10s,两轮均直连 server)</h3>
+${httpTable()}
 
-<h3>5.3 过载失败模式:丢消息 vs 爆延迟(最重要)</h3>
-<p>S3 把两条路径都压垮(≈3000 msg/s),但方式相反:</p>
-<ul>
-<li><b>Node/socket.io</b>:事件循环 + DB 落库跟不上,<b>直接报错拒绝</b>——${errA[2]} 条 message.error(${(100 * errA[2] / data.s3.a.harness.sent).toFixed(0)}% 失败),同时进程 RSS 从 ~240MB 飙到 <b>${srvRssA[2]}MB</b>(积压对象),服务内处理 p99 达 ${data.s3.a.serverInternalDurationMs.p99}ms。表现为<b>"快速失败 + 内存尖峰"</b>。</li>
-<li><b>Go/gateway</b>:网关来者不拒,把消息都收下再逐条 HTTP 转发给 Node,<b>0 错误</b>,但上行队列越积越长 → RTT p99 爆到 <b>${(rttP99B[2] / 1000).toFixed(1)}s</b>。而网关自身 RSS 仅 ${data.s3.b.resource.peakGatewayRssMB}MB、服务内处理 ${data.s3.b.serverInternalDurationMs.p99}ms——<b>瓶颈全压在 HTTP-per-message 上行管道</b>。表现为<b>"不丢但极慢"</b>。</li>
-</ul>
-<p>工程含义:若你的场景<b>宁可慢也不能丢</b>(如消息必达),Go 网关的"排队而非拒绝"更友好;若<b>宁可快速失败让客户端重试</b>,Node 的行为更直接。但两者在此负载都需优化——尤其 gateway 的 <b>HTTP-per-message 上行应改成批量/长连接/gRPC 流</b>,否则它会成为比 socket.io 更早的瓶颈。</p>
-
-<h3>5.4 监测平台是否称职</h3>
-<p>本轮所有结论都由监测数据直接支撑:错误计数、RTT 分位、服务内处理直方图、eventloop 滞后、goroutine、两进程 RSS——<b>降级发生时每个信号都如实抬升</b>,证明监测覆盖到位、可用于容量规划与瓶颈定位。补齐的 HTTP/DB 指标(<code>http_request_duration</code>/<code>db_query_duration</code>)可进一步下钻定位 S3 的 DB 竞争,后续可做。</p>
-
-<h2>六、建议</h2>
-<ul>
-<li><b>不要为"让消息更快"而上 Go 网关</b>——现架构下它更慢。上它的正当理由是<b>连接密度</b>(需先压到数万连接验证 Node 的上限)。</li>
-<li>若要真正发挥 Go 网关价值,<b>先重构上行通路</b>:把 HTTP-per-message 改为网关↔server 的持久连接/批量/gRPC 流,消除 S3 暴露的积压瓶颈。</li>
-<li><b>补齐 A/B 前置</b>:gateway 目前仅 message.send parity,presence/已读/通话信令未迁;真正生产级 A/B 需先补齐这些特性再比。</li>
-<li>做一轮<b>高连接数(1万~5万)、低消息率</b>的专项测试,才能测出 Go 相对 Node 在"海量空闲连接"上的真实优势(本轮 300 连接太少)。</li>
-<li>把绝对数迁到<b>独立多机环境</b>复测(压测端与被测端分离),消除单机争抢导致的噪声。</li>
-</ul>
+<h2>六、深入分析(详见配套 markdown 报告)</h2>
+<p>归因证据链(gateway 路径):<code>gateway_uplink_duration_seconds</code>(收帧→Node ack 全程)/ <code>http_request_duration_seconds</code>(Node 侧 HTTP 处理)/ <code>db_query_duration_seconds</code>(落库)/ <code>nodejs_eventloop_lag</code> + <code>nodejs_gc_pause</code>(Node 运行时)/ <code>go_gc_duration</code> + <code>go_goroutines</code>(Go 运行时)。本 HTML 为数据自动汇总;结论、归因与单机极限分析见 <code>docs/监测设施/测试报告/26-9-16-Go网关压测对比报告.md</code>。</p>
 
 <p class="muted" style="margin-top:40px;border-top:1px solid #eee;padding-top:12px">本报告由 <code>perf/gen-report.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。</p>
 </body></html>`;

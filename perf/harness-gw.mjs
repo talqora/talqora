@@ -295,6 +295,10 @@ class GwClient {
           bumpError('message.error');
           entry.reject(new Error(frame.data?.message ?? '消息发送失败'));
         }
+      } else if (frame.type === 'message.error') {
+        // 网关上游失败时会回无 clientMsgId 的错误帧(conn.go errorFrame),客户端无法收敛 pending,
+        // 只能等超时重发兜底——单列计数,不与业务 message.error 混淆。
+        bumpError('message.error_unmatched');
       }
     }
   }

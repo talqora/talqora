@@ -1,0 +1,367 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Node vs Go gateway 实时层性能对比报告</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:#222;max-width:1000px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid #4e79a7;padding-bottom:8px}
+  h2{margin-top:36px;border-left:5px solid #4e79a7;padding-left:10px}
+  h3{margin-top:24px;color:#33517a}
+  h4{margin:18px 0 6px;color:#33517a}
+  .chart{width:100%;height:auto;border:1px solid #eee;border-radius:6px;margin:12px 0;background:#fff}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+  th,td{border:1px solid #ddd;padding:6px 8px;text-align:center}
+  th{background:#f3f6fa}
+  .bad{color:#c0392b;font-weight:700}.ok{color:#27ae60}
+  .box{background:#f7f9fc;border:1px solid #dde6f0;border-radius:8px;padding:12px 16px;margin:14px 0}
+  .warn{background:#fff7e6;border-color:#ffe0a3}
+  .key{background:#eef7ee;border-color:#c9e6c9}
+  code{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px}
+  .muted{color:#888;font-size:13px}
+</style></head><body>
+
+<h1>Node(socket.io) vs Go gateway 实时层性能对比报告</h1>
+<p class="muted">数据窗口结束时间:2026-09-16T03:25:30.760Z ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/data/*.json(真实压测采集)</p>
+
+<div class="box warn">
+<b>测量诚实性声明(务必先读)</b><br>
+① 全部服务(harness 负载生成 + Node server + Go gateway + Docker 中间件/Prometheus)<b>跑在同一台 macOS 开发机</b>,彼此抢 CPU,故<b>绝对毫秒数有噪声、非生产代表值</b>;本报告价值在<b>同机同负载下的相对 A/B 对比与定性失败模式</b>。<br>
+② A = 纯 Node 基线(26-9-14,socket.io 直连 server :3007,gateway 未启动);B = gateway 路径(26-9-16,web 同款:原生 WS → gateway :8090 → Node /internal/gateway/uplink)。<b>B 是 A 基础上"加一层"</b>,业务/落库仍在 Node。<br>
+③ 公平性:B 的压测客户端实现了与 socket.io 等价的 ack 匹配/5s 超时同键重发×3/25s 心跳/断线重连(对齐 web/src/ws/wsClient.ts),<b>不是裸发帧的假快路径</b>;两侧落库逻辑完全相同。<br>
+④ 每场景 ≥3 轮取中位轮(RTT p99)落盘;RTT 用往返(clientMsgId 关联);资源按两侧进程 RSS/CPU 分别采样。
+</div>
+
+<h2>一、结论速览</h2>
+<div class="box key"><ul><li><b>1. 常规吞吐(S1,≈1000 msg/s)消息 RTT p99:Node 57ms → Go 209ms(267%)。</b></li><li>错误:Node 0 条 / Go 2534 条;Go 侧超时重发 586 帧。</li><li><b>2. 连接层(S2,300 连接):</b>Node server RSS 峰值 300.6MB(每连接 1KB);Go gateway 仅 62.7MB / 630 goroutine(每连接 0.21KB)。gateway 路径总内存 = server + gateway 两者之和。</li><li><b>3. 过载(S3,≈3000 msg/s)失败模式:</b>Node 错误 22185 条(错误率 49.6%,快速失败);Go 错误 6268 条(错误率 14%)、RTT p99 5067ms(排队而非拒绝)。</li><li><b>4. 连接容量:</b>gateway 路径探到 10000 连接(gw RSS 315.5MB / 20012 goroutine;达到 MAX=10000(用户数 10000));Node 基线 10000 连接(达到 MAX=10000(用户数 10000))。</li></ul></div>
+
+<h2>二、测试方法</h2>
+<ul>
+<li><b>A = Node(socket.io)</b>:<code>perf/harness.mjs</code>,socket.io-client → server <code>/socket.io</code>(26-9-14 基线数据)。</li>
+<li><b>B = Go(gateway)</b>:<code>perf/harness-gw.mjs</code>,原生 WebSocket(query token/deviceId)→ gateway <code>/ws</code> → 信封帧 <code>{type:'message.send',data:{...}}</code> → 等 <code>message.ack</code> 计 RTT。</li>
+<li>编排 <code>perf/ab-run.mjs</code>:跑 harness + 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC + <code>ps</code> 两进程 RSS/CPU)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ 落 JSON。</li>
+<li>场景参数与 26-9-14 基线完全一致(S0-S5、吞吐扫描、爬坡、惊群、扇出、HTTP);爬坡探顶参数走 env(同 ramp-probe)。</li>
+</ul>
+<table><tr><th>场景</th><th>参数</th><th>目的</th></tr>
+<tr><td>S0 Smoke</td><td>50 连接 × 2 msg/s × 15s(冒烟)</td><td>冒烟</td></tr><tr><td>S1 常规吞吐</td><td>100 连接 × 10 msg/s × 20s(≈1000 msg/s)</td><td>常规吞吐下的 RTT</td></tr><tr><td>S2 连接规模</td><td>300 连接 × 2 msg/s × 15s(≈600 msg/s,低消息率、看连接与资源)</td><td>连接规模下的资源占用</td></tr><tr><td>S3 过载压力</td><td>150 连接 × 20 msg/s × 15s(≈3000 msg/s,探失败模式)</td><td>过载时的失败模式</td></tr><tr><td>S4 大连接</td><td>500 连接 × 1 msg/s × 15s(≈500 msg/s,看连接与资源)</td><td>连接规模下的资源占用</td></tr><tr><td>S5 长时稳态</td><td>100 连接 × 5 msg/s × 120s(长稳漂移/心跳有效性)</td><td>长稳漂移与心跳有效性</td></tr></table>
+
+<h2>三、图表(Node 蓝 vs Go 红)</h2>
+
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息 RTT p99(客户端往返)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">消息 RTT p99(客户端往返)（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">1500</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">3000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">4500</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">6000</text><rect x="79.77777777777779" y="263.928" width="37.55555555555556" height="2.0720000000000027" fill="#4e79a7"><title>Node(socket.io) 56ms</title></rect><text x="98.55555555555557" y="259.928" text-anchor="middle" font-size="10" fill="#4e79a7">56</text><rect x="123.33333333333334" y="264.15" width="37.55555555555556" height="1.8500000000000227" fill="#e15759"><title>Go(gateway) 50ms</title></rect><text x="142.11111111111111" y="260.15" text-anchor="middle" font-size="10" fill="#e15759">50</text><rect x="192.44444444444446" y="263.891" width="37.55555555555556" height="2.1089999999999804" fill="#4e79a7"><title>Node(socket.io) 57ms</title></rect><text x="211.22222222222226" y="259.891" text-anchor="middle" font-size="10" fill="#4e79a7">57</text><rect x="236.00000000000003" y="258.267" width="37.55555555555556" height="7.733000000000004" fill="#e15759"><title>Go(gateway) 209ms</title></rect><text x="254.7777777777778" y="254.267" text-anchor="middle" font-size="10" fill="#e15759">209</text><rect x="305.11111111111114" y="259.673" width="37.55555555555556" height="6.326999999999998" fill="#4e79a7"><title>Node(socket.io) 171ms</title></rect><text x="323.8888888888889" y="255.673" text-anchor="middle" font-size="10" fill="#4e79a7">171</text><rect x="348.6666666666667" y="259.34" width="37.55555555555556" height="6.660000000000025" fill="#e15759"><title>Go(gateway) 180ms</title></rect><text x="367.44444444444446" y="255.33999999999997" text-anchor="middle" font-size="10" fill="#e15759">180</text><rect x="417.77777777777777" y="189.817" width="37.55555555555556" height="76.18299999999999" fill="#4e79a7"><title>Node(socket.io) 2059ms</title></rect><text x="436.55555555555554" y="185.817" text-anchor="middle" font-size="10" fill="#4e79a7">2059</text><rect x="461.3333333333333" y="78.52099999999999" width="37.55555555555556" height="187.479" fill="#e15759"><title>Go(gateway) 5067ms</title></rect><text x="480.1111111111111" y="74.52099999999999" text-anchor="middle" font-size="10" fill="#e15759">5067</text><rect x="530.4444444444446" y="255.788" width="37.55555555555556" height="10.211999999999989" fill="#4e79a7"><title>Node(socket.io) 276ms</title></rect><text x="549.2222222222223" y="251.788" text-anchor="middle" font-size="10" fill="#4e79a7">276</text><rect x="574.0000000000001" y="254.641" width="37.55555555555556" height="11.359000000000009" fill="#e15759"><title>Go(gateway) 307ms</title></rect><text x="592.7777777777779" y="250.641" text-anchor="middle" font-size="10" fill="#e15759">307</text><rect x="643.1111111111112" y="263.743" width="37.55555555555556" height="2.257000000000005" fill="#4e79a7"><title>Node(socket.io) 61ms</title></rect><text x="661.8888888888889" y="259.743" text-anchor="middle" font-size="10" fill="#4e79a7">61</text><rect x="686.6666666666667" y="262.004" width="37.55555555555556" height="3.995999999999981" fill="#e15759"><title>Go(gateway) 108ms</title></rect><text x="705.4444444444446" y="258.004" text-anchor="middle" font-size="10" fill="#e15759">108</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息 RTT p999(尾延迟)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">消息 RTT p999(尾延迟)（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">1500</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">3000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">4500</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">6000</text><rect x="123.33333333333334" y="263.928" width="37.55555555555556" height="2.0720000000000027" fill="#e15759"><title>Go(gateway) 56ms</title></rect><text x="142.11111111111111" y="259.928" text-anchor="middle" font-size="10" fill="#e15759">56</text><rect x="236.00000000000003" y="256.121" width="37.55555555555556" height="9.879000000000019" fill="#e15759"><title>Go(gateway) 267ms</title></rect><text x="254.7777777777778" y="252.12099999999998" text-anchor="middle" font-size="10" fill="#e15759">267</text><rect x="348.6666666666667" y="258.267" width="37.55555555555556" height="7.733000000000004" fill="#e15759"><title>Go(gateway) 209ms</title></rect><text x="367.44444444444446" y="254.267" text-anchor="middle" font-size="10" fill="#e15759">209</text><rect x="461.3333333333333" y="75.59799999999998" width="37.55555555555556" height="190.40200000000002" fill="#e15759"><title>Go(gateway) 5146ms</title></rect><text x="480.1111111111111" y="71.59799999999998" text-anchor="middle" font-size="10" fill="#e15759">5146</text><rect x="574.0000000000001" y="253.198" width="37.55555555555556" height="12.801999999999992" fill="#e15759"><title>Go(gateway) 346ms</title></rect><text x="592.7777777777779" y="249.198" text-anchor="middle" font-size="10" fill="#e15759">346</text><rect x="686.6666666666667" y="260.228" width="37.55555555555556" height="5.771999999999991" fill="#e15759"><title>Go(gateway) 156ms</title></rect><text x="705.4444444444446" y="256.228" text-anchor="middle" font-size="10" fill="#e15759">156</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="错误数(所有错误分类之和)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">错误数(所有错误分类之和)（条）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">7500</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">15000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">22500</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">30000</text><rect x="79.77777777777779" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(socket.io) 0条</title></rect><text x="98.55555555555557" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect x="123.33333333333334" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text x="142.11111111111111" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect x="192.44444444444446" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(socket.io) 0条</title></rect><text x="211.22222222222226" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect x="236.00000000000003" y="247.2484" width="37.55555555555556" height="18.751599999999996" fill="#e15759"><title>Go(gateway) 2534条</title></rect><text x="254.7777777777778" y="243.2484" text-anchor="middle" font-size="10" fill="#e15759">2534</text><rect x="305.11111111111114" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(socket.io) 0条</title></rect><text x="323.8888888888889" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect x="348.6666666666667" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text x="367.44444444444446" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect x="417.77777777777777" y="101.83099999999999" width="37.55555555555556" height="164.169" fill="#4e79a7"><title>Node(socket.io) 22185条</title></rect><text x="436.55555555555554" y="97.83099999999999" text-anchor="middle" font-size="10" fill="#4e79a7">22185</text><rect x="461.3333333333333" y="219.6168" width="37.55555555555556" height="46.38319999999999" fill="#e15759"><title>Go(gateway) 6268条</title></rect><text x="480.1111111111111" y="215.6168" text-anchor="middle" font-size="10" fill="#e15759">6268</text><rect x="530.4444444444446" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(socket.io) 0条</title></rect><text x="549.2222222222223" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect x="574.0000000000001" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text x="592.7777777777779" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect x="643.1111111111112" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(socket.io) 0条</title></rect><text x="661.8888888888889" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect x="686.6666666666667" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text x="705.4444444444446" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息投递成功率(ack/发送)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">消息投递成功率(ack/发送)（%）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">25</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">50</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">75</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">100</text><rect x="79.77777777777779" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(socket.io) 100%</title></rect><text x="98.55555555555557" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect x="123.33333333333334" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text x="142.11111111111111" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect x="192.44444444444446" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(socket.io) 100%</title></rect><text x="211.22222222222226" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect x="236.00000000000003" y="72.416" width="37.55555555555556" height="193.584" fill="#e15759"><title>Go(gateway) 87.2%</title></rect><text x="254.7777777777778" y="68.416" text-anchor="middle" font-size="10" fill="#e15759">87.2</text><rect x="305.11111111111114" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(socket.io) 100%</title></rect><text x="323.8888888888889" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect x="348.6666666666667" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text x="367.44444444444446" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect x="417.77777777777777" y="154.112" width="37.55555555555556" height="111.888" fill="#4e79a7"><title>Node(socket.io) 50.4%</title></rect><text x="436.55555555555554" y="150.112" text-anchor="middle" font-size="10" fill="#4e79a7">50.4</text><rect x="461.3333333333333" y="75.08000000000001" width="37.55555555555556" height="190.92" fill="#e15759"><title>Go(gateway) 86%</title></rect><text x="480.1111111111111" y="71.08000000000001" text-anchor="middle" font-size="10" fill="#e15759">86</text><rect x="530.4444444444446" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(socket.io) 100%</title></rect><text x="549.2222222222223" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect x="574.0000000000001" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text x="592.7777777777779" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect x="643.1111111111112" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(socket.io) 100%</title></rect><text x="661.8888888888889" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect x="686.6666666666667" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text x="705.4444444444446" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="进程内存峰值(server RSS vs gateway RSS)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">进程内存峰值(server RSS vs gateway RSS)（MB）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">125</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">250</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">375</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">500</text><rect x="79.77777777777779" y="186.524" width="37.55555555555556" height="79.476" fill="#4e79a7"><title>Node(socket.io) 179MB</title></rect><text x="98.55555555555557" y="182.524" text-anchor="middle" font-size="10" fill="#4e79a7">179</text><rect x="123.33333333333334" y="251.2148" width="37.55555555555556" height="14.785200000000003" fill="#e15759"><title>Go(gateway) 33.3MB</title></rect><text x="142.11111111111111" y="247.2148" text-anchor="middle" font-size="10" fill="#e15759">33.3</text><rect x="192.44444444444446" y="139.8596" width="37.55555555555556" height="126.1404" fill="#4e79a7"><title>Node(socket.io) 284.1MB</title></rect><text x="211.22222222222226" y="135.8596" text-anchor="middle" font-size="10" fill="#4e79a7">284.1</text><rect x="236.00000000000003" y="247.6184" width="37.55555555555556" height="18.38159999999999" fill="#e15759"><title>Go(gateway) 41.4MB</title></rect><text x="254.7777777777778" y="243.6184" text-anchor="middle" font-size="10" fill="#e15759">41.4</text><rect x="305.11111111111114" y="132.53359999999998" width="37.55555555555556" height="133.46640000000002" fill="#4e79a7"><title>Node(socket.io) 300.6MB</title></rect><text x="323.8888888888889" y="128.53359999999998" text-anchor="middle" font-size="10" fill="#4e79a7">300.6</text><rect x="348.6666666666667" y="238.1612" width="37.55555555555556" height="27.838799999999992" fill="#e15759"><title>Go(gateway) 62.7MB</title></rect><text x="367.44444444444446" y="234.1612" text-anchor="middle" font-size="10" fill="#e15759">62.7</text><rect x="417.77777777777777" y="47.90720000000002" width="37.55555555555556" height="218.09279999999998" fill="#4e79a7"><title>Node(socket.io) 491.2MB</title></rect><text x="436.55555555555554" y="43.90720000000002" text-anchor="middle" font-size="10" fill="#4e79a7">491.2</text><rect x="461.3333333333333" y="238.3388" width="37.55555555555556" height="27.661200000000008" fill="#e15759"><title>Go(gateway) 62.3MB</title></rect><text x="480.1111111111111" y="234.3388" text-anchor="middle" font-size="10" fill="#e15759">62.3</text><rect x="530.4444444444446" y="50.260400000000004" width="37.55555555555556" height="215.7396" fill="#4e79a7"><title>Node(socket.io) 485.9MB</title></rect><text x="549.2222222222223" y="46.260400000000004" text-anchor="middle" font-size="10" fill="#4e79a7">485.9</text><rect x="574.0000000000001" y="231.1904" width="37.55555555555556" height="34.80959999999999" fill="#e15759"><title>Go(gateway) 78.4MB</title></rect><text x="592.7777777777779" y="227.1904" text-anchor="middle" font-size="10" fill="#e15759">78.4</text><rect x="643.1111111111112" y="128.84840000000003" width="37.55555555555556" height="137.15159999999997" fill="#4e79a7"><title>Node(socket.io) 308.9MB</title></rect><text x="661.8888888888889" y="124.84840000000003" text-anchor="middle" font-size="10" fill="#4e79a7">308.9</text><rect x="686.6666666666667" y="237.9836" width="37.55555555555556" height="28.016400000000004" fill="#e15759"><title>Go(gateway) 63.1MB</title></rect><text x="705.4444444444446" y="233.9836" text-anchor="middle" font-size="10" fill="#e15759">63.1</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<p class="muted">注意口径:蓝=Node server 整体 RSS(含全部业务/DB),红=Go gateway 进程 RSS。gateway 路径实际总内存 = 两者之和。</p>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="Node 事件循环滞后 p99">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">Node 事件循环滞后 p99（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">5</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">10</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">15</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">20</text><rect x="79.77777777777779" y="137.573" width="37.55555555555556" height="128.427" fill="#4e79a7"><title>Node(socket.io) 11.6ms</title></rect><text x="98.55555555555557" y="133.573" text-anchor="middle" font-size="10" fill="#4e79a7">11.6</text><rect x="123.33333333333334" y="138.239" width="37.55555555555556" height="127.761" fill="#e15759"><title>Go(gateway) 11.5ms</title></rect><text x="142.11111111111111" y="134.239" text-anchor="middle" font-size="10" fill="#e15759">11.5</text><rect x="192.44444444444446" y="118.37" width="37.55555555555556" height="147.63" fill="#4e79a7"><title>Node(socket.io) 13.3ms</title></rect><text x="211.22222222222226" y="114.37" text-anchor="middle" font-size="10" fill="#4e79a7">13.3</text><rect x="236.00000000000003" y="119.59100000000001" width="37.55555555555556" height="146.409" fill="#e15759"><title>Go(gateway) 13.2ms</title></rect><text x="254.7777777777778" y="115.59100000000001" text-anchor="middle" font-size="10" fill="#e15759">13.2</text><rect x="305.11111111111114" y="124.25300000000001" width="37.55555555555556" height="141.74699999999999" fill="#4e79a7"><title>Node(socket.io) 12.8ms</title></rect><text x="323.8888888888889" y="120.25300000000001" text-anchor="middle" font-size="10" fill="#4e79a7">12.8</text><rect x="348.6666666666667" y="131.46800000000002" width="37.55555555555556" height="134.53199999999998" fill="#e15759"><title>Go(gateway) 12.1ms</title></rect><text x="367.44444444444446" y="127.46800000000002" text-anchor="middle" font-size="10" fill="#e15759">12.1</text><rect x="417.77777777777777" y="78.52099999999999" width="37.55555555555556" height="187.479" fill="#4e79a7"><title>Node(socket.io) 16.9ms</title></rect><text x="436.55555555555554" y="74.52099999999999" text-anchor="middle" font-size="10" fill="#4e79a7">16.9</text><rect x="461.3333333333333" y="115.92800000000003" width="37.55555555555556" height="150.07199999999997" fill="#e15759"><title>Go(gateway) 13.5ms</title></rect><text x="480.1111111111111" y="111.92800000000003" text-anchor="middle" font-size="10" fill="#e15759">13.5</text><rect x="530.4444444444446" y="122.255" width="37.55555555555556" height="143.745" fill="#4e79a7"><title>Node(socket.io) 13ms</title></rect><text x="549.2222222222223" y="118.255" text-anchor="middle" font-size="10" fill="#4e79a7">13</text><rect x="574.0000000000001" y="125.25200000000001" width="37.55555555555556" height="140.748" fill="#e15759"><title>Go(gateway) 12.7ms</title></rect><text x="592.7777777777779" y="121.25200000000001" text-anchor="middle" font-size="10" fill="#e15759">12.7</text><rect x="643.1111111111112" y="120.25699999999998" width="37.55555555555556" height="145.74300000000002" fill="#4e79a7"><title>Node(socket.io) 13.1ms</title></rect><text x="661.8888888888889" y="116.25699999999998" text-anchor="middle" font-size="10" fill="#4e79a7">13.1</text><rect x="686.6666666666667" y="130.469" width="37.55555555555556" height="135.531" fill="#e15759"><title>Go(gateway) 12.2ms</title></rect><text x="705.4444444444446" y="126.469" text-anchor="middle" font-size="10" fill="#e15759">12.2</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="Go gateway goroutine 数">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">Go gateway goroutine 数（个）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">500</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">1000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">1500</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">2000</text><rect x="123.33333333333334" y="253.124" width="37.55555555555556" height="12.876000000000005" fill="#e15759"><title>Go(gateway) 116个</title></rect><text x="142.11111111111111" y="249.124" text-anchor="middle" font-size="10" fill="#e15759">116</text><rect x="236.00000000000003" y="220.046" width="37.55555555555556" height="45.95400000000001" fill="#e15759"><title>Go(gateway) 414个</title></rect><text x="254.7777777777778" y="216.046" text-anchor="middle" font-size="10" fill="#e15759">414</text><rect x="348.6666666666667" y="196.07" width="37.55555555555556" height="69.93" fill="#e15759"><title>Go(gateway) 630个</title></rect><text x="367.44444444444446" y="192.07" text-anchor="middle" font-size="10" fill="#e15759">630</text><rect x="461.3333333333333" y="197.624" width="37.55555555555556" height="68.376" fill="#e15759"><title>Go(gateway) 616个</title></rect><text x="480.1111111111111" y="193.624" text-anchor="middle" font-size="10" fill="#e15759">616</text><rect x="574.0000000000001" y="153.224" width="37.55555555555556" height="112.77600000000001" fill="#e15759"><title>Go(gateway) 1016个</title></rect><text x="592.7777777777779" y="149.224" text-anchor="middle" font-size="10" fill="#e15759">1016</text><rect x="686.6666666666667" y="220.268" width="37.55555555555556" height="45.732" fill="#e15759"><title>Go(gateway) 412个</title></rect><text x="705.4444444444446" y="216.268" text-anchor="middle" font-size="10" fill="#e15759">412</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="#333">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="#333">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="#333">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="#333">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="#333">长时稳态</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+
+<h3>3.1 吞吐饱和扫描(固定 100 连接,RATE 10→30,各 20s)</h3>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="RTT p99 vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">RTT p99 vs RATE（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">1750</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">3500</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">5250</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">7000</text><path d="M64.0 264.0 L233.0 264.2 L402.0 201.3 L571.0 200.7 L740.0 199.5" fill="none" stroke="#4e79a7" stroke-width="2.5"/><circle cx="64.0" cy="264.0" r="3.5" fill="#4e79a7"><title>RATE=tp_r10 → 62ms</title></circle><circle cx="233.0" cy="264.2" r="3.5" fill="#4e79a7"><title>RATE=tp_r15 → 58ms</title></circle><circle cx="402.0" cy="201.3" r="3.5" fill="#4e79a7"><title>RATE=tp_r20 → 2041ms</title></circle><circle cx="571.0" cy="200.7" r="3.5" fill="#4e79a7"><title>RATE=tp_r25 → 2058ms</title></circle><circle cx="740.0" cy="199.5" r="3.5" fill="#4e79a7"><title>RATE=tp_r30 → 2096ms</title></circle><path d="M64.0 262.9 L233.0 253.7 L402.0 249.3 L571.0 177.1 L740.0 73.4" fill="none" stroke="#e15759" stroke-width="2.5"/><circle cx="64.0" cy="262.9" r="3.5" fill="#e15759"><title>RATE=tp_r10 → 97ms</title></circle><circle cx="233.0" cy="253.7" r="3.5" fill="#e15759"><title>RATE=tp_r15 → 389ms</title></circle><circle cx="402.0" cy="249.3" r="3.5" fill="#e15759"><title>RATE=tp_r20 → 528ms</title></circle><circle cx="571.0" cy="177.1" r="3.5" fill="#e15759"><title>RATE=tp_r25 → 2802ms</title></circle><circle cx="740.0" cy="73.4" r="3.5" fill="#e15759"><title>RATE=tp_r30 → 6072ms</title></circle><text x="64" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r10</text><text x="233" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r15</text><text x="402" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r20</text><text x="571" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r25</text><text x="740" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r30</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="错误率 vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600">错误率 vs RATE（%）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="#eee"/><text x="56" y="270" text-anchor="end" font-size="11" fill="#888">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="#eee"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="#888">18</text><line x1="64" y1="155" x2="740" y2="155" stroke="#eee"/><text x="56" y="159" text-anchor="end" font-size="11" fill="#888">35</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="#eee"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="#888">53</text><line x1="64" y1="44" x2="740" y2="44" stroke="#eee"/><text x="56" y="48" text-anchor="end" font-size="11" fill="#888">70</text><path d="M64.0 266.0 L233.0 266.0 L402.0 241.9 L571.0 146.1 L740.0 67.8" fill="none" stroke="#4e79a7" stroke-width="2.5"/><circle cx="64.0" cy="266.0" r="3.5" fill="#4e79a7"><title>RATE=tp_r10 → 0%</title></circle><circle cx="233.0" cy="266.0" r="3.5" fill="#4e79a7"><title>RATE=tp_r15 → 0%</title></circle><circle cx="402.0" cy="241.9" r="3.5" fill="#4e79a7"><title>RATE=tp_r20 → 7.6%</title></circle><circle cx="571.0" cy="146.1" r="3.5" fill="#4e79a7"><title>RATE=tp_r25 → 37.8%</title></circle><circle cx="740.0" cy="67.8" r="3.5" fill="#4e79a7"><title>RATE=tp_r30 → 62.5%</title></circle><path d="M64.0 212.4 L233.0 160.4 L402.0 261.6 L571.0 266.0 L740.0 216.2" fill="none" stroke="#e15759" stroke-width="2.5"/><circle cx="64.0" cy="212.4" r="3.5" fill="#e15759"><title>RATE=tp_r10 → 16.9%</title></circle><circle cx="233.0" cy="160.4" r="3.5" fill="#e15759"><title>RATE=tp_r15 → 33.3%</title></circle><circle cx="402.0" cy="261.6" r="3.5" fill="#e15759"><title>RATE=tp_r20 → 1.4%</title></circle><circle cx="571.0" cy="266.0" r="3.5" fill="#e15759"><title>RATE=tp_r25 → 0%</title></circle><circle cx="740.0" cy="216.2" r="3.5" fill="#e15759"><title>RATE=tp_r30 → 15.7%</title></circle><text x="64" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r10</text><text x="233" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r15</text><text x="402" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r20</text><text x="571" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r25</text><text x="740" y="284" text-anchor="middle" font-size="12" fill="#333">tp_r30</text>
+    <rect x="564" y="6" width="12" height="12" fill="#4e79a7"/><text x="580" y="16" font-size="11">Node(socket.io)</text>
+    <rect x="676" y="6" width="12" height="12" fill="#e15759"/><text x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<table>
+<tr><th>场景</th><th>模式</th><th>发送</th><th>ack</th><th>错误(错误率)</th><th>RTT p50</th><th>RTT p95</th><th>RTT p99</th><th>RTT p999</th><th>server RSS(MB)</th><th>gw RSS(MB)</th><th>eventloop p99(ms)</th></tr>
+<tr><td>tp_r10</td><td>Node</td><td>19800</td><td>19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>35</td><td>54</td><td><b>62</b></td><td>94</td>
+        <td>332.9</td><td>—</td><td>13.5</td></tr><tr><td>tp_r10</td><td>Go</td><td>19800</td><td>16454</td>
+        <td class="bad">3346 (16.9%)</td>
+        <td>37</td><td>65</td><td><b>97</b></td><td>5072</td>
+        <td>298.1</td><td>56.5</td><td>12.03</td></tr><tr><td>tp_r15</td><td>Node</td><td>30000</td><td>30000</td>
+        <td class="ok">0 (0%)</td>
+        <td>32</td><td>50</td><td><b>58</b></td><td>73</td>
+        <td>333.3</td><td>—</td><td>13.42</td></tr><tr><td>tp_r15</td><td>Go</td><td>30100</td><td>20063</td>
+        <td class="bad">10037 (33.3%)</td>
+        <td>36</td><td>105</td><td><b>389</b></td><td>1445</td>
+        <td>298.3</td><td>51.6</td><td>12.6</td></tr><tr><td>tp_r20</td><td>Node</td><td>39803</td><td>36771</td>
+        <td class="bad">3032 (7.6%)</td>
+        <td>1460</td><td>2034</td><td><b>2041</b></td><td>2048</td>
+        <td>430.5</td><td>—</td><td>15.3</td></tr><tr><td>tp_r20</td><td>Go</td><td>39813</td><td>39274</td>
+        <td class="bad">539 (1.4%)</td>
+        <td>58</td><td>257</td><td><b>528</b></td><td>753</td>
+        <td>303.3</td><td>51</td><td>13.12</td></tr><tr><td>tp_r25</td><td>Node</td><td>49735</td><td>30959</td>
+        <td class="bad">18776 (37.8%)</td>
+        <td>2027</td><td>2049</td><td><b>2058</b></td><td>2071</td>
+        <td>459</td><td>—</td><td>18.24</td></tr><tr><td>tp_r25</td><td>Go</td><td>49739</td><td>49739</td>
+        <td class="ok">0 (0%)</td>
+        <td>1514</td><td>2669</td><td><b>2802</b></td><td>2983</td>
+        <td>300.3</td><td>48.5</td><td>13.27</td></tr><tr><td>tp_r30</td><td>Node</td><td>60198</td><td>22593</td>
+        <td class="bad">37605 (62.5%)</td>
+        <td>2027</td><td>2055</td><td><b>2096</b></td><td>2182</td>
+        <td>490</td><td>—</td><td>16.47</td></tr><tr><td>tp_r30</td><td>Go</td><td>60253</td><td>50812</td>
+        <td class="bad">9441 (15.7%)</td>
+        <td>3520</td><td>5857</td><td><b>6072</b></td><td>6169</td>
+        <td>305.5</td><td>46.7</td><td>14.76</td></tr>
+</table>
+
+<h2>四、完整数据表(主场景)</h2>
+<table>
+<tr><th>场景</th><th>模式</th><th>连接(成功/尝试)</th><th>发送/ack</th><th>错误(错误率)</th><th>RTT p50/95/<b>99</b>/999(ms)</th><th>服务内 p99(ms)</th><th>server RSS(MB)</th><th>gateway RSS(MB)</th><th>eventloop p99(ms)</th><th>goroutine</th><th>重发帧数</th></tr>
+<tr>
+        <td>S0 Smoke</td><td>Node(socket.io)</td>
+        <td>50/50</td><td>1450/1450</td>
+        <td class="ok">0 (0%)</td>
+        <td>19/34/<b>56</b>/—</td>
+        <td>67.9</td>
+        <td>179</td><td>—</td>
+        <td>11.57</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S0 Smoke</td><td>Go(gateway)</td>
+        <td>50/50</td><td>1450/1450</td>
+        <td class="ok">0 (0%)</td>
+        <td>22/35/<b>50</b>/56</td>
+        <td>49.8</td>
+        <td>177.1</td><td>33.3</td>
+        <td>11.51</td><td>116</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S1 常规吞吐</td><td>Node(socket.io)</td>
+        <td>100/100</td><td>19800/19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>33/50/<b>57</b>/—</td>
+        <td>77.6</td>
+        <td>284.1</td><td>—</td>
+        <td>13.3</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S1 常规吞吐</td><td>Go(gateway)</td>
+        <td>100/100</td><td>19800/17266</td>
+        <td class="bad">2534 (12.8%)</td>
+        <td>40/117/<b>209</b>/267</td>
+        <td>194.5</td>
+        <td>279.6</td><td>41.4</td>
+        <td>13.19</td><td>414</td>
+        <td>586</td>
+      </tr><tr>
+        <td>S2 连接规模</td><td>Node(socket.io)</td>
+        <td>300/300</td><td>8700/8700</td>
+        <td class="ok">0 (0%)</td>
+        <td>85/150/<b>171</b>/—</td>
+        <td>245.9</td>
+        <td>300.6</td><td>—</td>
+        <td>12.77</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S2 连接规模</td><td>Go(gateway)</td>
+        <td>300/300</td><td>8700/8700</td>
+        <td class="ok">0 (0%)</td>
+        <td>89/146/<b>180</b>/209</td>
+        <td>246.3</td>
+        <td>290</td><td>62.7</td>
+        <td>12.12</td><td>630</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S3 过载压力</td><td>Node(socket.io)</td>
+        <td>150/150</td><td>44714/22529</td>
+        <td class="bad">22185 (49.6%)</td>
+        <td>2027/2050/<b>2059</b>/—</td>
+        <td>2483.4</td>
+        <td>491.2</td><td>—</td>
+        <td>16.89</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S3 过载压力</td><td>Go(gateway)</td>
+        <td>150/150</td><td>44719/38451</td>
+        <td class="bad">6268 (14%)</td>
+        <td>2491/4879/<b>5067</b>/5146</td>
+        <td>198.9</td>
+        <td>303.1</td><td>62.3</td>
+        <td>13.52</td><td>616</td>
+        <td>1121</td>
+      </tr><tr>
+        <td>S4 大连接</td><td>Node(socket.io)</td>
+        <td>500/500</td><td>7000/7000</td>
+        <td class="ok">0 (0%)</td>
+        <td>136/242/<b>276</b>/—</td>
+        <td>397.1</td>
+        <td>485.9</td><td>—</td>
+        <td>12.95</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S4 大连接</td><td>Go(gateway)</td>
+        <td>500/500</td><td>7000/7000</td>
+        <td class="ok">0 (0%)</td>
+        <td>155/269/<b>307</b>/346</td>
+        <td>475.4</td>
+        <td>241.3</td><td>78.4</td>
+        <td>12.68</td><td>1016</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S5 长时稳态</td><td>Node(socket.io)</td>
+        <td>100/100</td><td>59500/59500</td>
+        <td class="ok">0 (0%)</td>
+        <td>35/53/<b>61</b>/—</td>
+        <td>90.3</td>
+        <td>308.9</td><td>—</td>
+        <td>13.13</td><td>—</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S5 长时稳态</td><td>Go(gateway)</td>
+        <td>100/100</td><td>59700/59700</td>
+        <td class="ok">0 (0%)</td>
+        <td>35/62/<b>108</b>/156</td>
+        <td>99.4</td>
+        <td>298.6</td><td>63.1</td>
+        <td>12.21</td><td>412</td>
+        <td>0</td>
+      </tr>
+</table>
+<p class="muted">"服务内 p99" = 服务端消息处理直方图分位(Node 为 server_message_duration;Go 为 gateway_uplink_duration,收帧→Node ack),经 Prometheus histogram_quantile 算得,受桶宽影响偏粗。</p>
+
+<h3>4.1 每连接资源成本</h3>
+<table>
+<tr><th>场景</th><th>模式</th><th>server RSS 峰值(MB)</th><th>gateway RSS 峰值(MB)</th><th>server KB/连接</th><th>gateway KB/连接</th><th>server CPU Δ(s)</th><th>gateway CPU Δ(s)</th></tr>
+<tr><td>S0 Smoke</td><td>Node(socket.io)</td><td>179</td><td>—</td>
+        <td>3.51</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S0 Smoke</td><td>Go(gateway)</td><td>177.1</td><td>33.3</td>
+        <td>3.54</td><td>0.67</td>
+        <td>12.49</td><td>—</td></tr><tr><td>S1 常规吞吐</td><td>Node(socket.io)</td><td>284.1</td><td>—</td>
+        <td>2.81</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S1 常规吞吐</td><td>Go(gateway)</td><td>279.6</td><td>41.4</td>
+        <td>2.8</td><td>0.41</td>
+        <td>46.58</td><td>9.86</td></tr><tr><td>S2 连接规模</td><td>Node(socket.io)</td><td>300.6</td><td>—</td>
+        <td>1</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S2 连接规模</td><td>Go(gateway)</td><td>290</td><td>62.7</td>
+        <td>0.97</td><td>0.21</td>
+        <td>69.69</td><td>3.56</td></tr><tr><td>S3 过载压力</td><td>Node(socket.io)</td><td>491.2</td><td>—</td>
+        <td>3.25</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S3 过载压力</td><td>Go(gateway)</td><td>303.1</td><td>62.3</td>
+        <td>2.02</td><td>0.42</td>
+        <td>77.02</td><td>9.73</td></tr><tr><td>S4 大连接</td><td>Node(socket.io)</td><td>485.9</td><td>—</td>
+        <td>0.97</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S4 大连接</td><td>Go(gateway)</td><td>241.3</td><td>78.4</td>
+        <td>0.48</td><td>0.16</td>
+        <td>111.87</td><td>2.53</td></tr><tr><td>S5 长时稳态</td><td>Node(socket.io)</td><td>308.9</td><td>—</td>
+        <td>3.06</td><td>0</td>
+        <td>—</td><td>—</td></tr><tr><td>S5 长时稳态</td><td>Go(gateway)</td><td>298.6</td><td>63.1</td>
+        <td>2.99</td><td>0.63</td>
+        <td>93.63</td><td>21.86</td></tr>
+</table>
+
+<h2>五、专项场景</h2>
+<h3>5.1 S6 连接爬坡探顶(2000 起每级 +2000 → 10000,每级保持 5s)</h3>
+<h4>gateway 路径(本次)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>gw 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr><tr><td>2000</td><td>2000/2000 (100.0%)</td>
+    <td>134/256/267</td>
+    <td>2000</td><td>2000</td><td>4012</td>
+    <td>11.28</td><td>82.9</td><td>183.5</td></tr><tr><td>4000</td><td>2000/2000 (100.0%)</td>
+    <td>133/264/276</td>
+    <td>4000</td><td>4000</td><td>8012</td>
+    <td>11.22</td><td>147.9</td><td>183.5</td></tr><tr><td>6000</td><td>2000/2000 (100.0%)</td>
+    <td>138/272/288</td>
+    <td>6000</td><td>6000</td><td>12012</td>
+    <td>11.12</td><td>203.2</td><td>183.4</td></tr><tr><td>8000</td><td>2000/2000 (100.0%)</td>
+    <td>163/317/330</td>
+    <td>8000</td><td>8000</td><td>16012</td>
+    <td>11.12</td><td>268.5</td><td>180.6</td></tr><tr><td>10000</td><td>2000/2000 (100.0%)</td>
+    <td>161/307/320</td>
+    <td>10000</td><td>10000</td><td>20012</td>
+    <td>11.1</td><td>315.5</td><td>180.5</td></tr></table>
+    <p class="muted">拐点:达到 MAX=10000(用户数 10000);最大稳定连接 10000。</p>
+    <h4>纯 Node 基线(26-9-14,对照)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>server 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr><tr><td>2000</td><td>2000/2000 (100.0%)</td>
+    <td>318/641/657</td>
+    <td>2000</td><td>2000</td><td>—</td>
+    <td>12.68</td><td>—</td><td>219.3</td></tr><tr><td>4000</td><td>2000/2000 (100.0%)</td>
+    <td>342/647/656</td>
+    <td>4000</td><td>4000</td><td>—</td>
+    <td>12.87</td><td>—</td><td>249.4</td></tr><tr><td>6000</td><td>2000/2000 (100.0%)</td>
+    <td>355/649/666</td>
+    <td>6000</td><td>6000</td><td>—</td>
+    <td>12.12</td><td>—</td><td>273</td></tr><tr><td>8000</td><td>2000/2000 (100.0%)</td>
+    <td>434/720/735</td>
+    <td>8000</td><td>8000</td><td>—</td>
+    <td>18.2</td><td>—</td><td>295.6</td></tr><tr><td>10000</td><td>2000/2000 (100.0%)</td>
+    <td>409/709/728</td>
+    <td>10000</td><td>10000</td><td>—</td>
+    <td>14.79</td><td>—</td><td>331.8</td></tr></table>
+    <p class="muted">拐点:达到 MAX=10000(用户数 10000);最大稳定连接 10000。</p>
+<h3>5.2 S7 惊群重连(300 连接同瞬间全断→全连)</h3>
+<table>
+    <tr><th>模式</th><th>重连成功</th><th>重连耗时 p50/95/99(ms)</th><th>max(ms)</th><th>gw RSS 基线→峰值(MB)</th><th>server RSS 基线→峰值(MB)</th><th>连接数 基线→峰值</th><th>eventloop p99 基线→峰值(ms)</th><th>goroutine 峰值</th></tr>
+    <tr><td>Node(socket.io)</td><td>300/300</td>
+      <td>43/65/<b>67</b></td><td>67</td>
+      <td>—</td>
+      <td>235.6→196.7</td>
+      <td>301→301</td>
+      <td>12.07→12.11</td>
+      <td>—</td></tr>
+    <tr><td>Go(gateway)</td><td>300/300</td>
+      <td>26/37/<b>39</b></td><td>40</td>
+      <td>412.1→412.1</td>
+      <td>133→133</td>
+      <td>300→300</td>
+      <td>11.08→11.08</td>
+      <td>616</td></tr></table>
+<h3>5.3 群扇出(100 成员在线,1 人发 20 条)</h3>
+<p class="muted">无 gateway 扇出数据。</p>
+<h3>5.4 HTTP API 层(7 接口,并发 20 × 10s,两轮均直连 server)</h3>
+<table>
+    <tr><th>模式</th><th>/health rps</th><th>/api/login rps(p99)</th><th>userConversations rps</th><th>/user/messages rps(p99)</th><th>lastMessages rps</th><th>sync rps</th><th>mentions rps</th></tr>
+    <tr><td>Node 基线(26-9-14)</td>
+      <td>10756.8</td>
+      <td>19.3(1062ms)</td>
+      <td>3599.4</td>
+      <td>73(484ms)</td>
+      <td>1165.3</td>
+      <td>1391.8</td>
+      <td>4038.7</td></tr>
+    <tr><td>gateway 轮(本次)</td>
+      <td>10656.4</td>
+      <td>19.4(1057ms)</td>
+      <td>3496.8</td>
+      <td>5.5(3870ms)</td>
+      <td>107.6</td>
+      <td>1478.9</td>
+      <td>4352.9</td></tr></table>
+    <p class="muted">HTTP 层两轮均直连 server REST(不经过 gateway),用于确认两轮压测环境一致(无差别即环境同口径)。</p>
+
+<h2>六、深入分析(详见配套 markdown 报告)</h2>
+<p>归因证据链(gateway 路径):<code>gateway_uplink_duration_seconds</code>(收帧→Node ack 全程)/ <code>http_request_duration_seconds</code>(Node 侧 HTTP 处理)/ <code>db_query_duration_seconds</code>(落库)/ <code>nodejs_eventloop_lag</code> + <code>nodejs_gc_pause</code>(Node 运行时)/ <code>go_gc_duration</code> + <code>go_goroutines</code>(Go 运行时)。本 HTML 为数据自动汇总;结论、归因与单机极限分析见 <code>docs/监测设施/测试报告/26-9-16-Go网关压测对比报告.md</code>。</p>
+
+<p class="muted" style="margin-top:40px;border-top:1px solid #eee;padding-top:12px">本报告由 <code>perf/gen-report.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。</p>
+</body></html>
