@@ -90,3 +90,18 @@ Socket 连接成功: 198 / 尝试 200
 | `gen-node-report.mjs` | 读 `26-9-14/data/*.json` 生成自包含 HTML 基线报告(跟随系统深浅色) |
 
 前置:`node-run.mjs`/`ramp-probe.mjs`/`storm-reconnect.mjs`/`http-bench.mjs` 依赖 Prometheus(:9090)采资源指标与 `lsof`/`ps` 读进程 RSS;`fanout-bench.mjs` 依赖 docker 直写 DB 建群。跑之前确认 server 已按 `docs/监测设施/测试报告/26-9-14/README.md` 的 runbook 启动(gateway 不要启动)。
+
+## Go gateway 路径压测(26-9-16 A/B 对比,gateway 参与)
+
+gateway 路径工具链:原生 WebSocket 连 gateway /ws(query `deviceId`+`token`),协议严格对齐 `web/src/ws/wsClient.ts`(信封 `{type,data}`、`message.send`→`message.ack` 按 clientMsgId 匹配计 RTT、5s 超时同键重发上限 3 次、25s 心跳续约 presence、指数退避断线重连)。**不是裸发帧**。
+
+| 工具 | 用途 |
+|---|---|
+| `harness-gw.mjs` | gateway 路径压测主程序(登录 → WS 建连 → 可靠上行,统计口径与 harness.mjs 完全一致,含 p999) |
+| `ab-run.mjs` | A/B 编排器:跑 harness(socketio 或 gateway)+ 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC/CPU + `ps` 两进程 RSS)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ JSON 到 `docs/监测设施/测试报告/data/`。用法 `node ab-run.mjs <socketio|gateway> <label> [CONNS RATE DURATION RAMP]` |
+| `gw-ramp-probe.mjs` | gateway 连接爬坡探顶。**参数走 env** `START/STEP/MAX/HOLD_MS`(如 `env START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 node gw-ramp-probe.mjs`),落 `s6_ramp_gateway.json` |
+| `gw-storm-reconnect.mjs` | gateway 惊群重连。`node gw-storm-reconnect.mjs [CONNS=300] [RAMP=50]`,落 `s7_storm_gateway.json` |
+| `gw-fanout-bench.mjs` | gateway 群扇出(直写 DB 建群 + fan-out span/e2e)。`node gw-fanout-bench.mjs [MEMBERS=100] [ROUNDS=20] [GROUP_ID]`,落 `fanout_bench_gateway.json` |
+| `gen-report.mjs` | 读 `测试报告/data/*_socketio.json` + `*_gateway.json` 生成 A/B 对比 HTML(自包含) |
+
+gateway 路径先决条件:server 以 `REALTIME_MODE=gateway`(默认)启动 + gateway(:8090)按 `docker/.env.debug` 启动;Prometheus 抓两侧 /metrics。监测栈见 `docker/monitoring/`。
