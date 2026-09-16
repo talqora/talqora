@@ -1,0 +1,62 @@
+{
+  "label": "s4_large_conn",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 500,
+    "RATE": 1,
+    "DURATION": 15,
+    "RAMP": 50
+  },
+  "startedAt": 1789392349812,
+  "endedAt": 1789392413422,
+  "windowSec": 64,
+  "harness": {
+    "connectedCount": 500,
+    "attempted": 500,
+    "sent": 7000,
+    "ack": 7000,
+    "connectMs": {
+      "p50": 9,
+      "p95": 13,
+      "p99": 13,
+      "min": 3,
+      "max": 17,
+      "n": 500
+    },
+    "rttMs": {
+      "p50": 136,
+      "p95": 242,
+      "p99": 276,
+      "min": 11,
+      "max": 291,
+      "n": 7000
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 501,
+    "peakServerRssMB": 485.9,
+    "baseServerRssMB": 485.9,
+    "peakEventloopP99Ms": 12.95,
+    "peakHeapMB": 173.9,
+    "gcPausesDelta": 50,
+    "cpuSecondsDelta": 149.94
+  },
+  "serverInternalDurationMs": {
+    "p50": 131.89,
+    "p95": 243.62,
+    "p99": 397.06
+  },
+  "httpDurationMs": {
+    "p50": 1255.68,
+    "p95": 2375.57,
+    "p99": 2475.11
+  },
+  "dbDurationMs": {
+    "p50": 3.01,
+    "p95": 4.9,
+    "p99": 8.05
+  },
+  "source": "26-9-14 纯 Node 基线(经 26-9-16/data 复制)"
+}

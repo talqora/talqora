@@ -1,0 +1,62 @@
+{
+  "label": "s5_stability",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 5,
+    "DURATION": 120,
+    "RAMP": 25
+  },
+  "startedAt": 1789392418787,
+  "endedAt": 1789392550101,
+  "windowSec": 132,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 59500,
+    "ack": 59500,
+    "connectMs": {
+      "p50": 6,
+      "p95": 9,
+      "p99": 9,
+      "min": 4,
+      "max": 11,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 35,
+      "p95": 53,
+      "p99": 61,
+      "min": 10,
+      "max": 81,
+      "n": 59500
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 101,
+    "peakServerRssMB": 308.9,
+    "baseServerRssMB": 238.4,
+    "peakEventloopP99Ms": 13.13,
+    "peakHeapMB": 158.4,
+    "gcPausesDelta": 402,
+    "cpuSecondsDelta": 104.07
+  },
+  "serverInternalDurationMs": {
+    "p50": 32.23,
+    "p95": 51.43,
+    "p99": 90.29
+  },
+  "httpDurationMs": {
+    "p50": 1750,
+    "p95": 2425,
+    "p99": 2485
+  },
+  "dbDurationMs": {
+    "p50": 2.96,
+    "p95": 4.87,
+    "p99": 7.3
+  },
+  "source": "26-9-14 纯 Node 基线(经 26-9-16/data 复制)"
+}

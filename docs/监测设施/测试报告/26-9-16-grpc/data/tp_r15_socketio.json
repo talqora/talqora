@@ -1,0 +1,69 @@
+{
+  "label": "tp_r15",
+  "mode": "socketio",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 15,
+    "DURATION": 20,
+    "RAMP": 25
+  },
+  "startedAt": 1789437563547,
+  "endedAt": 1789437594889,
+  "windowSec": 32,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 30000,
+    "ack": 30000,
+    "connectMs": {
+      "p50": 5,
+      "p95": 8,
+      "p99": 8,
+      "p999": 11,
+      "min": 3,
+      "max": 11,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 32,
+      "p95": 50,
+      "p99": 58,
+      "p999": 73,
+      "min": 5,
+      "max": 86,
+      "n": 30000
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 100,
+    "peakServerRssMB": 333.3,
+    "baseServerRssMB": 330.1,
+    "peakEventloopP99Ms": 13.42,
+    "peakHeapMB": 159.6,
+    "gcPausesDelta": 204,
+    "cpuSecondsDelta": 61.95
+  },
+  "serverInternalDurationMs": {
+    "p50": 29.75,
+    "p95": 48.94,
+    "p99": 80.05
+  },
+  "httpDurationMs": {
+    "p50": 1750,
+    "p95": 2425,
+    "p99": 2485
+  },
+  "dbDurationMs": {
+    "p50": 2.98,
+    "p95": 4.89,
+    "p99": 7.9
+  },
+  "gcPauseMs": {
+    "p50": 2.81,
+    "p95": 4.78,
+    "p99": 4.96
+  },
+  "source": "26-9-14 纯 Node 基线(经 26-9-16/data 复制)"
+}

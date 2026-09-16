@@ -100,10 +100,14 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	// 网关作为唯一对外入口(目标态):HTTP API 反代到 Node 业务层。
+	// 覆盖业务层完整对外路由面:/api/*、/user/*、/oauth/*、/health
+	// (容器探针在网关侧由 /healthz 承接,客户端侧仍透传业务 health 对齐既有契约)。
 	if cfg.ProxyAPI {
 		px := proxy.New(cfg.UpstreamBaseURL, log)
 		mux.Handle("/api/", px)
 		mux.Handle("/user/", px)
+		mux.Handle("/oauth/", px)
+		mux.Handle("/health", px)
 		log.Info("HTTP 反代已启用(唯一入口模式)", "base", cfg.UpstreamBaseURL)
 	}
 

@@ -7,146 +7,147 @@
     "userId": 5,
     "conversationId": "single_5_11"
   },
-  "startedAt": 1789543326177,
-  "endedAt": 1789543399410,
+  "startedAt": 1789437411714,
+  "endedAt": 1789437482994,
   "targets": [
     {
       "target": "GET /health",
       "method": "GET",
-      "rps": 11413.6,
-      "total": 114159,
+      "rps": 10756.8,
+      "total": 107600,
       "wallSec": 10,
       "latencyMs": {
         "p50": 2,
         "p95": 3,
-        "p99": 3,
-        "p999": 4,
+        "p99": 4,
+        "p999": 6,
         "min": 0,
-        "max": 8
+        "max": 18
       },
       "status": {
-        "200": 114159
+        "200": 107600
       },
       "errors": 0
     },
     {
       "target": "POST /api/login (bcrypt)",
       "method": "POST",
-      "rps": 19.7,
-      "total": 216,
-      "wallSec": 10.97,
+      "rps": 19.3,
+      "total": 212,
+      "wallSec": 10.96,
       "latencyMs": {
-        "p50": 1014,
-        "p95": 1021,
-        "p99": 1023,
-        "p999": 1024,
-        "min": 208,
-        "max": 1024
+        "p50": 1027,
+        "p95": 1060,
+        "p99": 1062,
+        "p999": 1063,
+        "min": 216,
+        "max": 1063
       },
       "status": {
-        "200": 216
+        "200": 212
       },
       "errors": 0
     },
     {
       "target": "GET /user/userConversations",
       "method": "GET",
-      "rps": 4269.6,
-      "total": 42713,
+      "rps": 3599.4,
+      "total": 36005,
       "wallSec": 10,
       "latencyMs": {
         "p50": 5,
-        "p95": 6,
-        "p99": 7,
-        "p999": 8,
+        "p95": 8,
+        "p99": 9,
+        "p999": 12,
         "min": 2,
-        "max": 12
+        "max": 24
       },
       "status": {
-        "200": 42713
+        "200": 36005
       },
       "errors": 0
     },
     {
       "target": "GET /user/messages",
       "method": "GET",
-      "rps": 3.3,
-      "total": 40,
-      "wallSec": 12.04,
+      "rps": 73,
+      "total": 748,
+      "wallSec": 10.25,
       "latencyMs": {
-        "p50": 3885,
-        "p95": 5972,
-        "p99": 6367,
-        "p999": 6367,
-        "min": 1210,
-        "max": 6367
+        "p50": 268,
+        "p95": 430,
+        "p99": 484,
+        "p999": 506,
+        "min": 40,
+        "max": 506
       },
       "status": {
-        "200": 40
+        "200": 748
       },
       "errors": 0
     },
     {
       "target": "GET /user/lastMessages",
       "method": "GET",
-      "rps": 67.1,
-      "total": 682,
-      "wallSec": 10.17,
+      "rps": 1165.3,
+      "total": 11667,
+      "wallSec": 10.01,
       "latencyMs": {
-        "p50": 294,
-        "p95": 368,
-        "p99": 420,
-        "p999": 541,
-        "min": 162,
-        "max": 541
+        "p50": 17,
+        "p95": 26,
+        "p99": 32,
+        "p999": 38,
+        "min": 4,
+        "max": 43
       },
       "status": {
-        "200": 682
+        "200": 11667
       },
       "errors": 0
     },
     {
       "target": "GET /user/sync",
       "method": "GET",
-      "rps": 1696.1,
-      "total": 16978,
+      "rps": 1391.8,
+      "total": 13933,
       "wallSec": 10.01,
       "latencyMs": {
-        "p50": 11,
-        "p95": 15,
-        "p99": 17,
-        "p999": 21,
-        "min": 6,
-        "max": 46
+        "p50": 14,
+        "p95": 19,
+        "p99": 22,
+        "p999": 25,
+        "min": 7,
+        "max": 37
       },
       "status": {
-        "200": 16978
+        "200": 13933
       },
       "errors": 0
     },
     {
       "target": "GET /user/mentions",
       "method": "GET",
-      "rps": 4037.3,
-      "total": 40389,
+      "rps": 4038.7,
+      "total": 40399,
       "wallSec": 10,
       "latencyMs": {
         "p50": 5,
         "p95": 7,
         "p99": 8,
         "p999": 10,
-        "min": 2,
-        "max": 29
+        "min": 1,
+        "max": 13
       },
       "status": {
-        "200": 40389
+        "200": 40399
       },
       "errors": 0
     }
   ],
   "resource": {
-    "serverRssMB": 4170.6,
-    "eventloopP99Ms": 11.61,
-    "cpuSecondsTotal": 4909.768815999998
-  }
+    "serverRssMB": 322.2,
+    "eventloopP99Ms": 11.53,
+    "cpuSecondsTotal": 1911.5889419999921
+  },
+  "source": "26-9-14 纯 Node 基线(经 26-9-16/data 复制)"
 }
