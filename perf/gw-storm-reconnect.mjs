@@ -2,7 +2,7 @@
 // 惊群重连测试(gateway/Go 路径):N 条已鉴权 WS 连接稳态保持后「同一瞬间全部断开」,
 // 再「同一瞬间全部重连」,测量重连成功率、重连耗时分布与双侧资源尖峰
 // (gateway 连接数回升曲线 / goroutine / gateway+server RSS / server eventloop)。
-// 数据落 docs/监测设施/测试报告/data/s7_storm_gateway.json。
+// 数据落 docs/监测设施/测试报告/<期目录>/data/s7_storm_gateway.json(期目录 env OUT_SUBDIR,默认 26-9-16)。
 //
 // 用法:node gw-storm-reconnect.mjs [CONNS=300] [RAMP=50]
 import WebSocket from 'ws';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', 'data');
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16', 'data');
 const BASE = process.env.BASE || 'http://localhost:3007';
 const GW = process.env.GW || 'ws://localhost:8090/ws';
 const CONNS = parseInt(process.env.CONNS || '300', 10);

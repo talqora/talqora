@@ -1,14 +1,16 @@
-// 读取 测试报告/data/*.json,生成自包含 HTML 报告(内联 SVG 图表,无外网依赖,可长期归档)。
+// 读取 测试报告/<REPORT_SUBDIR>/data/*.json,生成自包含 HTML 报告(内联 SVG 图表,无外网依赖,可长期归档)。
 // 数据命名约定:<key>_socketio.json(26-9-14 纯 Node 基线,复制改名)/ <key>_gateway.json(本次 gateway 路径)。
 // 覆盖:S0-S5 主场景 A/B + 吞吐饱和扫描 + S6 爬坡 + S7 惊群 + 群扇出 + HTTP API 层。
-// 用法:node gen-report.mjs
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+// 每期测试产物按 测试报告/<日期>/ 归档(与 26-9-14 同结构);期目录用 env REPORT_SUBDIR 指定。
+// 用法:REPORT_SUBDIR=26-9-16 node gen-report.mjs
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPORT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告');
-const DATA = join(REPORT_DIR, 'data');
+const REPORT_SUBDIR = process.env.REPORT_SUBDIR || '26-9-16'; // 期目录(如 26-9-16);不设时默认最新期
+const DATA = join(REPORT_DIR, REPORT_SUBDIR, 'data');
 const load = (n) => {
   const p = join(DATA, n + '.json');
   return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null;
@@ -51,19 +53,20 @@ function groupedBar(title, unit, cats, seriesA, seriesB, opts = {}) {
   const groups = cats.length, gw = plotW / groups, bw = Math.min(46, gw / 3);
   const y = (v) => padT + plotH - (v / maxV) * plotH;
   let bars = '', labels = '', ticks = '';
-  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eee"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#888">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
+  // 颜色走 CSS 变量/类(深浅色双主题):网格 --grid、刻度 --muted、类目/标题/图例 --text、A/B 系列 class
+  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="var(--grid)"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
   cats.forEach((c, i) => {
     const cx = padL + gw * i + gw / 2;
     const a = seriesA[i], b = seriesB[i];
-    if (a != null && !Number.isNaN(a)) { const yy = y(a); bars += `<rect x="${cx - bw - 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_A}"><title>Node(socket.io) ${f1(a)}${unit}</title></rect><text x="${cx - bw / 2 - 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_A}">${f1(a)}</text>`; }
-    if (b != null && !Number.isNaN(b)) { const yy = y(b); bars += `<rect x="${cx + 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_B}"><title>Go(gateway) ${f1(b)}${unit}</title></rect><text x="${cx + bw / 2 + 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_B}">${f1(b)}</text>`; }
-    labels += `<text x="${cx}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="#333">${esc(c)}</text>`;
+    if (a != null && !Number.isNaN(a)) { const yy = y(a); bars += `<rect class="series-a" x="${cx - bw - 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_A}"><title>Node(socket.io) ${f1(a)}${unit}</title></rect><text class="series-a" x="${cx - bw / 2 - 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_A}">${f1(a)}</text>`; }
+    if (b != null && !Number.isNaN(b)) { const yy = y(b); bars += `<rect class="series-b" x="${cx + 3}" y="${yy}" width="${bw}" height="${padT + plotH - yy}" fill="${COLOR_B}"><title>Go(gateway) ${f1(b)}${unit}</title></rect><text class="series-b" x="${cx + bw / 2 + 3}" y="${yy - 4}" text-anchor="middle" font-size="10" fill="${COLOR_B}">${f1(b)}</text>`; }
+    labels += `<text x="${cx}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="var(--text)">${esc(c)}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(title)}">
-    <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600">${esc(title)}（${unit}）</text>
+    <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">${esc(title)}（${unit}）</text>
     ${ticks}${bars}${labels}
-    <rect x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
-    <rect x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
+    <rect class="series-a" x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text class="leg" x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
+    <rect class="series-b" x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text class="leg" x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
   </svg>`;
 }
 
@@ -77,24 +80,24 @@ function lineChart(title, unit, xs, seriesA, seriesB) {
   maxV = Math.ceil(maxV / nice) * nice || maxV;
   const x = (i) => padL + (plotW * i) / (xs.length - 1);
   const y = (v) => padT + plotH - (v / maxV) * plotH;
-  const mkPath = (arr, color) => {
+  const mkPath = (cls, arr) => {
     let d = '', dots = '';
     arr.forEach((v, i) => {
       if (v == null || Number.isNaN(v)) return;
       d += (d ? ' L' : 'M') + `${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
-      dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5" fill="${color}"><title>RATE=${xs[i]} → ${f1(v)}${unit}</title></circle>`;
+      dots += `<circle class="${cls}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5"><title>RATE=${xs[i]} → ${f1(v)}${unit}</title></circle>`;
     });
-    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5"/>${dots}`;
+    return `<path class="${cls}" d="${d}" fill="none" stroke-width="2.5"/>${dots}`;
   };
   let ticks = '';
-  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eee"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#888">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
+  for (let t = 0; t <= 4; t++) { const v = (maxV / 4) * t, yy = y(v); ticks += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="var(--grid)"/><text x="${padL - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${+(+v.toFixed(v < 10 ? 1 : 0))}</text>`; }
   let labels = '';
-  xs.forEach((v, i) => { labels += `<text x="${x(i)}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="#333">${v}</text>`; });
+  xs.forEach((v, i) => { labels += `<text x="${x(i)}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="var(--text)">${v}</text>`; });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(title)}">
-    <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600">${esc(title)}（${unit}）</text>
-    ${ticks}${mkPath(seriesA, COLOR_A)}${mkPath(seriesB, COLOR_B)}${labels}
-    <rect x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
-    <rect x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
+    <text x="${W / 2}" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">${esc(title)}（${unit}）</text>
+    ${ticks}${mkPath('series-a', seriesA)}${mkPath('series-b', seriesB)}${labels}
+    <rect class="series-a" x="${W - 196}" y="6" width="12" height="12" fill="${COLOR_A}"/><text class="leg" x="${W - 180}" y="16" font-size="11">Node(socket.io)</text>
+    <rect class="series-b" x="${W - 84}" y="6" width="12" height="12" fill="${COLOR_B}"/><text class="leg" x="${W - 68}" y="16" font-size="11">Go(gateway)</text>
   </svg>`;
 }
 
@@ -272,27 +275,52 @@ const maxTs = Math.max(...[].concat(...scenarios.map((s) => [data[s.key]?.a?.end
 
 const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Node vs Go gateway 实时层性能对比报告</title>
 <style>
-  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:#222;max-width:1000px;margin:0 auto;padding:24px;}
-  h1{border-bottom:3px solid ${COLOR_A};padding-bottom:8px}
-  h2{margin-top:36px;border-left:5px solid ${COLOR_A};padding-left:10px}
-  h3{margin-top:24px;color:#33517a}
-  h4{margin:18px 0 6px;color:#33517a}
-  .chart{width:100%;height:auto;border:1px solid #eee;border-radius:6px;margin:12px 0;background:#fff}
-  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
-  th,td{border:1px solid #ddd;padding:6px 8px;text-align:center}
-  th{background:#f3f6fa}
-  .bad{color:#c0392b;font-weight:700}.ok{color:#27ae60}
-  .box{background:#f7f9fc;border:1px solid #dde6f0;border-radius:8px;padding:12px 16px;margin:14px 0}
-  .warn{background:#fff7e6;border-color:#ffe0a3}
-  .key{background:#eef7ee;border-color:#c9e6c9}
-  code{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px}
-  .muted{color:#888;font-size:13px}
+  /* 深浅色双主题:跟随系统 prefers-color-scheme(与 gen-node-report.mjs 同一套变量,观感一致)。 */
+  :root{color-scheme:light dark;
+    --bg:#ffffff;--text:#222222;--muted:#888888;--grid:#eeeeee;--chart-bg:#ffffff;
+    --table-border:#dddddd;--th-bg:#f3f6fa;
+    --box-bg:#f7f9fc;--box-border:#dde6f0;
+    --warn-bg:#fff7e6;--warn-border:#ffe0a3;
+    --key-bg:#eef7ee;--key-border:#c9e6c9;
+    --h-color:#33517a;--code-bg:#f0f0f0;
+    --accent:#4e79a7;--bad:#c0392b;--ok:#27ae60;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1b1c21;--text:#e4e6ea;--muted:#9ba1ab;--grid:#383b44;--chart-bg:#22242b;
+      --table-border:#3d414b;--th-bg:#2a2d36;
+      --box-bg:#252730;--box-border:#3d414b;
+      --warn-bg:#3a3122;--warn-border:#6b5826;
+      --key-bg:#20302a;--key-border:#3c5748;
+      --h-color:#9dbce0;--code-bg:#30333c;
+      --accent:#7fa9d4;--bad:#ff7a6e;--ok:#5ec98d;
+    }
+  }
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:var(--text);background:var(--bg);max-width:1000px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid var(--accent);padding-bottom:8px;color:var(--text)}
+  h2{margin-top:36px;border-left:5px solid var(--accent);padding-left:10px;color:var(--text)}
+  h3{margin-top:24px;color:var(--h-color)}
+  h4{margin:18px 0 6px;color:var(--h-color)}
+  .chart{width:100%;height:auto;border:1px solid var(--grid);border-radius:6px;margin:12px 0;background:var(--chart-bg)}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;color:var(--text)}
+  th,td{border:1px solid var(--table-border);padding:6px 8px;text-align:center}
+  th{background:var(--th-bg);color:var(--text)}
+  .bad{color:var(--bad);font-weight:700}.ok{color:var(--ok)}
+  .box{background:var(--box-bg);border:1px solid var(--box-border);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--text)}
+  .warn{background:var(--warn-bg);border-color:var(--warn-border)}
+  .key{background:var(--key-bg);border-color:var(--key-border)}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--text)}
+  .muted{color:var(--muted);font-size:13px}
+  svg .series-a{fill:var(--accent);stroke:var(--accent)}
+  svg .series-b{fill:#e15759;stroke:#e15759}
+  svg .leg{fill:var(--text)}
 </style></head><body>
 
 <h1>Node(socket.io) vs Go gateway 实时层性能对比报告</h1>
-<p class="muted">数据窗口结束时间:${maxTs ? new Date(maxTs).toISOString() : '—'} ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/data/*.json(真实压测采集)</p>
+<p class="muted">数据窗口结束时间:${maxTs ? new Date(maxTs).toISOString() : '—'} ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/${REPORT_SUBDIR}/data/*.json(真实压测采集)</p>
 
 <div class="box warn">
 <b>测量诚实性声明(务必先读)</b><br>
@@ -363,5 +391,7 @@ ${httpTable()}
 <p class="muted" style="margin-top:40px;border-top:1px solid #eee;padding-top:12px">本报告由 <code>perf/gen-report.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。</p>
 </body></html>`;
 
-writeFileSync(join(REPORT_DIR, '性能对比报告.html'), html);
-console.log('已生成 ' + join(REPORT_DIR, '性能对比报告.html'));
+const outPath = join(REPORT_DIR, REPORT_SUBDIR, '性能对比报告.html');
+mkdirSync(join(REPORT_DIR, REPORT_SUBDIR), { recursive: true });
+writeFileSync(outPath, html);
+console.log('已生成 ' + outPath);

@@ -1,5 +1,6 @@
 // A/B 单次运行编排器:跑一个 harness(socketio 或 gateway),运行中采样 Prometheus 资源指标,
-// 结束后解析 harness 统计 + 查询消息时延分位,产出结构化 JSON 落盘到 测试报告/data/。
+// 结束后解析 harness 统计 + 查询消息时延分位,产出结构化 JSON 落盘到 测试报告/<期目录>/data/。
+// 期目录用 env OUT_SUBDIR 指定(默认 26-9-16,与归档规范一致)。
 // 用法:node ab-run.mjs <mode socketio|gateway> <label> [CONNS] [RATE] [DURATION] [RAMP]
 import { spawn, execSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', 'data');
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16', 'data');
 const PROM = process.env.PROM || 'http://localhost:9090';
 
 const [mode, label, CONNS = '100', RATE = '10', DURATION = '20', RAMP = '25'] = process.argv.slice(2);

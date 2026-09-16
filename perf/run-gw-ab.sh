@@ -5,6 +5,7 @@
 set -u
 cd "$(dirname "$0")"
 ROUNDS="${ROUNDS:-3}"
+OUT_SUBDIR="${OUT_SUBDIR:-26-9-16}"
 
 run_scenario() { # key conns rate dur ramp
   local key="$1" conns="$2" rate="$3" dur="$4" ramp="$5" r
@@ -14,13 +15,14 @@ run_scenario() { # key conns rate dur ramp
     sleep 5
   done
   # 取中位轮(按 harness.rttMs.p99,缺失则按 ack/sent 倒序)
-  ROUNDS="$ROUNDS" node -e '
+  ROUNDS="$ROUNDS" OUT_SUBDIR="$OUT_SUBDIR" node -e '
     const fs = require("fs");
     const n = parseInt(process.env.ROUNDS || "3", 10);
+    const sub = process.env.OUT_SUBDIR || "26-9-16";
     const key = process.argv[1];
     const rounds = [];
     for (let r = 1; r <= n; r++) {
-      const p = `../docs/监测设施/测试报告/data/${key}_gateway_r${r}.json`;
+      const p = `../docs/监测设施/测试报告/${sub}/data/${key}_gateway_r${r}.json`;
       if (!fs.existsSync(p)) continue;
       const j = JSON.parse(fs.readFileSync(p, "utf8"));
       const h = j.harness || {};
@@ -29,7 +31,7 @@ run_scenario() { # key conns rate dur ramp
     if (!rounds.length) { console.error(`!! [${key}] 无有效轮次`); process.exit(1); }
     rounds.sort((a, b) => a.score - b.score);
     const mid = rounds[Math.floor(rounds.length / 2)];
-    fs.writeFileSync(`../docs/监测设施/测试报告/data/${key}_gateway.json`, JSON.stringify(mid.j, null, 2));
+    fs.writeFileSync(`../docs/监测设施/测试报告/${sub}/data/${key}_gateway.json`, JSON.stringify(mid.j, null, 2));
     console.log(`== [${key}] 取中位轮 r${mid.r} (p99=${mid.score}) 落盘 ${key}_gateway.json`);
   ' "$key"
 }

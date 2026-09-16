@@ -4,7 +4,7 @@
 // 「最后一名成员收到 vs 发送」(扇出端到端 e2e)的延迟分布。
 // 群通过直写 DB(user_groups + group_members)建立(server 暂无建群 API,benchmark 场景可接受)。
 // gateway 路径下行:server 落库后 publish gw:downlink → 网关代投 receiveMessage 帧。
-// 数据落 docs/监测设施/测试报告/data/fanout_bench_gateway.json。
+// 数据落 docs/监测设施/测试报告/<期目录>/data/fanout_bench_gateway.json(期目录 env OUT_SUBDIR,默认 26-9-16)。
 //
 // 用法:node gw-fanout-bench.mjs [MEMBERS=100] [ROUNDS=20] [GROUP_ID=9000002]
 import { execSync } from 'node:child_process';
@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import WebSocket from 'ws';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', 'data');
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16', 'data');
 const BASE = process.env.BASE || 'http://localhost:3007';
 const GW = process.env.GW || 'ws://localhost:8090/ws';
 const MEMBERS = parseInt(process.env.MEMBERS || '100', 10);

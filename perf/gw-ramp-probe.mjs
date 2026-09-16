@@ -2,7 +2,7 @@
 // 连接爬坡探顶(gateway/Go 路径):从 START 条连接开始,每级加 STEP 条并【保持】,
 // 逐级记录建连成功率/耗时分布与双侧资源(gateway 连接数/goroutine/RSS + server eventloop/RSS),
 // 直到建连成功率跌破阈值、eventloop 显著恶化或达到 MAX,输出拐点与各级数据。
-// 数据落 docs/监测设施/测试报告/data/s6_ramp_gateway.json。
+// 数据落 docs/监测设施/测试报告/<期目录>/data/s6_ramp_gateway.json(期目录 env OUT_SUBDIR,默认 26-9-16)。
 //
 // 用法(参数走环境变量,与 ramp-probe.mjs 对齐):
 //   env START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 node gw-ramp-probe.mjs
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', 'data');
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16', 'data');
 const BASE = process.env.BASE || 'http://localhost:3007';
 const GW = process.env.GW || 'ws://localhost:8090/ws';
 const START = parseInt(process.env.START || '2000', 10);

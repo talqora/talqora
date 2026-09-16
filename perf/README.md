@@ -98,10 +98,16 @@ gateway 路径工具链:原生 WebSocket 连 gateway /ws(query `deviceId`+`token
 | 工具 | 用途 |
 |---|---|
 | `harness-gw.mjs` | gateway 路径压测主程序(登录 → WS 建连 → 可靠上行,统计口径与 harness.mjs 完全一致,含 p999) |
-| `ab-run.mjs` | A/B 编排器:跑 harness(socketio 或 gateway)+ 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC/CPU + `ps` 两进程 RSS)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ JSON 到 `docs/监测设施/测试报告/data/`。用法 `node ab-run.mjs <socketio|gateway> <label> [CONNS RATE DURATION RAMP]` |
+| `ab-run.mjs` | A/B 编排器:跑 harness(socketio 或 gateway)+ 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC/CPU + `ps` 两进程 RSS)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ JSON 到 `测试报告/<期目录>/data/`(env `OUT_SUBDIR`,默认 `26-9-16`)。用法 `node ab-run.mjs <socketio|gateway> <label> [CONNS RATE DURATION RAMP]` |
 | `gw-ramp-probe.mjs` | gateway 连接爬坡探顶。**参数走 env** `START/STEP/MAX/HOLD_MS`(如 `env START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 node gw-ramp-probe.mjs`),落 `s6_ramp_gateway.json` |
 | `gw-storm-reconnect.mjs` | gateway 惊群重连。`node gw-storm-reconnect.mjs [CONNS=300] [RAMP=50]`,落 `s7_storm_gateway.json` |
 | `gw-fanout-bench.mjs` | gateway 群扇出(直写 DB 建群 + fan-out span/e2e)。`node gw-fanout-bench.mjs [MEMBERS=100] [ROUNDS=20] [GROUP_ID]`,落 `fanout_bench_gateway.json` |
-| `gen-report.mjs` | 读 `测试报告/data/*_socketio.json` + `*_gateway.json` 生成 A/B 对比 HTML(自包含) |
+| `gen-report.mjs` | 读 `测试报告/<期目录>/data/*_socketio.json` + `*_gateway.json` 生成 A/B 对比 HTML(自包含、**跟随系统深浅色**)。期目录用 env `REPORT_SUBDIR` 指定(默认 `26-9-16`) |
 
 gateway 路径先决条件:server 以 `REALTIME_MODE=gateway`(默认)启动 + gateway(:8090)按 `docker/.env.debug` 启动;Prometheus 抓两侧 /metrics。监测栈见 `docker/monitoring/`。
+
+## 报告与产物规范(每期必遵守)
+
+- **报告必须兼容深色模式**:生成的 HTML 报告(gen-report.mjs / gen-node-report.mjs)必须跟随系统 `prefers-color-scheme`——`<meta name="color-scheme" content="light dark">` + CSS 变量双主题(浅色默认、`@media (prefers-color-scheme:dark)` 覆盖),SVG 图表内颜色一律用 `var(--grid)`/`var(--muted)`/`var(--text)` 与 `series-a`/`series-b`/`leg` 类,**禁止硬编码浅色**(如 `#fff` 底、`#333` 字、`#eee` 网格)。深色模式用户看不清浅色硬编码报告,这是硬性要求。
+- **每期产物归档**:一期测试的产出(data/*.json、md 报告、HTML 报告)统一放 `docs/监测设施/测试报告/<日期>/`(与 26-9-14/26-9-16 同结构),不要散在 `测试报告/` 根目录;生成报告时用 `REPORT_SUBDIR=<日期> node gen-report.mjs` 指向当期目录。
+- 生成后自检:`color-scheme` meta、dark 媒体查询、SVG 中无硬编码浅色三样齐全再交付。
