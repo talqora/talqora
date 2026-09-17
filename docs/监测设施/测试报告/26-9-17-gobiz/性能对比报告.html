@@ -1,0 +1,385 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Node vs Go gateway 实时层性能对比报告</title>
+<style>
+  /* 深浅色双主题:跟随系统 prefers-color-scheme(与 gen-node-report.mjs 同一套变量,观感一致)。 */
+  :root{color-scheme:light dark;
+    --bg:#ffffff;--text:#222222;--muted:#888888;--grid:#eeeeee;--chart-bg:#ffffff;
+    --table-border:#dddddd;--th-bg:#f3f6fa;
+    --box-bg:#f7f9fc;--box-border:#dde6f0;
+    --warn-bg:#fff7e6;--warn-border:#ffe0a3;
+    --key-bg:#eef7ee;--key-border:#c9e6c9;
+    --h-color:#33517a;--code-bg:#f0f0f0;
+    --accent:#4e79a7;--bad:#c0392b;--ok:#27ae60;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1b1c21;--text:#e4e6ea;--muted:#9ba1ab;--grid:#383b44;--chart-bg:#22242b;
+      --table-border:#3d414b;--th-bg:#2a2d36;
+      --box-bg:#252730;--box-border:#3d414b;
+      --warn-bg:#3a3122;--warn-border:#6b5826;
+      --key-bg:#20302a;--key-border:#3c5748;
+      --h-color:#9dbce0;--code-bg:#30333c;
+      --accent:#7fa9d4;--bad:#ff7a6e;--ok:#5ec98d;
+    }
+  }
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:var(--text);background:var(--bg);max-width:1000px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid var(--accent);padding-bottom:8px;color:var(--text)}
+  h2{margin-top:36px;border-left:5px solid var(--accent);padding-left:10px;color:var(--text)}
+  h3{margin-top:24px;color:var(--h-color)}
+  h4{margin:18px 0 6px;color:var(--h-color)}
+  .chart{width:100%;height:auto;border:1px solid var(--grid);border-radius:6px;margin:12px 0;background:var(--chart-bg)}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;color:var(--text)}
+  th,td{border:1px solid var(--table-border);padding:6px 8px;text-align:center}
+  th{background:var(--th-bg);color:var(--text)}
+  .bad{color:var(--bad);font-weight:700}.ok{color:var(--ok)}
+  .box{background:var(--box-bg);border:1px solid var(--box-border);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--text)}
+  .warn{background:var(--warn-bg);border-color:var(--warn-border)}
+  .key{background:var(--key-bg);border-color:var(--key-border)}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--text)}
+  .muted{color:var(--muted);font-size:13px}
+  svg .series-a{fill:var(--accent);stroke:var(--accent)}
+  svg .series-b{fill:#e15759;stroke:#e15759}
+  svg .leg{fill:var(--text)}
+</style></head><body>
+
+<h1>Node(gRPC流·三期基线) vs Go gateway 实时层性能对比报告</h1>
+<p class="muted">数据窗口结束时间:2026-09-17T04:34:26.154Z ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/26-9-16-gobiz/data/*.json(真实压测采集)</p>
+
+<div class="box warn">
+<b>测量诚实性声明(务必先读)</b><br>
+① 全部服务(harness 负载生成 + Node server + Go gateway + Docker 中间件/Prometheus)<b>跑在同一台 macOS 开发机</b>,彼此抢 CPU,故<b>绝对毫秒数有噪声、非生产代表值</b>;本报告价值在<b>同机同负载下的相对 A/B 对比与定性失败模式</b>。<br>
+② A = 纯 Node 基线(26-9-14,socket.io 直连 server :3007,gateway 未启动);B = gateway 路径(26-9-16,web 同款:原生 WS → gateway :8090 → Node /internal/gateway/uplink)。<b>B 是 A 基础上"加一层"</b>,业务/落库仍在 Node。<br>
+③ 公平性:B 的压测客户端实现了与 socket.io 等价的 ack 匹配/5s 超时同键重发×3/25s 心跳/断线重连(对齐 web/src/ws/wsClient.ts),<b>不是裸发帧的假快路径</b>;两侧落库逻辑完全相同。<br>
+④ 每场景 ≥3 轮取中位轮(RTT p99)落盘;RTT 用往返(clientMsgId 关联);资源按两侧进程 RSS/CPU 分别采样。
+</div>
+
+<h2>一、结论速览</h2>
+<div class="box key"><ul><li><b>1. 常规吞吐(S1,≈1000 msg/s)消息 RTT p99:Node 63ms → Go 59ms(-6%)。</b></li><li>错误:Node 0 条 / Go 0 条;Go 侧超时重发 0 帧。</li><li><b>2. 连接层(S2,300 连接):</b>Node server RSS 峰值 289.3MB(每连接 0.96KB);Go gateway 仅 51.3MB / 627 goroutine(每连接 0.17KB)。gateway 路径总内存 = server + gateway 两者之和。</li><li><b>3. 过载(S3,≈3000 msg/s)失败模式:</b>Node 错误 17802 条(错误率 39.8%,快速失败);Go 错误 3976 条(错误率 8.9%)、RTT p99 4372ms(排队而非拒绝)。</li><li><b>4. 连接容量:</b>gateway 路径探到 10000 连接(gw RSS 332.5MB / 20026 goroutine;达到 MAX=10000(用户数 10000));Node 基线 10000 连接(达到 MAX=10000(用户数 10000))。</li></ul></div>
+
+<h2>二、测试方法</h2>
+<ul>
+<li><b>A = Node(gRPC流·三期基线)</b>:<code>perf/harness.mjs</code>,socket.io-client → server <code>/socket.io</code>(26-9-14 基线数据)。</li>
+<li><b>B = Go(gateway)</b>:<code>perf/harness-gw.mjs</code>,原生 WebSocket(query token/deviceId)→ gateway <code>/ws</code> → 信封帧 <code>{type:'message.send',data:{...}}</code> → 等 <code>message.ack</code> 计 RTT。</li>
+<li>编排 <code>perf/ab-run.mjs</code>:跑 harness + 每 2s 采样(Prometheus 连接/eventloop/goroutine/GC + <code>ps</code> 两进程 RSS/CPU)+ 服务内直方图分位(uplink/downlink/HTTP/GC)→ 落 JSON。</li>
+<li>场景参数与 26-9-14 基线完全一致(S0-S5、吞吐扫描、爬坡、惊群、扇出、HTTP);爬坡探顶参数走 env(同 ramp-probe)。</li>
+</ul>
+<table><tr><th>场景</th><th>参数</th><th>目的</th></tr>
+<tr><td>S0 Smoke</td><td>50 连接 × 2 msg/s × 15s(冒烟)</td><td>冒烟</td></tr><tr><td>S1 常规吞吐</td><td>100 连接 × 10 msg/s × 20s(≈1000 msg/s)</td><td>常规吞吐下的 RTT</td></tr><tr><td>S2 连接规模</td><td>300 连接 × 2 msg/s × 15s(≈600 msg/s,低消息率、看连接与资源)</td><td>连接规模下的资源占用</td></tr><tr><td>S3 过载压力</td><td>150 连接 × 20 msg/s × 15s(≈3000 msg/s,探失败模式)</td><td>过载时的失败模式</td></tr><tr><td>S4 大连接</td><td>500 连接 × 1 msg/s × 15s(≈500 msg/s,看连接与资源)</td><td>连接规模下的资源占用</td></tr><tr><td>S5 长时稳态</td><td>100 连接 × 5 msg/s × 120s(长稳漂移/心跳有效性)</td><td>长稳漂移与心跳有效性</td></tr></table>
+
+<h2>三、图表(Node 蓝 vs Go 红)</h2>
+
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息 RTT p99(客户端往返)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p99(客户端往返)（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">1250</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">2500</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">3750</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><rect class="series-a" x="79.77777777777779" y="263.9576" width="37.55555555555556" height="2.0423999999999864" fill="#4e79a7"><title>Node(gRPC流·三期基线) 46ms</title></rect><text class="series-a" x="98.55555555555557" y="259.9576" text-anchor="middle" font-size="10" fill="#4e79a7">46</text><rect class="series-b" x="123.33333333333334" y="264.1352" width="37.55555555555556" height="1.8648000000000025" fill="#e15759"><title>Go(gateway) 42ms</title></rect><text class="series-b" x="142.11111111111111" y="260.1352" text-anchor="middle" font-size="10" fill="#e15759">42</text><rect class="series-a" x="192.44444444444446" y="263.2028" width="37.55555555555556" height="2.7971999999999753" fill="#4e79a7"><title>Node(gRPC流·三期基线) 63ms</title></rect><text class="series-a" x="211.22222222222226" y="259.2028" text-anchor="middle" font-size="10" fill="#4e79a7">63</text><rect class="series-b" x="236.00000000000003" y="263.3804" width="37.55555555555556" height="2.6195999999999913" fill="#e15759"><title>Go(gateway) 59ms</title></rect><text class="series-b" x="254.7777777777778" y="259.3804" text-anchor="middle" font-size="10" fill="#e15759">59</text><rect class="series-a" x="305.11111111111114" y="258.008" width="37.55555555555556" height="7.992000000000019" fill="#4e79a7"><title>Node(gRPC流·三期基线) 180ms</title></rect><text class="series-a" x="323.8888888888889" y="254.00799999999998" text-anchor="middle" font-size="10" fill="#4e79a7">180</text><rect class="series-b" x="348.6666666666667" y="259.6508" width="37.55555555555556" height="6.349199999999996" fill="#e15759"><title>Go(gateway) 143ms</title></rect><text class="series-b" x="367.44444444444446" y="255.6508" text-anchor="middle" font-size="10" fill="#e15759">143</text><rect class="series-a" x="417.77777777777777" y="174.8468" width="37.55555555555556" height="91.1532" fill="#4e79a7"><title>Node(gRPC流·三期基线) 2053ms</title></rect><text class="series-a" x="436.55555555555554" y="170.8468" text-anchor="middle" font-size="10" fill="#4e79a7">2053</text><rect class="series-b" x="461.3333333333333" y="71.88320000000002" width="37.55555555555556" height="194.11679999999998" fill="#e15759"><title>Go(gateway) 4372ms</title></rect><text class="series-b" x="480.1111111111111" y="67.88320000000002" text-anchor="middle" font-size="10" fill="#e15759">4372</text><rect class="series-a" x="530.4444444444446" y="251.4368" width="37.55555555555556" height="14.563199999999995" fill="#4e79a7"><title>Node(gRPC流·三期基线) 328ms</title></rect><text class="series-a" x="549.2222222222223" y="247.4368" text-anchor="middle" font-size="10" fill="#4e79a7">328</text><rect class="series-b" x="574.0000000000001" y="252.9464" width="37.55555555555556" height="13.053599999999989" fill="#e15759"><title>Go(gateway) 294ms</title></rect><text class="series-b" x="592.7777777777779" y="248.9464" text-anchor="middle" font-size="10" fill="#e15759">294</text><rect class="series-a" x="643.1111111111112" y="262.892" width="37.55555555555556" height="3.108000000000004" fill="#4e79a7"><title>Node(gRPC流·三期基线) 70ms</title></rect><text class="series-a" x="661.8888888888889" y="258.892" text-anchor="middle" font-size="10" fill="#4e79a7">70</text><rect class="series-b" x="686.6666666666667" y="262.8032" width="37.55555555555556" height="3.196799999999996" fill="#e15759"><title>Go(gateway) 72ms</title></rect><text class="series-b" x="705.4444444444446" y="258.8032" text-anchor="middle" font-size="10" fill="#e15759">72</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息 RTT p999(尾延迟)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p999(尾延迟)（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">1250</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">2500</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">3750</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><rect class="series-a" x="79.77777777777779" y="263.6024" width="37.55555555555556" height="2.3976000000000113" fill="#4e79a7"><title>Node(gRPC流·三期基线) 54ms</title></rect><text class="series-a" x="98.55555555555557" y="259.6024" text-anchor="middle" font-size="10" fill="#4e79a7">54</text><rect class="series-b" x="123.33333333333334" y="263.9132" width="37.55555555555556" height="2.0867999999999824" fill="#e15759"><title>Go(gateway) 47ms</title></rect><text class="series-b" x="142.11111111111111" y="259.9132" text-anchor="middle" font-size="10" fill="#e15759">47</text><rect class="series-a" x="192.44444444444446" y="262.448" width="37.55555555555556" height="3.552000000000021" fill="#4e79a7"><title>Node(gRPC流·三期基线) 80ms</title></rect><text class="series-a" x="211.22222222222226" y="258.448" text-anchor="middle" font-size="10" fill="#4e79a7">80</text><rect class="series-b" x="236.00000000000003" y="262.8476" width="37.55555555555556" height="3.1524" fill="#e15759"><title>Go(gateway) 71ms</title></rect><text class="series-b" x="254.7777777777778" y="258.8476" text-anchor="middle" font-size="10" fill="#e15759">71</text><rect class="series-a" x="305.11111111111114" y="256.5428" width="37.55555555555556" height="9.4572" fill="#4e79a7"><title>Node(gRPC流·三期基线) 213ms</title></rect><text class="series-a" x="323.8888888888889" y="252.5428" text-anchor="middle" font-size="10" fill="#4e79a7">213</text><rect class="series-b" x="348.6666666666667" y="258.9404" width="37.55555555555556" height="7.059599999999989" fill="#e15759"><title>Go(gateway) 159ms</title></rect><text class="series-b" x="367.44444444444446" y="254.9404" text-anchor="middle" font-size="10" fill="#e15759">159</text><rect class="series-a" x="417.77777777777777" y="174.0032" width="37.55555555555556" height="91.99680000000001" fill="#4e79a7"><title>Node(gRPC流·三期基线) 2072ms</title></rect><text class="series-a" x="436.55555555555554" y="170.0032" text-anchor="middle" font-size="10" fill="#4e79a7">2072</text><rect class="series-b" x="461.3333333333333" y="71.4392" width="37.55555555555556" height="194.5608" fill="#e15759"><title>Go(gateway) 4382ms</title></rect><text class="series-b" x="480.1111111111111" y="67.4392" text-anchor="middle" font-size="10" fill="#e15759">4382</text><rect class="series-a" x="530.4444444444446" y="249.9272" width="37.55555555555556" height="16.0728" fill="#4e79a7"><title>Node(gRPC流·三期基线) 362ms</title></rect><text class="series-a" x="549.2222222222223" y="245.9272" text-anchor="middle" font-size="10" fill="#4e79a7">362</text><rect class="series-b" x="574.0000000000001" y="252.458" width="37.55555555555556" height="13.542000000000002" fill="#e15759"><title>Go(gateway) 305ms</title></rect><text class="series-b" x="592.7777777777779" y="248.458" text-anchor="middle" font-size="10" fill="#e15759">305</text><rect class="series-a" x="643.1111111111112" y="262.004" width="37.55555555555556" height="3.995999999999981" fill="#4e79a7"><title>Node(gRPC流·三期基线) 90ms</title></rect><text class="series-a" x="661.8888888888889" y="258.004" text-anchor="middle" font-size="10" fill="#4e79a7">90</text><rect class="series-b" x="686.6666666666667" y="260.9828" width="37.55555555555556" height="5.0172000000000025" fill="#e15759"><title>Go(gateway) 113ms</title></rect><text class="series-b" x="705.4444444444446" y="256.9828" text-anchor="middle" font-size="10" fill="#e15759">113</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="错误数(所有错误分类之和)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">错误数(所有错误分类之和)（条）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">10000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">15000</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">20000</text><rect class="series-a" x="79.77777777777779" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(gRPC流·三期基线) 0条</title></rect><text class="series-a" x="98.55555555555557" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect class="series-b" x="123.33333333333334" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text class="series-b" x="142.11111111111111" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect class="series-a" x="192.44444444444446" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(gRPC流·三期基线) 0条</title></rect><text class="series-a" x="211.22222222222226" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect class="series-b" x="236.00000000000003" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text class="series-b" x="254.7777777777778" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect class="series-a" x="305.11111111111114" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(gRPC流·三期基线) 0条</title></rect><text class="series-a" x="323.8888888888889" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect class="series-b" x="348.6666666666667" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text class="series-b" x="367.44444444444446" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect class="series-a" x="417.77777777777777" y="68.39779999999999" width="37.55555555555556" height="197.6022" fill="#4e79a7"><title>Node(gRPC流·三期基线) 17802条</title></rect><text class="series-a" x="436.55555555555554" y="64.39779999999999" text-anchor="middle" font-size="10" fill="#4e79a7">17802</text><rect class="series-b" x="461.3333333333333" y="221.8664" width="37.55555555555556" height="44.1336" fill="#e15759"><title>Go(gateway) 3976条</title></rect><text class="series-b" x="480.1111111111111" y="217.8664" text-anchor="middle" font-size="10" fill="#e15759">3976</text><rect class="series-a" x="530.4444444444446" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(gRPC流·三期基线) 0条</title></rect><text class="series-a" x="549.2222222222223" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect class="series-b" x="574.0000000000001" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text class="series-b" x="592.7777777777779" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><rect class="series-a" x="643.1111111111112" y="266" width="37.55555555555556" height="0" fill="#4e79a7"><title>Node(gRPC流·三期基线) 0条</title></rect><text class="series-a" x="661.8888888888889" y="262" text-anchor="middle" font-size="10" fill="#4e79a7">0</text><rect class="series-b" x="686.6666666666667" y="266" width="37.55555555555556" height="0" fill="#e15759"><title>Go(gateway) 0条</title></rect><text class="series-b" x="705.4444444444446" y="262" text-anchor="middle" font-size="10" fill="#e15759">0</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="消息投递成功率(ack/发送)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息投递成功率(ack/发送)（%）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">25</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">50</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">75</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">100</text><rect class="series-a" x="79.77777777777779" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(gRPC流·三期基线) 100%</title></rect><text class="series-a" x="98.55555555555557" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect class="series-b" x="123.33333333333334" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text class="series-b" x="142.11111111111111" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect class="series-a" x="192.44444444444446" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(gRPC流·三期基线) 100%</title></rect><text class="series-a" x="211.22222222222226" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect class="series-b" x="236.00000000000003" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text class="series-b" x="254.7777777777778" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect class="series-a" x="305.11111111111114" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(gRPC流·三期基线) 100%</title></rect><text class="series-a" x="323.8888888888889" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect class="series-b" x="348.6666666666667" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text class="series-b" x="367.44444444444446" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect class="series-a" x="417.77777777777777" y="132.356" width="37.55555555555556" height="133.644" fill="#4e79a7"><title>Node(gRPC流·三期基线) 60.2%</title></rect><text class="series-a" x="436.55555555555554" y="128.356" text-anchor="middle" font-size="10" fill="#4e79a7">60.2</text><rect class="series-b" x="461.3333333333333" y="63.75800000000001" width="37.55555555555556" height="202.242" fill="#e15759"><title>Go(gateway) 91.1%</title></rect><text class="series-b" x="480.1111111111111" y="59.75800000000001" text-anchor="middle" font-size="10" fill="#e15759">91.1</text><rect class="series-a" x="530.4444444444446" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(gRPC流·三期基线) 100%</title></rect><text class="series-a" x="549.2222222222223" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect class="series-b" x="574.0000000000001" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text class="series-b" x="592.7777777777779" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><rect class="series-a" x="643.1111111111112" y="44" width="37.55555555555556" height="222" fill="#4e79a7"><title>Node(gRPC流·三期基线) 100%</title></rect><text class="series-a" x="661.8888888888889" y="40" text-anchor="middle" font-size="10" fill="#4e79a7">100</text><rect class="series-b" x="686.6666666666667" y="44" width="37.55555555555556" height="222" fill="#e15759"><title>Go(gateway) 100%</title></rect><text class="series-b" x="705.4444444444446" y="40" text-anchor="middle" font-size="10" fill="#e15759">100</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="进程内存峰值(server RSS vs gateway RSS)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">进程内存峰值(server RSS vs gateway RSS)（MB）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">150</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">300</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">450</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">600</text><rect class="series-a" x="79.77777777777779" y="194.553" width="37.55555555555556" height="71.447" fill="#4e79a7"><title>Node(gRPC流·三期基线) 193.1MB</title></rect><text class="series-a" x="98.55555555555557" y="190.553" text-anchor="middle" font-size="10" fill="#4e79a7">193.1</text><rect class="series-b" x="123.33333333333334" y="253.605" width="37.55555555555556" height="12.39500000000001" fill="#e15759"><title>Go(gateway) 33.5MB</title></rect><text class="series-b" x="142.11111111111111" y="249.605" text-anchor="middle" font-size="10" fill="#e15759">33.5</text><rect class="series-a" x="192.44444444444446" y="158.55200000000002" width="37.55555555555556" height="107.44799999999998" fill="#4e79a7"><title>Node(gRPC流·三期基线) 290.4MB</title></rect><text class="series-a" x="211.22222222222226" y="154.55200000000002" text-anchor="middle" font-size="10" fill="#4e79a7">290.4</text><rect class="series-b" x="236.00000000000003" y="251.496" width="37.55555555555556" height="14.50399999999999" fill="#e15759"><title>Go(gateway) 39.2MB</title></rect><text class="series-b" x="254.7777777777778" y="247.496" text-anchor="middle" font-size="10" fill="#e15759">39.2</text><rect class="series-a" x="305.11111111111114" y="158.959" width="37.55555555555556" height="107.041" fill="#4e79a7"><title>Node(gRPC流·三期基线) 289.3MB</title></rect><text class="series-a" x="323.8888888888889" y="154.959" text-anchor="middle" font-size="10" fill="#4e79a7">289.3</text><rect class="series-b" x="348.6666666666667" y="247.019" width="37.55555555555556" height="18.980999999999995" fill="#e15759"><title>Go(gateway) 51.3MB</title></rect><text class="series-b" x="367.44444444444446" y="243.019" text-anchor="middle" font-size="10" fill="#e15759">51.3</text><rect class="series-a" x="417.77777777777777" y="78.928" width="37.55555555555556" height="187.072" fill="#4e79a7"><title>Node(gRPC流·三期基线) 505.6MB</title></rect><text class="series-a" x="436.55555555555554" y="74.928" text-anchor="middle" font-size="10" fill="#4e79a7">505.6</text><rect class="series-b" x="461.3333333333333" y="211.462" width="37.55555555555556" height="54.53800000000001" fill="#e15759"><title>Go(gateway) 147.4MB</title></rect><text class="series-b" x="480.1111111111111" y="207.462" text-anchor="middle" font-size="10" fill="#e15759">147.4</text><rect class="series-a" x="530.4444444444446" y="154.334" width="37.55555555555556" height="111.666" fill="#4e79a7"><title>Node(gRPC流·三期基线) 301.8MB</title></rect><text class="series-a" x="549.2222222222223" y="150.334" text-anchor="middle" font-size="10" fill="#4e79a7">301.8</text><rect class="series-b" x="574.0000000000001" y="224.264" width="37.55555555555556" height="41.73599999999999" fill="#e15759"><title>Go(gateway) 112.8MB</title></rect><text class="series-b" x="592.7777777777779" y="220.264" text-anchor="middle" font-size="10" fill="#e15759">112.8</text><rect class="series-a" x="643.1111111111112" y="155.962" width="37.55555555555556" height="110.03800000000001" fill="#4e79a7"><title>Node(gRPC流·三期基线) 297.4MB</title></rect><text class="series-a" x="661.8888888888889" y="151.962" text-anchor="middle" font-size="10" fill="#4e79a7">297.4</text><rect class="series-b" x="686.6666666666667" y="243.874" width="37.55555555555556" height="22.126000000000005" fill="#e15759"><title>Go(gateway) 59.8MB</title></rect><text class="series-b" x="705.4444444444446" y="239.874" text-anchor="middle" font-size="10" fill="#e15759">59.8</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<p class="muted">注意口径:蓝=Node server 整体 RSS(含全部业务/DB),红=Go gateway 进程 RSS。gateway 路径实际总内存 = 两者之和。</p>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="Node 事件循环滞后 p99">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">Node 事件循环滞后 p99（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">5</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">10</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">15</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">20</text><rect class="series-a" x="79.77777777777779" y="140.459" width="37.55555555555556" height="125.541" fill="#4e79a7"><title>Node(gRPC流·三期基线) 11.3ms</title></rect><text class="series-a" x="98.55555555555557" y="136.459" text-anchor="middle" font-size="10" fill="#4e79a7">11.3</text><rect class="series-a" x="192.44444444444446" y="127.69399999999999" width="37.55555555555556" height="138.306" fill="#4e79a7"><title>Node(gRPC流·三期基线) 12.5ms</title></rect><text class="series-a" x="211.22222222222226" y="123.69399999999999" text-anchor="middle" font-size="10" fill="#4e79a7">12.5</text><rect class="series-a" x="305.11111111111114" y="125.696" width="37.55555555555556" height="140.304" fill="#4e79a7"><title>Node(gRPC流·三期基线) 12.6ms</title></rect><text class="series-a" x="323.8888888888889" y="121.696" text-anchor="middle" font-size="10" fill="#4e79a7">12.6</text><rect class="series-a" x="417.77777777777777" y="108.713" width="37.55555555555556" height="157.287" fill="#4e79a7"><title>Node(gRPC流·三期基线) 14.2ms</title></rect><text class="series-a" x="436.55555555555554" y="104.713" text-anchor="middle" font-size="10" fill="#4e79a7">14.2</text><rect class="series-a" x="530.4444444444446" y="137.906" width="37.55555555555556" height="128.094" fill="#4e79a7"><title>Node(gRPC流·三期基线) 11.5ms</title></rect><text class="series-a" x="549.2222222222223" y="133.906" text-anchor="middle" font-size="10" fill="#4e79a7">11.5</text><rect class="series-a" x="643.1111111111112" y="134.354" width="37.55555555555556" height="131.646" fill="#4e79a7"><title>Node(gRPC流·三期基线) 11.9ms</title></rect><text class="series-a" x="661.8888888888889" y="130.354" text-anchor="middle" font-size="10" fill="#4e79a7">11.9</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="Go gateway goroutine 数">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">Go gateway goroutine 数（个）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">2500</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">7500</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">10000</text><rect class="series-b" x="123.33333333333334" y="263.2028" width="37.55555555555556" height="2.7971999999999753" fill="#e15759"><title>Go(gateway) 126个</title></rect><text class="series-b" x="142.11111111111111" y="259.2028" text-anchor="middle" font-size="10" fill="#e15759">126</text><rect class="series-b" x="236.00000000000003" y="258.7628" width="37.55555555555556" height="7.237199999999973" fill="#e15759"><title>Go(gateway) 326个</title></rect><text class="series-b" x="254.7777777777778" y="254.76280000000003" text-anchor="middle" font-size="10" fill="#e15759">326</text><rect class="series-b" x="348.6666666666667" y="252.0806" width="37.55555555555556" height="13.919399999999996" fill="#e15759"><title>Go(gateway) 627个</title></rect><text class="series-b" x="367.44444444444446" y="248.0806" text-anchor="middle" font-size="10" fill="#e15759">627</text><rect class="series-b" x="461.3333333333333" y="45.642799999999994" width="37.55555555555556" height="220.3572" fill="#e15759"><title>Go(gateway) 9926个</title></rect><text class="series-b" x="480.1111111111111" y="41.642799999999994" text-anchor="middle" font-size="10" fill="#e15759">9926</text><rect class="series-b" x="574.0000000000001" y="243.2228" width="37.55555555555556" height="22.777199999999993" fill="#e15759"><title>Go(gateway) 1026个</title></rect><text class="series-b" x="592.7777777777779" y="239.2228" text-anchor="middle" font-size="10" fill="#e15759">1026</text><rect class="series-b" x="686.6666666666667" y="258.7628" width="37.55555555555556" height="7.237199999999973" fill="#e15759"><title>Go(gateway) 326个</title></rect><text class="series-b" x="705.4444444444446" y="254.76280000000003" text-anchor="middle" font-size="10" fill="#e15759">326</text><text x="120.33333333333334" y="284" text-anchor="middle" font-size="12" fill="var(--text)">Smoke</text><text x="233.00000000000003" y="284" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="284" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="284" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="284" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+
+<h3>3.1 吞吐饱和扫描(固定 100 连接,RATE 10→30,各 20s)</h3>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="RTT p99 vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">RTT p99 vs RATE（ms）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">2000</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">4000</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">6000</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">8000</text><path class="series-a" d="M64.0 264.0 L233.0 259.6 L402.0 225.4 L571.0 208.4 L740.0 208.1" fill="none" stroke-width="2.5"/><circle class="series-a" cx="64.0" cy="264.0" r="3.5"><title>RATE=tp_r10 → 73ms</title></circle><circle class="series-a" cx="233.0" cy="259.6" r="3.5"><title>RATE=tp_r15 → 232ms</title></circle><circle class="series-a" cx="402.0" cy="225.4" r="3.5"><title>RATE=tp_r20 → 1464ms</title></circle><circle class="series-a" cx="571.0" cy="208.4" r="3.5"><title>RATE=tp_r25 → 2075ms</title></circle><circle class="series-a" cx="740.0" cy="208.1" r="3.5"><title>RATE=tp_r30 → 2086ms</title></circle><path class="series-b" d="M64.0 264.3 L233.0 260.6 L402.0 233.2 L571.0 183.8 L740.0 60.1" fill="none" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="264.3" r="3.5"><title>RATE=tp_r10 → 62ms</title></circle><circle class="series-b" cx="233.0" cy="260.6" r="3.5"><title>RATE=tp_r15 → 196ms</title></circle><circle class="series-b" cx="402.0" cy="233.2" r="3.5"><title>RATE=tp_r20 → 1181ms</title></circle><circle class="series-b" cx="571.0" cy="183.8" r="3.5"><title>RATE=tp_r25 → 2961ms</title></circle><circle class="series-b" cx="740.0" cy="60.1" r="3.5"><title>RATE=tp_r30 → 7421ms</title></circle><text x="64" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r10</text><text x="233" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r15</text><text x="402" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r20</text><text x="571" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r25</text><text x="740" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r30</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<svg viewBox="0 0 760 320" class="chart" role="img" aria-label="错误率 vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">错误率 vs RATE（%）</text>
+    <line x1="64" y1="266" x2="740" y2="266" stroke="var(--grid)"/><text x="56" y="270" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="210.5" x2="740" y2="210.5" stroke="var(--grid)"/><text x="56" y="214.5" text-anchor="end" font-size="11" fill="var(--muted)">20</text><line x1="64" y1="155" x2="740" y2="155" stroke="var(--grid)"/><text x="56" y="159" text-anchor="end" font-size="11" fill="var(--muted)">40</text><line x1="64" y1="99.5" x2="740" y2="99.5" stroke="var(--grid)"/><text x="56" y="103.5" text-anchor="end" font-size="11" fill="var(--muted)">60</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">80</text><path class="series-a" d="M64.0 266.0 L233.0 266.0 L402.0 266.0 L571.0 153.9 L740.0 44.0" fill="none" stroke-width="2.5"/><circle class="series-a" cx="64.0" cy="266.0" r="3.5"><title>RATE=tp_r10 → 0%</title></circle><circle class="series-a" cx="233.0" cy="266.0" r="3.5"><title>RATE=tp_r15 → 0%</title></circle><circle class="series-a" cx="402.0" cy="266.0" r="3.5"><title>RATE=tp_r20 → 0%</title></circle><circle class="series-a" cx="571.0" cy="153.9" r="3.5"><title>RATE=tp_r25 → 40.4%</title></circle><circle class="series-a" cx="740.0" cy="44.0" r="3.5"><title>RATE=tp_r30 → 80%</title></circle><path class="series-b" d="M64.0 266.0 L233.0 266.0 L402.0 266.0 L571.0 266.0 L740.0 203.3" fill="none" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="266.0" r="3.5"><title>RATE=tp_r10 → 0%</title></circle><circle class="series-b" cx="233.0" cy="266.0" r="3.5"><title>RATE=tp_r15 → 0%</title></circle><circle class="series-b" cx="402.0" cy="266.0" r="3.5"><title>RATE=tp_r20 → 0%</title></circle><circle class="series-b" cx="571.0" cy="266.0" r="3.5"><title>RATE=tp_r25 → 0%</title></circle><circle class="series-b" cx="740.0" cy="203.3" r="3.5"><title>RATE=tp_r30 → 22.6%</title></circle><text x="64" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r10</text><text x="233" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r15</text><text x="402" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r20</text><text x="571" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r25</text><text x="740" y="284" text-anchor="middle" font-size="12" fill="var(--text)">tp_r30</text>
+    <rect class="series-a" x="564" y="6" width="12" height="12" fill="#4e79a7"/><text class="leg" x="580" y="16" font-size="11">Node(gRPC流·三期基线)</text>
+    <rect class="series-b" x="676" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="692" y="16" font-size="11">Go(gateway)</text>
+  </svg>
+<table>
+<tr><th>场景</th><th>模式</th><th>发送</th><th>ack</th><th>错误(错误率)</th><th>RTT p50</th><th>RTT p95</th><th>RTT p99</th><th>RTT p999</th><th>server RSS(MB)</th><th>gw RSS(MB)</th><th>eventloop p99(ms)</th></tr>
+<tr><td>tp_r10</td><td>Node</td><td>19800</td><td>19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>35</td><td>58</td><td><b>73</b></td><td>90</td>
+        <td>293.9</td><td>52.1</td><td>12.08</td></tr><tr><td>tp_r10</td><td>Go</td><td>19800</td><td>19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>33</td><td>49</td><td><b>62</b></td><td>80</td>
+        <td>92.6</td><td>58.4</td><td>—</td></tr><tr><td>tp_r15</td><td>Node</td><td>30000</td><td>30000</td>
+        <td class="ok">0 (0%)</td>
+        <td>38</td><td>205</td><td><b>232</b></td><td>253</td>
+        <td>303.6</td><td>54.5</td><td>13.09</td></tr><tr><td>tp_r15</td><td>Go</td><td>29911</td><td>29911</td>
+        <td class="ok">0 (0%)</td>
+        <td>35</td><td>84</td><td><b>196</b></td><td>235</td>
+        <td>91.7</td><td>56.3</td><td>—</td></tr><tr><td>tp_r20</td><td>Node</td><td>39804</td><td>39804</td>
+        <td class="ok">0 (0%)</td>
+        <td>715</td><td>1450</td><td><b>1464</b></td><td>1474</td>
+        <td>383</td><td>78.7</td><td>12.82</td></tr><tr><td>tp_r20</td><td>Go</td><td>39780</td><td>39780</td>
+        <td class="ok">0 (0%)</td>
+        <td>613</td><td>1106</td><td><b>1181</b></td><td>1198</td>
+        <td>113.7</td><td>78.1</td><td>—</td></tr><tr><td>tp_r25</td><td>Node</td><td>49751</td><td>29669</td>
+        <td class="bad">20082 (40.4%)</td>
+        <td>1827</td><td>2043</td><td><b>2075</b></td><td>2174</td>
+        <td>471.6</td><td>107</td><td>13.72</td></tr><tr><td>tp_r25</td><td>Go</td><td>49714</td><td>49714</td>
+        <td class="ok">0 (0%)</td>
+        <td>2789</td><td>2933</td><td><b>2961</b></td><td>2973</td>
+        <td>171.4</td><td>120.6</td><td>—</td></tr><tr><td>tp_r30</td><td>Node</td><td>59691</td><td>11961</td>
+        <td class="bad">47730 (80%)</td>
+        <td>1281</td><td>2048</td><td><b>2086</b></td><td>2143</td>
+        <td>485.5</td><td>112</td><td>13.51</td></tr><tr><td>tp_r30</td><td>Go</td><td>60197</td><td>46570</td>
+        <td class="bad">13627 (22.6%)</td>
+        <td>4201</td><td>7250</td><td><b>7421</b></td><td>7513</td>
+        <td>166.8</td><td>121</td><td>—</td></tr>
+</table>
+
+<h2>四、完整数据表(主场景)</h2>
+<table>
+<tr><th>场景</th><th>模式</th><th>连接(成功/尝试)</th><th>发送/ack</th><th>错误(错误率)</th><th>RTT p50/95/<b>99</b>/999(ms)</th><th>服务内 p99(ms)</th><th>server RSS(MB)</th><th>gateway RSS(MB)</th><th>eventloop p99(ms)</th><th>goroutine</th><th>重发帧数</th></tr>
+<tr>
+        <td>S0 Smoke</td><td>Node(gRPC流·三期基线)</td>
+        <td>50/50</td><td>1450/1450</td>
+        <td class="ok">0 (0%)</td>
+        <td>20/29/<b>46</b>/54</td>
+        <td>49</td>
+        <td>193.1</td><td>33.5</td>
+        <td>11.31</td><td>126</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S0 Smoke</td><td>Go(gateway)</td>
+        <td>50/50</td><td>1450/1450</td>
+        <td class="ok">0 (0%)</td>
+        <td>24/32/<b>42</b>/47</td>
+        <td>49.3</td>
+        <td>59.3</td><td>33.5</td>
+        <td>—</td><td>126</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S1 常规吞吐</td><td>Node(gRPC流·三期基线)</td>
+        <td>100/100</td><td>19800/19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>32/52/<b>63</b>/80</td>
+        <td>91.9</td>
+        <td>290.4</td><td>37.3</td>
+        <td>12.46</td><td>326</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S1 常规吞吐</td><td>Go(gateway)</td>
+        <td>100/100</td><td>19800/19800</td>
+        <td class="ok">0 (0%)</td>
+        <td>32/47/<b>59</b>/71</td>
+        <td>86.4</td>
+        <td>67</td><td>39.2</td>
+        <td>—</td><td>326</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S2 连接规模</td><td>Node(gRPC流·三期基线)</td>
+        <td>300/300</td><td>8700/8700</td>
+        <td class="ok">0 (0%)</td>
+        <td>80/149/<b>180</b>/213</td>
+        <td>245.6</td>
+        <td>289.3</td><td>51.2</td>
+        <td>12.64</td><td>626</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S2 连接规模</td><td>Go(gateway)</td>
+        <td>300/300</td><td>8700/8700</td>
+        <td class="ok">0 (0%)</td>
+        <td>83/120/<b>143</b>/159</td>
+        <td>244.1</td>
+        <td>72.7</td><td>51.3</td>
+        <td>—</td><td>627</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S3 过载压力</td><td>Node(gRPC流·三期基线)</td>
+        <td>150/150</td><td>44746/26944</td>
+        <td class="bad">17802 (39.8%)</td>
+        <td>2021/2045/<b>2053</b>/2072</td>
+        <td>2482.8</td>
+        <td>505.6</td><td>115.8</td>
+        <td>14.17</td><td>6354</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S3 过载压力</td><td>Go(gateway)</td>
+        <td>150/150</td><td>44747/40771</td>
+        <td class="bad">3976 (8.9%)</td>
+        <td>2835/4347/<b>4372</b>/4382</td>
+        <td>2500</td>
+        <td>208.3</td><td>147.4</td>
+        <td>—</td><td>9926</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S4 大连接</td><td>Node(gRPC流·三期基线)</td>
+        <td>500/500</td><td>7000/7000</td>
+        <td class="ok">0 (0%)</td>
+        <td>137/267/<b>328</b>/362</td>
+        <td>468</td>
+        <td>301.8</td><td>116.4</td>
+        <td>11.54</td><td>1026</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S4 大连接</td><td>Go(gateway)</td>
+        <td>500/500</td><td>7000/7000</td>
+        <td class="ok">0 (0%)</td>
+        <td>153/255/<b>294</b>/305</td>
+        <td>456.4</td>
+        <td>146.6</td><td>112.8</td>
+        <td>—</td><td>1026</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S5 长时稳态</td><td>Node(gRPC流·三期基线)</td>
+        <td>100/100</td><td>59700/59700</td>
+        <td class="ok">0 (0%)</td>
+        <td>33/56/<b>70</b>/90</td>
+        <td>94.6</td>
+        <td>297.4</td><td>79.8</td>
+        <td>11.86</td><td>326</td>
+        <td>0</td>
+      </tr><tr>
+        <td>S5 长时稳态</td><td>Go(gateway)</td>
+        <td>100/100</td><td>59700/59700</td>
+        <td class="ok">0 (0%)</td>
+        <td>37/58/<b>72</b>/113</td>
+        <td>96</td>
+        <td>92.3</td><td>59.8</td>
+        <td>—</td><td>326</td>
+        <td>0</td>
+      </tr>
+</table>
+<p class="muted">"服务内 p99" = 服务端消息处理直方图分位(Node 为 server_message_duration;Go 为 gateway_uplink_duration,收帧→Node ack),经 Prometheus histogram_quantile 算得,受桶宽影响偏粗。</p>
+
+<h3>4.1 每连接资源成本</h3>
+<table>
+<tr><th>场景</th><th>模式</th><th>server RSS 峰值(MB)</th><th>gateway RSS 峰值(MB)</th><th>server KB/连接</th><th>gateway KB/连接</th><th>server CPU Δ(s)</th><th>gateway CPU Δ(s)</th></tr>
+<tr><td>S0 Smoke</td><td>Node(gRPC流·三期基线)</td><td>193.1</td><td>33.5</td>
+        <td>3.86</td><td>0.67</td>
+        <td>12.4</td><td>0.35</td></tr><tr><td>S0 Smoke</td><td>Go(gateway)</td><td>59.3</td><td>33.5</td>
+        <td>1.19</td><td>0.67</td>
+        <td>9.13</td><td>0.34</td></tr><tr><td>S1 常规吞吐</td><td>Node(gRPC流·三期基线)</td><td>290.4</td><td>37.3</td>
+        <td>2.9</td><td>0.37</td>
+        <td>36.94</td><td>4.32</td></tr><tr><td>S1 常规吞吐</td><td>Go(gateway)</td><td>67</td><td>39.2</td>
+        <td>0.67</td><td>0.39</td>
+        <td>25.02</td><td>3.81</td></tr><tr><td>S2 连接规模</td><td>Node(gRPC流·三期基线)</td><td>289.3</td><td>51.2</td>
+        <td>0.96</td><td>0.17</td>
+        <td>68.16</td><td>2.02</td></tr><tr><td>S2 连接规模</td><td>Go(gateway)</td><td>72.7</td><td>51.3</td>
+        <td>0.24</td><td>0.17</td>
+        <td>61.54</td><td>1.8</td></tr><tr><td>S3 过载压力</td><td>Node(gRPC流·三期基线)</td><td>505.6</td><td>115.8</td>
+        <td>3.37</td><td>0.77</td>
+        <td>65.87</td><td>8.14</td></tr><tr><td>S3 过载压力</td><td>Go(gateway)</td><td>208.3</td><td>147.4</td>
+        <td>1.39</td><td>0.98</td>
+        <td>54.28</td><td>9</td></tr><tr><td>S4 大连接</td><td>Node(gRPC流·三期基线)</td><td>301.8</td><td>116.4</td>
+        <td>0.6</td><td>0.23</td>
+        <td>110.89</td><td>1.62</td></tr><tr><td>S4 大连接</td><td>Go(gateway)</td><td>146.6</td><td>112.8</td>
+        <td>0.29</td><td>0.23</td>
+        <td>98.11</td><td>1.44</td></tr><tr><td>S5 长时稳态</td><td>Node(gRPC流·三期基线)</td><td>297.4</td><td>79.8</td>
+        <td>2.97</td><td>0.8</td>
+        <td>92.42</td><td>12.77</td></tr><tr><td>S5 长时稳态</td><td>Go(gateway)</td><td>92.3</td><td>59.8</td>
+        <td>0.92</td><td>0.6</td>
+        <td>57.58</td><td>11.84</td></tr>
+</table>
+
+<h2>五、专项场景</h2>
+<h3>5.1 S6 连接爬坡探顶(2000 起每级 +2000 → 10000,每级保持 5s)</h3>
+<h4>gateway 路径(本次)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>gw 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr><tr><td>2000</td><td>2000/2000 (100.0%)</td>
+    <td>120/227/237</td>
+    <td>2000</td><td>2000</td><td>4027</td>
+    <td>—</td><td>98.2</td><td>287.4</td></tr><tr><td>4000</td><td>2000/2000 (100.0%)</td>
+    <td>128/246/257</td>
+    <td>4000</td><td>4000</td><td>8026</td>
+    <td>—</td><td>149.9</td><td>282</td></tr><tr><td>6000</td><td>2000/2000 (100.0%)</td>
+    <td>138/259/270</td>
+    <td>6000</td><td>6000</td><td>12026</td>
+    <td>—</td><td>205.3</td><td>280.7</td></tr><tr><td>8000</td><td>2000/2000 (100.0%)</td>
+    <td>141/287/290</td>
+    <td>8000</td><td>8000</td><td>16026</td>
+    <td>—</td><td>266.6</td><td>280.8</td></tr><tr><td>10000</td><td>2000/2000 (100.0%)</td>
+    <td>158/305/319</td>
+    <td>10000</td><td>10000</td><td>20026</td>
+    <td>—</td><td>332.5</td><td>276.3</td></tr></table>
+    <p class="muted">拐点:达到 MAX=10000(用户数 10000);最大稳定连接 10000。</p>
+    <h4>纯 Node 基线(26-9-14,对照)</h4><table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>server 连接数</th><th>goroutine</th><th>eventloop p99(ms)</th><th>gw RSS(MB)</th><th>server RSS(MB)</th></tr><tr><td>2000</td><td>2000/2000 (100.0%)</td>
+    <td>145/266/278</td>
+    <td>2000</td><td>—</td><td>—</td>
+    <td>11.19</td><td>—</td><td>175.3</td></tr><tr><td>4000</td><td>2000/2000 (100.0%)</td>
+    <td>140/271/283</td>
+    <td>4000</td><td>—</td><td>—</td>
+    <td>11.07</td><td>—</td><td>175.2</td></tr><tr><td>6000</td><td>2000/2000 (100.0%)</td>
+    <td>154/301/316</td>
+    <td>6000</td><td>—</td><td>—</td>
+    <td>11.1</td><td>—</td><td>175.2</td></tr><tr><td>8000</td><td>2000/2000 (100.0%)</td>
+    <td>170/333/346</td>
+    <td>8000</td><td>—</td><td>—</td>
+    <td>11.07</td><td>—</td><td>175.1</td></tr><tr><td>10000</td><td>2000/2000 (100.0%)</td>
+    <td>180/344/358</td>
+    <td>10000</td><td>—</td><td>—</td>
+    <td>11.08</td><td>—</td><td>175.1</td></tr></table>
+    <p class="muted">拐点:达到 MAX=10000(用户数 10000);最大稳定连接 10000。</p>
+<h3>5.2 S7 惊群重连(300 连接同瞬间全断→全连)</h3>
+<table>
+    <tr><th>模式</th><th>重连成功</th><th>重连耗时 p50/95/99(ms)</th><th>max(ms)</th><th>gw RSS 基线→峰值(MB)</th><th>server RSS 基线→峰值(MB)</th><th>连接数 基线→峰值</th><th>eventloop p99 基线→峰值(ms)</th><th>goroutine 峰值</th></tr>
+    <tr><td>Node(gRPC流·三期基线)</td><td>300/300</td>
+      <td>23/48/<b>50</b></td><td>50</td>
+      <td>—</td>
+      <td>132.8→134</td>
+      <td>—→—</td>
+      <td>11.14→11.14</td>
+      <td>—</td></tr>
+    <tr><td>Go(gateway)</td><td>300/300</td>
+      <td>22/39/<b>41</b></td><td>41</td>
+      <td>234.4→234.8</td>
+      <td>231.9→236</td>
+      <td>300→300</td>
+      <td>—→—</td>
+      <td>626</td></tr></table>
+<h3>5.3 群扇出(100 成员在线,1 人发 20 条)</h3>
+<p class="muted">无 gateway 扇出数据。</p>
+<h3>5.4 HTTP API 层(7 接口,并发 20 × 10s,两轮均直连 server)</h3>
+<table>
+    <tr><th>模式</th><th>/health rps</th><th>/api/login rps(p99)</th><th>userConversations rps</th><th>/user/messages rps(p99)</th><th>lastMessages rps</th><th>sync rps</th><th>mentions rps</th></tr>
+    
+    <tr><td>gateway 轮(本次)</td>
+      <td>11011.4</td>
+      <td>68.3(443ms)</td>
+      <td>4928.8</td>
+      <td>5.8(5919ms)</td>
+      <td>25.4</td>
+      <td>2482.6</td>
+      <td>3826.1</td></tr></table>
+    <p class="muted">HTTP 层两轮均直连 server REST(不经过 gateway),用于确认两轮压测环境一致(无差别即环境同口径)。</p>
+
+<h2>六、深入分析(详见配套 markdown 报告)</h2>
+<p>归因证据链(gateway 路径):<code>gateway_uplink_duration_seconds</code>(收帧→Node ack 全程)/ <code>http_request_duration_seconds</code>(Node 侧 HTTP 处理)/ <code>db_query_duration_seconds</code>(落库)/ <code>nodejs_eventloop_lag</code> + <code>nodejs_gc_pause</code>(Node 运行时)/ <code>go_gc_duration</code> + <code>go_goroutines</code>(Go 运行时)。本 HTML 为数据自动汇总;结论、归因与单机极限分析见 <code>docs/监测设施/测试报告/26-9-16-Go网关压测对比报告.md</code>。</p>
+
+<p class="muted" style="margin-top:40px;border-top:1px solid #eee;padding-top:12px">本报告由 <code>perf/gen-report.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。</p>
+</body></html>

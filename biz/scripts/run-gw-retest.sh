@@ -31,7 +31,7 @@ run_scenario() {
     const mid = rounds[Math.floor(rounds.length / 2)];
     fs.writeFileSync(`../docs/监测设施/测试报告/${sub}/data/opt_${key}_gateway.json`, JSON.stringify(mid.j, null, 2));
     console.log(`== [opt_${key}] 取中位轮 r${mid.r} (p99=${mid.score})`);
-  ' "opt_$key"
+  ' "$key"
 }
 
 run_scenario s3 150 20 15 25

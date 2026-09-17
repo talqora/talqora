@@ -1,0 +1,27 @@
+{
+  "connectedCount": 100,
+  "attempted": 100,
+  "sent": 60266,
+  "ack": 60266,
+  "retriesSent": 0,
+  "reconnectsTriggered": 0,
+  "connectMs": {
+    "p50": 3,
+    "p95": 6,
+    "p99": 7,
+    "p999": 7,
+    "min": 1,
+    "max": 7,
+    "n": 100
+  },
+  "rttMs": {
+    "p50": 146,
+    "p95": 413,
+    "p99": 425,
+    "p999": 434,
+    "min": 6,
+    "max": 446,
+    "n": 60266
+  },
+  "errors": {}
+}

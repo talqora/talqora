@@ -1,0 +1,76 @@
+{
+  "label": "s3_gateway_r1",
+  "mode": "gateway",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 150,
+    "RATE": 20,
+    "DURATION": 15,
+    "RAMP": 25
+  },
+  "startedAt": 1789619192192,
+  "endedAt": 1789619217565,
+  "windowSec": 26,
+  "harness": {
+    "connectedCount": 150,
+    "attempted": 150,
+    "sent": 44719,
+    "ack": 41001,
+    "retriesSent": 0,
+    "reconnectsTriggered": 0,
+    "connectMs": {
+      "p50": 5,
+      "p95": 8,
+      "p99": 9,
+      "p999": 10,
+      "min": 1,
+      "max": 10,
+      "n": 150
+    },
+    "rttMs": {
+      "p50": 2449,
+      "p95": 4273,
+      "p99": 4292,
+      "p999": 4304,
+      "min": 38,
+      "max": 4310,
+      "n": 41001
+    },
+    "errors": {
+      "message.ack_timeout": 3718
+    }
+  },
+  "resource": {
+    "peakConnections": 150,
+    "peakServerRssMB": 202.4,
+    "baseServerRssMB": 79.5,
+    "peakGatewayRssMB": 140,
+    "baseGatewayRssMB": 54.1,
+    "peakEventloopP99Ms": null,
+    "peakGoroutines": 9926,
+    "goGcSecondsDelta": 0.004,
+    "nodeGcPausesDelta": null,
+    "serverCpuSecondsDelta": 55.815,
+    "gatewayCpuSecondsDelta": 9.17
+  },
+  "serverInternalDurationMs": {
+    "p50": 2003.3,
+    "p95": 2500,
+    "p99": 2500
+  },
+  "gatewayDownlinkDurationMs": {
+    "p50": 2.5,
+    "p95": 4.8,
+    "p99": 5
+  },
+  "httpDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "nodeGcPauseMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  }
+}
