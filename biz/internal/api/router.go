@@ -46,7 +46,7 @@ func NewRouter(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	r.Use(httpDurationMiddleware())
 
 	// 认证端点限流(登录/注册)
-	globalLimiter = newAuthRateLimiter(cfg)
+	globalLimiter = newAuthRateLimiter(cfg.AuthRateLimit.Max, cfg.AuthRateLimit.WindowMS)
 	r.Use(limiterForPaths("/api/login", "/api/register"))
 
 	// 业务路由挂载(与 app.ts:91-104 同面)

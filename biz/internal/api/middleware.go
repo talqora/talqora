@@ -110,10 +110,10 @@ type ipLimiter struct {
 	buckets map[string]*rateWindow
 }
 
-func newAuthRateLimiter(cfg *config.Config) *ipLimiter {
+func newAuthRateLimiter(limit int, window time.Duration) *ipLimiter {
 	return &ipLimiter{
-		limit:   cfg.AuthRateLimit.Max,
-		window:  cfg.AuthRateLimit.WindowMS,
+		limit:   limit,
+		window:  window,
 		buckets: make(map[string]*rateWindow),
 	}
 }
