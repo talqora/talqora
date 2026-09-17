@@ -1,6 +1,9 @@
 package service
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // JSONTime 输出与 Node 的 Date.toJSON 对齐:UTC 毫秒格式 "2026-09-16T12:34:56.000Z"
 // (Prisma DateTime → JS Date → JSON 序列化的形态;timestamptz(0) 毫秒恒为 000)。
@@ -13,4 +16,18 @@ func (t JSONTime) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return []byte(`"` + t.Time.UTC().Format("2006-01-02T15:04:05.000Z") + `"`), nil
+}
+
+// Scan 实现 sql.Scanner,支持 pgx 直接扫描 timestamptz 列到 JSONTime。
+func (t *JSONTime) Scan(src any) error {
+	switch v := src.(type) {
+	case time.Time:
+		t.Time = v
+		return nil
+	case nil:
+		t.Time = time.Time{}
+		return nil
+	default:
+		return fmt.Errorf("JSONTime 不支持类型 %T", src)
+	}
 }

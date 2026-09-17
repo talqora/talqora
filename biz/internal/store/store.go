@@ -24,6 +24,15 @@ var s3Client *minio.Client
 
 // NewPG 建立 pgxpool 连接池并 ping 验证。
 func NewPG(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	// 本地 dev 的 DATABASE_URL 无 sslmode 参数(Prisma 默认容忍明文),pgx 默认 prefer 会因
+	// "SSL is not enabled on the server" 失败;未显式指定 sslmode 时补 disable(dev 语义)。
+	if !strings.Contains(url, "sslmode=") {
+		sep := "?"
+		if strings.Contains(url, "?") {
+			sep = "&"
+		}
+		url = url + sep + "sslmode=disable"
+	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, err

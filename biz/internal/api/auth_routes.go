@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
@@ -289,6 +291,7 @@ func handleLogin(c *gin.Context) {
 
 	user, err := service.FindUserByUsername(c.Request.Context(), b.Username)
 	if err != nil {
+		slog.Error("login 查询用户失败", "err", err)
 		serverError(c)
 		return
 	}
