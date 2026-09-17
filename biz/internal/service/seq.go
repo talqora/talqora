@@ -47,25 +47,40 @@ func idemKey(convID string, senderID int64, clientMsgID string) string {
 
 // NextSeq 取会话下一个 seq(Redis INCR;键缺失时从 PG 装载;Redis 故障降级 DB 行锁)。
 func NextSeq(ctx context.Context, convID string) (int64, error) {
-	rdb := store.Redis()
+	return nextSeq(ctx, store.Redis(), convID,
+		func(ctx context.Context) (int64, error) { return loadNextSeqFromPG(ctx, convID) },
+		func(ctx context.Context) (int64, error) { return bumpSeqDB(ctx, convID) },
+	)
+}
+
+// nextSeq 发号入口(依赖注入版,便于单测;快路径带防回卷校验)。
+func nextSeq(ctx context.Context, rdb *redis.Client, convID string,
+	loadInit, bump func(context.Context) (int64, error),
+) (int64, error) {
 	key := seqKey(convID)
 
 	// 快路径:本进程已初始化过该会话的键 → INCR 单命令(省一次 GET RTT)。
 	if _, ok := seqInitialized.Load(convID); ok {
 		seq, err := rdb.Incr(ctx, key).Result()
 		if err == nil {
-			rememberConv(convID)
-			return seq, nil
+			// 防回卷:Redis 重启会丢键(本部署无持久化恢复),INCR 会把丢失的键从 0
+			// 重建返回 1——检测「结果不大于本进程见过的最后值」即视为键重建,回慢路径
+			// 用 DB 实际最大值重新装载,避免 seq 与已入库消息重叠。
+			if last, ok2 := convLastSeq.Load(convID); !ok2 || seq > last.(int64) {
+				convLastSeq.Store(convID, seq)
+				rememberConv(convID)
+				return seq, nil
+			}
+			slog.Warn("seq 疑似键重建,回慢路径重新装载", "conv", convID, "seq", seq)
+			_ = rdb.Del(ctx, key).Err() // 删掉刚被 INCR 重建的脏键,慢路径才能正确装载
 		}
-		seqInitialized.Delete(convID) // Redis 重启/键丢失:回慢路径重新装载
+		seqInitialized.Delete(convID) // INCR 出错或键重建:回慢路径
 	}
 
-	seq, err := nextSeqWith(ctx, rdb, convID,
-		func(ctx context.Context) (int64, error) { return loadNextSeqFromPG(ctx, convID) },
-		func(ctx context.Context) (int64, error) { return bumpSeqDB(ctx, convID) },
-	)
+	seq, err := nextSeqWith(ctx, rdb, convID, loadInit, bump)
 	if err == nil {
 		seqInitialized.Store(convID, struct{}{})
+		convLastSeq.Store(convID, seq)
 		rememberConv(convID)
 	}
 	return seq, err
@@ -73,6 +88,9 @@ func NextSeq(ctx context.Context, convID string) (int64, error) {
 
 // seqInitialized 进程内「键已装载」标记:多副本下键装载幂等(Lua 原子),此处仅省 GET 往返。
 var seqInitialized sync.Map
+
+// convLastSeq 本进程每会话最近成功发号值(防回卷校验基准,见 NextSeq 快路径)。
+var convLastSeq sync.Map
 
 // nextSeqWith 发号核心逻辑(依赖注入版,便于单测):
 //   - 快路径:键已存在 → INCR;
@@ -106,9 +124,14 @@ func nextSeqWith(ctx context.Context, rdb *redis.Client, convID string,
 
 // loadNextSeqFromPG 读 PG 当前 next_seq(会话不存在返回 0,首条消息 INCR 后为 1)。
 func loadNextSeqFromPG(ctx context.Context, convID string) (int64, error) {
+	// 装载值 = GREATEST(conversations.next_seq, messages 表实际最大 seq):
+	// checkpoint 滞后于 Redis 最多一个周期(60s),若 Redis 键丢失后仅按 next_seq 装载,
+	// 新发消息 seq 会与已入库消息重叠;取 DB 实际最大值保证恢复后严格单调。
+	// max(seq) 走 (conversation_id, seq) 索引,装载仅在键缺失时发生,成本可忽略。
 	var next int64
 	err := store.PG().QueryRow(ctx,
-		"SELECT next_seq FROM conversations WHERE id = $1", convID).Scan(&next)
+		`SELECT GREATEST(c.next_seq, COALESCE((SELECT max(seq) FROM messages WHERE conversation_id = $1), 0))
+		 FROM conversations c WHERE c.id = $1`, convID).Scan(&next)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
