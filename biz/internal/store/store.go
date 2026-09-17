@@ -77,6 +77,9 @@ func PG() *pgxpool.Pool { return pgPool }
 // Redis 返回全局 Redis 客户端。
 func Redis() *redis.Client { return rdb }
 
+// SetRedisForTest 测试替身注入(仅测试用,生产勿调)。
+func SetRedisForTest(c *redis.Client) { rdb = c }
+
 // S3 返回全局 minio 客户端。
 func S3() *minio.Client { return s3Client }
 

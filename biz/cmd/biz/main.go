@@ -21,6 +21,7 @@ import (
 	"github.com/our-chat/biz/internal/metrics"
 	"github.com/our-chat/biz/internal/migrate"
 	"github.com/our-chat/biz/internal/realtime"
+	"github.com/our-chat/biz/internal/service"
 	"github.com/our-chat/biz/internal/store"
 )
 
@@ -59,6 +60,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("schema 迁移完成(golang-migrate)")
+
+	// seq 发号 checkpoint 循环(每 60s 把 Redis 位点 GREATEST 写回 PG 兜底)
+	service.StartCheckpointLoop(ctx, 60*time.Second, logger)
 
 	// HTTP 面:gin 装配(路由/中间件见 internal/api)。
 	router := api.NewRouter(cfg, logger)
