@@ -20,6 +20,7 @@ import (
 	"github.com/our-chat/biz/internal/logx"
 	"github.com/our-chat/biz/internal/metrics"
 	"github.com/our-chat/biz/internal/migrate"
+	"github.com/our-chat/biz/internal/oauth"
 	"github.com/our-chat/biz/internal/realtime"
 	"github.com/our-chat/biz/internal/service"
 	"github.com/our-chat/biz/internal/store"
@@ -63,6 +64,19 @@ func run(logger *slog.Logger) error {
 
 	// seq 发号 checkpoint 循环(每 60s 把 Redis 位点 GREATEST 写回 PG 兜底)
 	service.StartCheckpointLoop(ctx, 60*time.Second, logger)
+
+	// OAuth IdP:seed 默认 client + 清理任务(密钥装载与端点挂载在 api 装配内完成)
+	if err := oauth.SeedDefaultClient(ctx, oauth.SeedClient{
+		ClientID:          "our-chat-web",
+		ClientName:        "our-chat Web SPA",
+		ClientType:        "public",
+		RedirectURIs:      cfg.OAuth.WebRedirectURI,
+		AllowedScopes:     []string{"openid", "profile", "email", "agent-server"},
+		AllowedGrantTypes: []string{"authorization_code", "refresh_token"},
+	}); err != nil {
+		return err
+	}
+	oauth.StartCleanupLoop(ctx)
 
 	// HTTP 面:gin 装配(路由/中间件见 internal/api)。
 	router := api.NewRouter(cfg, logger)
