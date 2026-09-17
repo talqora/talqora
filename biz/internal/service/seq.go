@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -46,15 +47,32 @@ func idemKey(convID string, senderID int64, clientMsgID string) string {
 
 // NextSeq 取会话下一个 seq(Redis INCR;键缺失时从 PG 装载;Redis 故障降级 DB 行锁)。
 func NextSeq(ctx context.Context, convID string) (int64, error) {
-	seq, err := nextSeqWith(ctx, store.Redis(), convID,
+	rdb := store.Redis()
+	key := seqKey(convID)
+
+	// 快路径:本进程已初始化过该会话的键 → INCR 单命令(省一次 GET RTT)。
+	if _, ok := seqInitialized.Load(convID); ok {
+		seq, err := rdb.Incr(ctx, key).Result()
+		if err == nil {
+			rememberConv(convID)
+			return seq, nil
+		}
+		seqInitialized.Delete(convID) // Redis 重启/键丢失:回慢路径重新装载
+	}
+
+	seq, err := nextSeqWith(ctx, rdb, convID,
 		func(ctx context.Context) (int64, error) { return loadNextSeqFromPG(ctx, convID) },
 		func(ctx context.Context) (int64, error) { return bumpSeqDB(ctx, convID) },
 	)
 	if err == nil {
+		seqInitialized.Store(convID, struct{}{})
 		rememberConv(convID)
 	}
 	return seq, err
 }
+
+// seqInitialized 进程内「键已装载」标记:多副本下键装载幂等(Lua 原子),此处仅省 GET 往返。
+var seqInitialized sync.Map
 
 // nextSeqWith 发号核心逻辑(依赖注入版,便于单测):
 //   - 快路径:键已存在 → INCR;
@@ -66,7 +84,7 @@ func nextSeqWith(ctx context.Context, rdb *redis.Client, convID string,
 ) (int64, error) {
 	key := seqKey(convID)
 
-	// 快路径:键已存在 → INCR 单命令。
+	// 键已存在 → INCR 单命令。
 	if _, err := rdb.Get(ctx, key).Int64(); err == nil {
 		if seq, ierr := rdb.Incr(ctx, key).Result(); ierr == nil {
 			return seq, nil
@@ -108,9 +126,20 @@ func bumpSeqDB(ctx context.Context, convID string) (int64, error) {
 
 // ---- 幂等缓存(V3 §4.1:clientMsgId 去重前置到 Redis,DB 唯一约束兜底) ----
 
+// idemLocal 本进程已处理过的幂等键(重发快速命中,省 Redis EXISTS 往返);
+// 跨副本重发由 Redis EXISTS 兜底。无 TTL,靠容量护栏防膨胀(超限整体清空回落 Redis 路径)。
+var (
+	idemLocal sync.Map
+	idemCount atomic.Int64
+)
+
 // CheckIdempotency 查幂等缓存:命中返回 true(调用方查库取首次结果,不再 INCR/INSERT)。
 func CheckIdempotency(ctx context.Context, convID string, senderID int64, clientMsgID string) (bool, error) {
-	n, err := store.Redis().Exists(ctx, idemKey(convID, senderID, clientMsgID)).Result()
+	key := idemKey(convID, senderID, clientMsgID)
+	if _, ok := idemLocal.Load(key); ok {
+		return true, nil
+	}
+	n, err := store.Redis().Exists(ctx, key).Result()
 	if err != nil {
 		return false, err
 	}
@@ -119,7 +148,14 @@ func CheckIdempotency(ctx context.Context, convID string, senderID int64, client
 
 // MarkIdempotent 写入幂等缓存(SET NX + 短 TTL;命中失败(已存在)也视为成功)。
 func MarkIdempotent(ctx context.Context, convID string, senderID int64, clientMsgID string) {
-	_ = store.Redis().SetNX(ctx, idemKey(convID, senderID, clientMsgID), "1", 5*time.Minute).Err()
+	key := idemKey(convID, senderID, clientMsgID)
+	_ = store.Redis().SetNX(ctx, key, "1", 5*time.Minute).Err()
+	idemLocal.Store(key, struct{}{})
+	// 容量护栏:本地缓存过大时整体清空(回落 Redis 路径,正确性不受影响)。
+	if idemCount.Add(1) > 1_000_000 {
+		idemLocal.Clear()
+		idemCount.Store(0)
+	}
 }
 
 // ---- checkpoint:定期把 Redis 发号位点 GREATEST 写回 PG ----

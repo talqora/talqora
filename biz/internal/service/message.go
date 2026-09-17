@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
@@ -57,6 +58,36 @@ type PersistMessageResult struct {
 
 var digitRe = regexp.MustCompile(`^\d+$`)
 
+// ucKey 关系行缓存键。
+func ucKey(uid int64, convID string) string {
+	return strconv.FormatInt(uid, 10) + ":" + convID
+}
+
+// convExistsCache / ucExistsCache:进程内「已确认存在」缓存(会话与关系行均无删除路径,
+// 创建一次后恒存在;多副本下 INSERT ... ON CONFLICT DO NOTHING 幂等,缓存仅省写库往返)。
+var (
+	convExistsCache sync.Map // convID -> struct{}
+	ucExistsCache   sync.Map // "userId:convID" -> struct{}
+)
+
+// ensureConversation 会话兜底创建(首条消息触发;缓存命中跳过写入,message.ts:35-39 语义不变)。
+func ensureConversation(ctx context.Context, convID string) error {
+	if _, ok := convExistsCache.Load(convID); ok {
+		return nil
+	}
+	convType := "single"
+	if strings.HasPrefix(convID, "group_") {
+		convType = "group"
+	}
+	if _, err := store.PG().Exec(ctx,
+		"INSERT INTO conversations (id, conv_type) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+		convID, convType); err != nil {
+		return err
+	}
+	convExistsCache.Store(convID, struct{}{})
+	return nil
+}
+
 // PersistMessage 落库 + 发号 + 幂等去重。
 // 语义对齐 message.ts:28-92:
 //  1. 会话不存在则建(ON CONFLICT DO NOTHING,原子去重);
@@ -65,13 +96,7 @@ var digitRe = regexp.MustCompile(`^\d+$`)
 //  4. 确保参与者 user_conversations 行存在(ON CONFLICT DO NOTHING)。
 func PersistMessage(ctx context.Context, input PersistMessageInput) (*PersistMessageResult, error) {
 	// 1. 会话兜底创建(消息先到也能建会话;convType 按前缀推断,message.ts:35-39)
-	convType := "single"
-	if strings.HasPrefix(input.ConversationID, "group_") {
-		convType = "group"
-	}
-	if _, err := store.PG().Exec(ctx,
-		"INSERT INTO conversations (id, conv_type) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
-		input.ConversationID, convType); err != nil {
+	if err := ensureConversation(ctx, input.ConversationID); err != nil {
 		return nil, err
 	}
 
@@ -131,15 +156,25 @@ func PersistMessage(ctx context.Context, input PersistMessageInput) (*PersistMes
 		return nil, err
 	}
 
-	// 参与者关系行(message.ts:66-72,createMany skipDuplicates 语义)
-	if len(input.ParticipantIDs) > 0 {
+	// 参与者关系行(message.ts:66-72,createMany skipDuplicates 语义);
+	// 已确认存在的关系行跳过写入(热路径减一次 ON CONFLICT)。
+	var missing []int64
+	for _, uid := range input.ParticipantIDs {
+		if _, ok := ucExistsCache.Load(ucKey(uid, input.ConversationID)); !ok {
+			missing = append(missing, uid)
+		}
+	}
+	if len(missing) > 0 {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO user_conversations (user_id, conversation_id)
 			SELECT unnest($1::bigint[]), $2
 			ON CONFLICT (user_id, conversation_id) DO NOTHING`,
-			input.ParticipantIDs, input.ConversationID); err != nil {
+			missing, input.ConversationID); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
 			return nil, err
+		}
+		for _, uid := range missing {
+			ucExistsCache.Store(ucKey(uid, input.ConversationID), struct{}{})
 		}
 	}
 
