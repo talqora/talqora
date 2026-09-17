@@ -1,0 +1,21 @@
+# biz(Go 业务层)的独立 buf 生成模板。
+# 与 buf.gen.yaml 分离的原因:managed go_package_prefix 是单值,
+# edge 契约需按 module 隔离(gateway 与 biz 各自 import 自己的 gen 包),
+# 故 biz 用本模板把全部契约文件的 go_package 前缀指向 biz module。
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/our-chat/biz/internal/contracts/gen
+plugins:
+  # edge 契约 message 类型
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: biz/internal/contracts/gen
+    opt:
+      - paths=source_relative
+  # edge 契约 gRPC service 代码
+  - remote: buf.build/grpc/go:v1.5.1
+    out: biz/internal/contracts/gen
+    opt:
+      - paths=source_relative

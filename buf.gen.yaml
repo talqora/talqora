@@ -35,6 +35,7 @@ plugins:
     out: gateway/internal/contracts/gen
     opt:
       - paths=source_relative
+  # biz(Go 业务层)edge 契约生成见 buf.gen.biz.yaml(独立模板,go_package 前缀按 module 隔离)
   # server Node gRPC service 代码(内部 edge 契约;全量 message 类型一并生成,
   # 运行时依赖 @bufbuild/protobuf + @grpc/grpc-js,grpc-js callback 风格)
   - remote: buf.build/community/stephenh-ts-proto:v2.11.8
