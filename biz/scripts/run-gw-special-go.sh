@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Go 业务层专项场景:S6 爬坡 / S7 惊群 ×3 / 群扇出 ×3 / HTTP API 层。
-# 数据落 docs/监测设施/测试报告/26-9-16-gobiz/data/。
+# 数据落 docs/监测设施/测试报告/<OUT_SUBDIR>/data/(node 工具读 OUT_SUBDIR env,必须 export)。
 set -u
 cd "$(dirname "$0")/../../perf"
-OUT_SUBDIR="${OUT_SUBDIR:-26-9-16-gobiz}"
+export OUT_SUBDIR="${OUT_SUBDIR:-26-9-17-gobiz}"
 DATA_DIR="../docs/监测设施/测试报告/${OUT_SUBDIR}/data"
 
 echo "=== S6 连接爬坡:START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 ==="

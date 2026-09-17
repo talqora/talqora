@@ -5,40 +5,40 @@
     "CONNS": 300,
     "RAMP": 50
   },
-  "startedAt": 1789635362262,
-  "endedAt": 1789635378575,
+  "startedAt": 1789635395431,
+  "endedAt": 1789635411705,
   "initialConnect": {
     "ok": 300,
     "attempted": 300,
     "count": 300,
     "p50": 8,
-    "p95": 11,
+    "p95": 10,
     "p99": 11,
     "min": 4,
-    "max": 12
+    "max": 13
   },
   "stormDisconnect": {
-    "allClosedAt": 1789635367250
+    "allClosedAt": 1789635400418
   },
   "stormReconnect": {
-    "startedAt": 1789635370256,
+    "startedAt": 1789635403422,
     "ok": 300,
     "attempted": 300,
     "count": 300,
-    "p50": 27,
-    "p95": 36,
-    "p99": 37,
-    "min": 23,
-    "max": 38
+    "p50": 23,
+    "p95": 31,
+    "p99": 31,
+    "min": 18,
+    "max": 31
   },
   "resource": {
-    "baselineGatewayRssMB": 89.5,
-    "baselineServerRssMB": 273.6,
+    "baselineGatewayRssMB": 91,
+    "baselineServerRssMB": 279.8,
     "baselineGatewayConnections": 300,
     "baselineGoroutines": 626,
     "baselineEventloopP99Ms": null,
-    "spikePeakGatewayRssMB": 90.7,
-    "spikePeakServerRssMB": 274.9,
+    "spikePeakGatewayRssMB": 91.5,
+    "spikePeakServerRssMB": 280,
     "spikePeakGatewayConnections": 300,
     "spikePeakGoroutines": 626,
     "spikePeakEventloopP99Ms": null,
