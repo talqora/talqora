@@ -47,6 +47,26 @@ func PublishDownlink(ctx context.Context, userID int64, typ string, data any, op
 	return store.Redis().Publish(ctx, DownlinkChannel, raw).Err()
 }
 
+// FanoutDownlink 把同一帧批量 publish 给多个用户(单次 pipeline 往返)。
+// 替代逐用户串行 PublishDownlink:群扇出 100 成员从「100 次串行 RTT」降为「1 次往返」,
+// 语义与 Node publishDownlink 异步广播对齐(逐个失败仅记日志,不影响主流程)。
+func FanoutDownlink(ctx context.Context, userIDs []int64, typ string, data any) {
+	rdb := store.Redis()
+	pipe := rdb.Pipeline()
+	for _, uid := range userIDs {
+		payload := downlinkPayload{UserID: uid, Frame: DownlinkFrame{Type: typ, Data: data}}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			logDownlinkError(err)
+			continue
+		}
+		pipe.Publish(ctx, DownlinkChannel, raw)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !isRedisNil(err) {
+		logDownlinkError(err)
+	}
+}
+
 // EmitToUser best-effort 推送(push.ts:34-38;失败只记日志不影响主流程)。
 func EmitToUser(ctx context.Context, userID int64, event string, payload any) {
 	if err := PublishDownlink(ctx, userID, event, payload, nil); err != nil {

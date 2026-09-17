@@ -156,11 +156,11 @@ func handleMessageSend(ctx context.Context, data json.RawMessage, raw []byte, uc
 				targets[p] = true
 			}
 		}
+		targetIDs := make([]int64, 0, len(targets))
 		for uid := range targets {
-			if err := service.PublishDownlink(ctx, uid, "receiveMessage", res.Message, nil); err != nil {
-				logDownlinkWarn(err)
-			}
+			targetIDs = append(targetIDs, uid)
 		}
+		service.FanoutDownlink(ctx, targetIDs, "receiveMessage", res.Message)
 
 		mentioned := service.ParseMentionIDs(in.Mentions, participants)
 		if len(mentioned) > 0 {
@@ -168,15 +168,15 @@ func handleMessageSend(ctx context.Context, data json.RawMessage, raw []byte, uc
 				logWarn("markMentions 失败", err)
 			}
 			onlineMentioned, _ := service.FilterOnline(ctx, mentioned)
+			mentionIDs := make([]int64, 0, len(onlineMentioned))
 			for uid := range onlineMentioned {
-				if err := service.PublishDownlink(ctx, uid, "mention", map[string]any{
-					"conversationId": in.ConversationID,
-					"seq":            res.Message.Seq,
-					"serverMsgId":    res.Message.ID,
-				}, nil); err != nil {
-					logDownlinkWarn(err)
-				}
+				mentionIDs = append(mentionIDs, uid)
 			}
+			service.FanoutDownlink(ctx, mentionIDs, "mention", map[string]any{
+				"conversationId": in.ConversationID,
+				"seq":            res.Message.Seq,
+				"serverMsgId":    res.Message.ID,
+			})
 		}
 	}
 

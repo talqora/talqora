@@ -64,11 +64,11 @@ func PersistAndBroadcastMessage(ctx context.Context, input PersistMessageInput) 
 	}
 	metrics.BroadcastRecipients.Observe(float64(len(targets)))
 
+	targetIDs := make([]int64, 0, len(targets))
 	for uid := range targets {
-		if err := PublishDownlink(ctx, uid, "receiveMessage", res.Message, nil); err != nil {
-			logDownlinkError(err)
-		}
+		targetIDs = append(targetIDs, uid)
 	}
+	FanoutDownlink(ctx, targetIDs, "receiveMessage", res.Message)
 
 	// @提醒旁路(push.ts:90-102)
 	mentioned := ParseMentionIDs(input.Mentions, participants)
@@ -80,15 +80,15 @@ func PersistAndBroadcastMessage(ctx context.Context, input PersistMessageInput) 
 		if err != nil {
 			return nil, err
 		}
+		mentionIDs := make([]int64, 0, len(onlineMentioned))
 		for uid := range onlineMentioned {
-			if err := PublishDownlink(ctx, uid, "mention", map[string]any{
-				"conversationId": input.ConversationID,
-				"seq":            res.Message.Seq,
-				"serverMsgId":    res.Message.ID,
-			}, nil); err != nil {
-				logDownlinkError(err)
-			}
+			mentionIDs = append(mentionIDs, uid)
 		}
+		FanoutDownlink(ctx, mentionIDs, "mention", map[string]any{
+			"conversationId": input.ConversationID,
+			"seq":            res.Message.Seq,
+			"serverMsgId":    res.Message.ID,
+		})
 	}
 	return res, nil
 }
