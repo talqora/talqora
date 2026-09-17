@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -42,3 +43,22 @@ func trimSpace(s string) string { return strings.TrimSpace(s) }
 func isNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
 func slogWarn(msg string, err error) { slog.Default().Warn(msg, "err", err) }
+
+// readerFromBytes 字节 → io.Reader(imaging.Decode 用)。
+func readerFromBytes(b []byte) *bytes.Reader { return bytes.NewReader(b) }
+
+// newBytesBuffer 内存 buffer(imaging.Encode 输出)。
+func newBytesBuffer() *bytes.Buffer { return &bytes.Buffer{} }
+
+// toFloat JSON 数字宽松转 float64。
+func toFloat(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case string:
+		f, _ := strconv.ParseFloat(t, 64)
+		return f
+	default:
+		return 0
+	}
+}
