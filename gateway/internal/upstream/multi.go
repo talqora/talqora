@@ -16,10 +16,10 @@ type MultiGrpc struct {
 }
 
 // NewMultiGrpc 为每个后端地址建立一组 gRPC 流。
-func NewMultiGrpc(addrs []string, streamsPerBackend int, token string, log *slog.Logger, onDownlink DownlinkHandler) (*MultiGrpc, error) {
+func NewMultiGrpc(addrs []string, streamsPerBackend int, token string, replica string, log *slog.Logger, onDownlink DownlinkHandler) (*MultiGrpc, error) {
 	m := &MultiGrpc{log: log}
 	for _, addr := range addrs {
-		gc, err := NewGrpc(addr, streamsPerBackend, token, log, onDownlink)
+		gc, err := NewGrpc(addr, streamsPerBackend, token, replica, log, onDownlink)
 		if err != nil {
 			_ = m.Close()
 			return nil, fmt.Errorf("后端 %s: %w", addr, err)
@@ -30,9 +30,23 @@ func NewMultiGrpc(addrs []string, streamsPerBackend int, token string, log *slog
 	return m, nil
 }
 
-// clientFor 按 userId 哈希选后端(同用户恒同后端)。
+// clientFor 按 userId 哈希选后端(同用户恒同后端);目标后端不健康时
+// 降级到第一个健康后端——业务层状态全外置(seq 发号/幂等/通话态全在 Redis/PG),
+// 任何副本都能正确处理任意用户的消息,副本故障不应影响任何用户。
+// 全部不健康(如启动初期流建立中)回退哈希目标,失败由客户端重试兜底。
 func (m *MultiGrpc) clientFor(userID int64) *GrpcClient {
-	return m.clients[int(uint64(userID)%uint64(len(m.clients)))]
+	n := len(m.clients)
+	idx := int(uint64(userID) % uint64(n))
+	if m.clients[idx].IsHealthy() {
+		return m.clients[idx]
+	}
+	for i := 1; i < n; i++ {
+		c := m.clients[(idx+i)%n]
+		if c.IsHealthy() {
+			return c
+		}
+	}
+	return m.clients[idx]
 }
 
 // Forward 把上行帧交给 userId 对应的后端,等 ack 返回回投载荷。

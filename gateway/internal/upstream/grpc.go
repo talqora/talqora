@@ -35,20 +35,24 @@ type GrpcClient struct {
 	closeOnce  sync.Once
 }
 
-// tokenAuth 把共享内部令牌注入每次 RPC 的 metadata(与 HTTP 模式的 X-Gateway-Token 同义)。
-type tokenAuth struct{ token string }
+// tokenAuth 把共享内部令牌与副本标识注入每次 RPC 的 metadata
+// (token 与 HTTP 模式的 X-Gateway-Token 同义;x-replica-id 供业务层定向下行,V3 §4.3)。
+type tokenAuth struct {
+	token   string
+	replica string
+}
 
 func (t tokenAuth) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
-	return map[string]string{"x-gateway-token": t.token}, nil
+	return map[string]string{"x-gateway-token": t.token, "x-replica-id": t.replica}, nil
 }
 
 func (t tokenAuth) RequireTransportSecurity() bool { return false }
 
 // NewGrpc 建立到 Node 的 gRPC 连接并拉起 n 条双向流(每条流自带 recv 循环)。
-func NewGrpc(addr string, n int, token string, log *slog.Logger, onDownlink DownlinkHandler) (*GrpcClient, error) {
+func NewGrpc(addr string, n int, token string, replica string, log *slog.Logger, onDownlink DownlinkHandler) (*GrpcClient, error) {
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(tokenAuth{token: token}),
+		grpc.WithPerRPCCredentials(tokenAuth{token: token, replica: replica}),
 		// 长连接保活:空闲 30s 发 ping,1s 内无 ack 判死——gateway 侧尽快感知 server 重启。
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
@@ -74,6 +78,19 @@ func NewGrpc(addr string, n int, token string, log *slog.Logger, onDownlink Down
 // shardFor 按 userId 哈希定位分片。
 func (g *GrpcClient) shardFor(userID int64) *streamShard {
 	return g.streams[int(uint64(userID)%uint64(len(g.streams)))]
+}
+
+// IsHealthy 有任一已建立流即视为健康(流断后 recvLoop 自动退避重建)。
+func (g *GrpcClient) IsHealthy() bool {
+	for _, s := range g.streams {
+		s.mu.Lock()
+		ok := s.stream != nil
+		s.mu.Unlock()
+		if ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Forward 把一条客户端上行帧经 gRPC 流交给 Node,等 UplinkAck 后返回回投载荷(raw_response)。

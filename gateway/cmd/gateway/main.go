@@ -68,7 +68,7 @@ func main() {
 		// 多后端:EDGE_GRPC_ADDR 逗号分隔(业务层多副本),每地址一组流池。
 		onDownlink := func(f *edgev1.DownlinkFrame) { router.route(f) }
 		if len(cfg.EdgeGrpcAddrs) > 1 {
-			mc, merr := upstream.NewMultiGrpc(cfg.EdgeGrpcAddrs, cfg.EdgeGrpcStreams, cfg.InternalToken, log, onDownlink)
+			mc, merr := upstream.NewMultiGrpc(cfg.EdgeGrpcAddrs, cfg.EdgeGrpcStreams, cfg.InternalToken, cfg.ReplicaID, log, onDownlink)
 			if merr != nil {
 				log.Error("gRPC 多后端初始化失败", "err", merr)
 				os.Exit(1)
@@ -77,7 +77,7 @@ func main() {
 			up = mc
 			log.Info("上行通道:grpc 流(多后端)", "addrs", cfg.EdgeGrpcAddrs, "streams/后端", cfg.EdgeGrpcStreams)
 		} else {
-			gc, gerr := upstream.NewGrpc(cfg.EdgeGrpcAddr, cfg.EdgeGrpcStreams, cfg.InternalToken, log, onDownlink)
+			gc, gerr := upstream.NewGrpc(cfg.EdgeGrpcAddr, cfg.EdgeGrpcStreams, cfg.InternalToken, cfg.ReplicaID, log, onDownlink)
 			if gerr != nil {
 				log.Error("gRPC 上行通道初始化失败", "err", gerr)
 				os.Exit(1)

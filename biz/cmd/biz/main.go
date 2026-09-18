@@ -96,6 +96,8 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		// 定向下行:注入 gRPC 下行流发送器(下行经流定向,失败回退 pub/sub 兜底)。
+		service.SetDirectDownlink(realtime.DownlinkSender())
 	}
 
 	errCh := make(chan error, 2)

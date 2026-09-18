@@ -102,6 +102,78 @@ func GetDevices(ctx context.Context, userID int64) ([]DeviceEntry, error) {
 	return out, nil
 }
 
+// ReplicaOf 单用户在线副本定位(定向下行用):取任一在线设备的 replica id。
+// 轻量路径(不做惰性摘除——摘除是 gateway 侧职责,过期数据由 pub/sub 兜底)。
+func ReplicaOf(ctx context.Context, userID int64) (string, error) {
+	rdb := store.Redis()
+	now := strconv.FormatInt(unixMilli(), 10)
+	alive, err := rdb.ZRangeByScore(ctx, presenceZKey(userID), &redis.ZRangeBy{Min: now, Max: "+inf", Count: 1}).Result()
+	if err != nil || len(alive) == 0 {
+		return "", err
+	}
+	metas, err := rdb.HMGet(ctx, presenceZKey(userID)+":meta", alive[0]).Result()
+	if err != nil || len(metas) == 0 {
+		return "", err
+	}
+	raw, _ := metas[0].(string)
+	if sep := strings.Index(raw, ":"); sep != -1 {
+		return raw[:sep], nil
+	}
+	return "", nil
+}
+
+// ReplicaOfBatch 批量在线副本定位(群扇出定向下行用):
+// 第一段 pipeline 在线判定(ZRANGEBYSCORE),第二段 pipeline 批量 meta 解析——共 2 次往返。
+func ReplicaOfBatch(ctx context.Context, userIDs []int64) (map[int64]string, error) {
+	out := make(map[int64]string)
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	rdb := store.Redis()
+	now := strconv.FormatInt(unixMilli(), 10)
+
+	pipe := rdb.Pipeline()
+	cmds := make([]*redis.StringSliceCmd, len(userIDs))
+	for i, uid := range userIDs {
+		cmds[i] = pipe.ZRangeByScore(ctx, presenceZKey(uid), &redis.ZRangeBy{Min: now, Max: "+inf", Count: 1})
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !isRedisNil(err) {
+		return out, err
+	}
+	var aliveUIDs []int64
+	var aliveDevices []string
+	for i, cmd := range cmds {
+		rows, rerr := cmd.Result()
+		if rerr == nil && len(rows) > 0 {
+			aliveUIDs = append(aliveUIDs, userIDs[i])
+			aliveDevices = append(aliveDevices, rows[0])
+		}
+	}
+	if len(aliveUIDs) == 0 {
+		return out, nil
+	}
+
+	pipe2 := rdb.Pipeline()
+	metaCmds := make([]*redis.SliceCmd, len(aliveUIDs))
+	for i, uid := range aliveUIDs {
+		metaCmds[i] = pipe2.HMGet(ctx, presenceZKey(uid)+":meta", aliveDevices[i])
+	}
+	if _, err := pipe2.Exec(ctx); err != nil && !isRedisNil(err) {
+		return out, err
+	}
+	for i, cmd := range metaCmds {
+		vals, verr := cmd.Result()
+		if verr != nil || len(vals) == 0 {
+			continue
+		}
+		raw, _ := vals[0].(string)
+		if sep := strings.Index(raw, ":"); sep != -1 {
+			out[aliveUIDs[i]] = raw[:sep]
+		}
+	}
+	return out, nil
+}
+
 func unixMilli() int64 { return nowMillis() }
 
 func isRedisNil(err error) bool { return err == redis.Nil }

@@ -34,6 +34,16 @@ var (
 		Name: "server_conversation_rate_limited_total",
 		Help: "会话消息率超限被拒绝的消息数",
 	})
+	// DownlinkDirectTotal 定向下行(gRPC 流)成功投递计数。
+	DownlinkDirectTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "server_downlink_direct_total",
+		Help: "经 gRPC 下行流定向投递的帧数",
+	})
+	// DownlinkFallbackTotal pub/sub 兜底投递计数(副本未知/离线/发送失败)。
+	DownlinkFallbackTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "server_downlink_fallback_total",
+		Help: "回退 Redis pub/sub 投递的帧数",
+	})
 	// 当前活跃实时流连接数(本副本 gRPC edge 流;连接实体在 gateway)。
 	WSConnections = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "server_ws_connections",
@@ -88,6 +98,7 @@ var (
 func init() {
 	prometheus.MustRegister(
 		MessageDuration, MessageInTotal, MessageOutTotal, ConvRateLimitedTotal,
+		DownlinkDirectTotal, DownlinkFallbackTotal,
 		WSConnections, WSDisconnectsTotal, OnlineUsers,
 		BroadcastRecipients, CallEventsTotal, ActiveCalls,
 		RumWebVitals, HTTPRequestDuration, DBQueryDuration,
