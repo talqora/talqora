@@ -67,8 +67,9 @@ func anyToInt64(v any) int64 {
 func processFrame(stream edgev1.Realtime_StreamServer, frame *edgev1.EdgeFrame, s *EdgeServer) error {
 	ctx := stream.Context()
 	if u := frame.GetUplink(); u != nil {
-		var raw any
-		if err := json.Unmarshal(u.RawFrame, &raw); err != nil {
+		// json.Valid 仅校验合法性,不构建 any 树(原 json.Unmarshal 每帧多一次全量解析分配,
+		// 高连接密度下是纯浪费——真实解析在 HandleUplink 内进行)。
+		if !json.Valid(u.RawFrame) {
 			return stream.Send(makeAck(false, u.ClientMsgId, u.UserId, 0, 0, "上行帧不是合法 JSON", nil))
 		}
 		result := HandleUplink(ctx, u.RawFrame, UplinkContext{UserID: u.UserId, DeviceID: u.DeviceId})
