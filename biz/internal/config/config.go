@@ -55,6 +55,7 @@ type Config struct {
 	JWTExpiresIn    string
 	InternalToken   string
 	DatabaseURL     string
+	ReadOnlyDatabaseURL string
 	RedisURL        string
 	Turn            TurnConfig
 	AuthRateLimit   RateLimitConfig
@@ -86,6 +87,8 @@ func Load() (*Config, error) {
 		JWTExpiresIn:    envOr("JWT_EXPIRES_IN", "7d"),
 		InternalToken:   envOr("GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
 		DatabaseURL:     envOr("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/our_chat"),
+		// 只读副本:未配置回退写库(store.NewRO 空串处理,单实例部署零改动)。
+		ReadOnlyDatabaseURL: envOr("PG_READONLY_URL", ""),
 		RedisURL:        envOr("REDIS_URL", "redis://localhost:6379"),
 		Turn: TurnConfig{
 			Secret:   strings.TrimSpace(os.Getenv("TURN_SECRET")),

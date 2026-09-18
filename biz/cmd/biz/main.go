@@ -48,6 +48,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
+	// 只读副本(未配置回退写库);副本池独立生命周期,关闭独立于写池。
+	if roPool, rerr := store.NewRO(ctx, cfg.ReadOnlyDatabaseURL); rerr != nil {
+		return rerr
+	} else if roPool != pool {
+		defer roPool.Close()
+	}
 	if _, err := store.NewRedis(ctx, cfg.RedisURL); err != nil {
 		return err
 	}

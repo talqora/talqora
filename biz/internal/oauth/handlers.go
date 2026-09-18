@@ -844,7 +844,7 @@ type userProfileRow struct {
 
 func findUserProfile(ctx context.Context, userID int64) (*userProfileRow, error) {
 	var u userProfileRow
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT id, username, nickname, email, avatar FROM users WHERE id = $1`, userID,
 	).Scan(&u.ID, &u.Username, &u.Nickname, &u.Email, &u.Avatar)
 	if isNoRowsErr(err) {

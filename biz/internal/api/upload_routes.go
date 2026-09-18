@@ -79,7 +79,7 @@ func persistBuffer(c *gin.Context, buffer []byte, originalName, mimeType string)
 	ctx := c.Request.Context()
 
 	var objectKey string
-	err = store.PG().QueryRow(ctx,
+	err = store.RO().QueryRow(ctx,
 		"SELECT object_key FROM uploaded_files WHERE md5 = $1", md5Str).Scan(&objectKey)
 	if err == nil {
 		return storage.PublicURL(objectKey), md5Str, len(buffer), nil
@@ -187,7 +187,7 @@ func handleUploadCheck(c *gin.Context) {
 		return
 	}
 	var objectKey string
-	err := store.PG().QueryRow(c.Request.Context(),
+	err := store.RO().QueryRow(c.Request.Context(),
 		"SELECT object_key FROM uploaded_files WHERE md5 = $1", body.FileMD5).Scan(&objectKey)
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{

@@ -31,7 +31,7 @@ func handleGetFriendList(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	rows, err := store.PG().Query(ctx,
+	rows, err := store.RO().Query(ctx,
 		"SELECT friend_id, remark FROM friendships WHERE user_id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
@@ -57,7 +57,7 @@ func handleGetFriendList(c *gin.Context) {
 
 	friendList := gin.H{"friendId": gin.H{}, "friendInfo": gin.H{}}
 	if len(friendIDs) > 0 {
-		urows, err := store.PG().Query(ctx,
+		urows, err := store.RO().Query(ctx,
 			"SELECT id, username, avatar, gender FROM users WHERE id = ANY($1::bigint[])", friendIDs)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
@@ -99,7 +99,7 @@ func handleSearchUser(c *gin.Context) {
 		matchedUsr string
 		avatar, gender *string
 	)
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT id, username, avatar, gender FROM users
 		WHERE ($1::bigint IS NOT NULL AND id = $1) OR phone = $2 OR username = $2
 		LIMIT 1`, idKw, keyword,
@@ -113,7 +113,7 @@ func handleSearchUser(c *gin.Context) {
 	// 查询当前用户与目标的关系(以 token 身份为准)
 	user := CurrentUser(c)
 	var existingID int64
-	err = store.PG().QueryRow(ctx, `
+	err = store.RO().QueryRow(ctx, `
 		SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2`,
 		user.ID, matchedID).Scan(&existingID)
 	relationExists := err == nil
@@ -162,7 +162,7 @@ func handleAddFriend(c *gin.Context) {
 	// 推好友请求给接收方(best-effort,friend.ts:110-130)
 	var username string
 	var avatar *string
-	if err := store.PG().QueryRow(ctx,
+	if err := store.RO().QueryRow(ctx,
 		"SELECT username, avatar FROM users WHERE id = $1", userID).Scan(&username, &avatar); err == nil {
 		now := nowISOString()
 		service.EmitToUser(ctx, friendID, "receiveFriendReq", gin.H{
@@ -220,7 +220,7 @@ func handleGetFriendReqs(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	rows, err := store.PG().Query(ctx, `
+	rows, err := store.RO().Query(ctx, `
 		SELECT id, user_id, friend_id, status, remark, created_at, updated_at
 		FROM friendships WHERE user_id = $1 ORDER BY updated_at DESC`, userID)
 	if err != nil {
@@ -252,7 +252,7 @@ func handleGetFriendReqs(c *gin.Context) {
 
 	requesterMap := map[string]gin.H{}
 	if len(requesterIDs) > 0 {
-		urows, err := store.PG().Query(ctx,
+		urows, err := store.RO().Query(ctx,
 			"SELECT id, username, avatar FROM users WHERE id = ANY($1::bigint[])", requesterIDs)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
@@ -344,7 +344,7 @@ func handleReplyFriendReq(c *gin.Context) {
 		service.EmitToUser(ctx, friendID, "friendListChanged", gin.H{"peerId": userID})
 
 		var requesterName string
-		_ = store.PG().QueryRow(ctx,
+		_ = store.RO().QueryRow(ctx,
 			"SELECT username FROM users WHERE id = $1", friendID).Scan(&requesterName)
 
 		if _, err := service.PersistAndBroadcastMessage(ctx, service.PersistMessageInput{

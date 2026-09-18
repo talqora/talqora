@@ -31,7 +31,7 @@ func FindClient(ctx context.Context, clientID string) (*OAuthClient, error) {
 	var c OAuthClient
 	var secretHash *string
 	var redirectRaw, scopesRaw, grantsRaw []byte
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT client_id, client_name, client_type, client_secret_hash, redirect_uris,
 			allowed_scopes, allowed_grant_types, token_lifetime_sec, refresh_lifetime_sec,
 			require_pkce, disabled

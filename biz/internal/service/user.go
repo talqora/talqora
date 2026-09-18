@@ -48,7 +48,7 @@ func (u *FullUser) WithoutPassword(token string) map[string]any {
 // FindUserByUsername 按 username 查全量用户(login.ts:25)。不存在返回 nil。
 func FindUserByUsername(ctx context.Context, username string) (*FullUser, error) {
 	var u FullUser
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT id, username, email, phone, password, nickname, avatar, bio, gender, status, last_seen, created_at, updated_at
 		FROM users WHERE username = $1`, username,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.Phone, &u.Password, &u.Nickname, &u.Avatar,

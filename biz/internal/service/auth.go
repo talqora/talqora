@@ -95,7 +95,7 @@ type UserProfile struct {
 // FindActiveUser 按 id 查未删除用户(auth.ts:58-61)。不存在返回 nil。
 func FindActiveUser(ctx context.Context, id int64) (*UserProfile, error) {
 	var u UserProfile
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT id, username, email, nickname, avatar, status
 		FROM users WHERE id = $1 AND status <> 'deleted'`, id,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.Avatar, &u.Status)

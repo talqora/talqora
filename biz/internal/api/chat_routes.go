@@ -56,7 +56,7 @@ func handleUserConversations(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权访问其他用户的会话列表"})
 		return
 	}
-	rows, err := store.PG().Query(c.Request.Context(), `
+	rows, err := store.RO().Query(c.Request.Context(), `
 		SELECT id, user_id, conversation_id, last_read_message_id, last_synced_seq, last_read_seq,
 			mention_seq, unread_count, is_muted, is_pinned, is_archived, joined_at, last_activity
 		FROM user_conversations WHERE user_id = $1 ORDER BY last_activity DESC`, userID)
@@ -89,7 +89,7 @@ func handleConversations(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{}})
 		return
 	}
-	rows, err := store.PG().Query(c.Request.Context(), `
+	rows, err := store.RO().Query(c.Request.Context(), `
 		SELECT id, conv_type, title, avatar, next_seq, created_at, updated_at
 		FROM conversations WHERE id = ANY($1::text[]) ORDER BY updated_at DESC`, ids)
 	if err != nil {
@@ -159,7 +159,7 @@ func handleMessages(c *gin.Context) {
 	where += " ORDER BY seq DESC LIMIT $" + strconv.Itoa(len(args)+1)
 	args = append(args, limit+1)
 
-	rows, qerr := store.PG().Query(c.Request.Context(), `
+	rows, qerr := store.RO().Query(c.Request.Context(), `
 		SELECT id, conversation_id, sender_id, seq, client_msg_id, content, type, status,
 			mentions, is_edited, is_deleted, extra, file_info, edit_history, timestamp, created_at, updated_at
 		FROM messages `+where, args...)
@@ -226,7 +226,7 @@ func handleLastMessages(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{}})
 		return
 	}
-	rows, err := store.PG().Query(c.Request.Context(), `
+	rows, err := store.RO().Query(c.Request.Context(), `
 		SELECT DISTINCT ON (conversation_id) conversation_id, id, sender_id, seq, client_msg_id,
 			content, type, status, mentions, is_edited, is_deleted, extra, file_info, edit_history,
 			timestamp, created_at, updated_at
@@ -294,7 +294,7 @@ type snakeMessage struct {
 
 // queryMessages 通用消息查询(输出 service.Message 列表,空列表转 [] 对齐 Prisma findMany)。
 func queryMessages(c *gin.Context, where string, args ...any) ([]service.Message, error) {
-	rows, err := store.PG().Query(c.Request.Context(),
+	rows, err := store.RO().Query(c.Request.Context(),
 		`SELECT id, conversation_id, sender_id, seq, client_msg_id, content, type, status,
 			mentions, is_edited, is_deleted, extra, file_info, edit_history, timestamp, created_at, updated_at
 		FROM messages `+where, args...)

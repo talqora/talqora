@@ -19,11 +19,37 @@ import (
 )
 
 var pgPool *pgxpool.Pool
+var roPool *pgxpool.Pool
 var rdb *redis.Client
 var s3Client *minio.Client
 
-// NewPG 建立 pgxpool 连接池并 ping 验证。
+// NewPG 建立写库 pgxpool 连接池并 ping 验证。
 func NewPG(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	pool, err := newPool(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	pgPool = pool
+	return pool, nil
+}
+
+// NewRO 建立只读副本连接池(V3 §4.1 读写分离:读接口走副本,读不挤占写路径)。
+// url 为空时回退写库连接池(单实例部署零改动)。
+func NewRO(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	if strings.TrimSpace(url) == "" {
+		roPool = pgPool
+		return roPool, nil
+	}
+	pool, err := newPool(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	roPool = pool
+	return pool, nil
+}
+
+// newPool 池工厂:sslmode 补全(dev 语义) + 计时 tracer + 上限。
+func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	// 本地 dev 的 DATABASE_URL 无 sslmode 参数(Prisma 默认容忍明文),pgx 默认 prefer 会因
 	// "SSL is not enabled on the server" 失败;未显式指定 sslmode 时补 disable(dev 语义)。
 	if !strings.Contains(url, "sslmode=") {
@@ -47,7 +73,6 @@ func NewPG(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, err
 	}
-	pgPool = pool
 	return pool, nil
 }
 
@@ -80,8 +105,11 @@ func NewS3(cfg config.S3Config) (*minio.Client, error) {
 	return client, nil
 }
 
-// PG 返回全局连接池(供各 service 使用)。
+// PG 返回全局写库连接池(供各 service 使用)。
 func PG() *pgxpool.Pool { return pgPool }
+
+// RO 返回只读副本连接池(未配置副本时与 PG 同池,读接口统一走 RO)。
+func RO() *pgxpool.Pool { return roPool }
 
 // Redis 返回全局 Redis 客户端。
 func Redis() *redis.Client { return rdb }

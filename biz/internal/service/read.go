@@ -14,7 +14,7 @@ import (
 // IsConversationMember 成员校验(防越权,read.ts:4-13)。
 func IsConversationMember(ctx context.Context, userID int64, convID string) (bool, error) {
 	var one int64
-	err := store.PG().QueryRow(ctx, `
+	err := store.RO().QueryRow(ctx, `
 		SELECT id FROM user_conversations WHERE user_id = $1 AND conversation_id = $2`,
 		userID, convID).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -44,7 +44,7 @@ type MentionRow struct {
 
 // ListMentions 列出「有未读 @」的会话(mentionSeq > lastReadSeq,read.ts:31-40)。
 func ListMentions(ctx context.Context, userID int64) ([]MentionRow, error) {
-	rows, err := store.PG().Query(ctx, `
+	rows, err := store.RO().Query(ctx, `
 		SELECT conversation_id, mention_seq, last_read_seq
 		FROM user_conversations
 		WHERE user_id = $1 AND mention_seq > last_read_seq
@@ -66,7 +66,7 @@ func ListMentions(ctx context.Context, userID int64) ([]MentionRow, error) {
 
 // CountReadMembers 群已读聚合(read.ts:44-53):已读到 seq 的成员数与总成员数。
 func CountReadMembers(ctx context.Context, convID string, seq int64) (readCount, total int, err error) {
-	err = store.PG().QueryRow(ctx, `
+	err = store.RO().QueryRow(ctx, `
 		SELECT
 			(SELECT COUNT(*) FROM user_conversations WHERE conversation_id = $1 AND last_read_seq >= $2),
 			(SELECT COUNT(*) FROM user_conversations WHERE conversation_id = $1)`,

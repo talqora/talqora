@@ -261,7 +261,7 @@ func handleCheckPhone(c *gin.Context) {
 // userExistsBy 唯一性查询(列名白名单内,由调用方保证)。
 func userExistsBy(c *gin.Context, col, val string) (bool, error) {
 	var one int64
-	err := store.PG().QueryRow(c.Request.Context(),
+	err := store.RO().QueryRow(c.Request.Context(),
 		"SELECT id FROM users WHERE "+col+" = $1", val).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

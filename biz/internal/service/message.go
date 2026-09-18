@@ -218,7 +218,7 @@ func GetConversationMembers(ctx context.Context, convID string, senderID int64) 
 	parts := strings.Split(convID, "_")
 	if parts[0] == "group" && len(parts) > 1 && digitRe.MatchString(parts[1]) {
 		groupID, _ := strconv.ParseInt(parts[1], 10, 64)
-		rows, err := store.PG().Query(ctx,
+		rows, err := store.RO().Query(ctx,
 			"SELECT user_id FROM group_members WHERE group_id = $1", groupID)
 		if err != nil {
 			return nil, err
