@@ -110,6 +110,15 @@ func handleMessageSend(ctx context.Context, data json.RawMessage, raw []byte, uc
 		metrics.MessageDuration.Observe(time.Since(start).Seconds())
 	}()
 
+	// 会话热点限流(V3 §4.3):拒绝帧语义与其它 message.error 一致(带 clientMsgId 收敛 pending)。
+	if service.CheckConvRate(ctx, in.ConversationID) {
+		metrics.ConvRateLimitedTotal.Inc()
+		return UplinkResult{Status: 429, Body: map[string]any{
+			"type": "message.error", "message": "会话消息频率过高,请稍后重试",
+			"data": map[string]any{"clientMsgId": in.ClientMsgID},
+		}}
+	}
+
 	senderID := uctx.UserID
 	participants, err := service.GetConversationMembers(ctx, in.ConversationID, senderID)
 	if err != nil {

@@ -65,6 +65,9 @@ func run(logger *slog.Logger) error {
 	// seq 发号 checkpoint 循环(每 60s 把 Redis 位点 GREATEST 写回 PG 兜底)
 	service.StartCheckpointLoop(ctx, 60*time.Second, logger)
 
+	// 会话热点限流装配(0=禁用,见 internal/service/ratelimit.go)
+	service.SetConvRateLimit(cfg.ConvRateLimit.Max, cfg.ConvRateLimit.WindowMS)
+
 	// OAuth IdP:seed 默认 client + 清理任务(密钥装载与端点挂载在 api 装配内完成)
 	if err := oauth.SeedDefaultClient(ctx, oauth.SeedClient{
 		ClientID:          "our-chat-web",

@@ -29,6 +29,11 @@ var (
 		Name: "server_message_out_total",
 		Help: "message.send 处理结果计数",
 	}, []string{"result"})
+	// ConvRateLimitedTotal 会话热点限流拒绝计数。
+	ConvRateLimitedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "server_conversation_rate_limited_total",
+		Help: "会话消息率超限被拒绝的消息数",
+	})
 	// 当前活跃实时流连接数(本副本 gRPC edge 流;连接实体在 gateway)。
 	WSConnections = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "server_ws_connections",
@@ -82,7 +87,7 @@ var (
 
 func init() {
 	prometheus.MustRegister(
-		MessageDuration, MessageInTotal, MessageOutTotal,
+		MessageDuration, MessageInTotal, MessageOutTotal, ConvRateLimitedTotal,
 		WSConnections, WSDisconnectsTotal, OnlineUsers,
 		BroadcastRecipients, CallEventsTotal, ActiveCalls,
 		RumWebVitals, HTTPRequestDuration, DBQueryDuration,

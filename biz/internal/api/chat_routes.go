@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -109,19 +110,84 @@ func handleConversations(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
-// handleMessages 会话全部消息按时间升序(chat.ts:49-64)。
+// handleMessages 会话消息(chat.ts:49-64)。
+// 向后兼容:不传 limit 时保持旧行为(全量按时间升序);
+// 传 limit 时走游标分页(历史回看):返回 seq DESC 一页(≤limit 条)+ hasMore,
+// 翻页游标 beforeSeq = 上一页最后一条的 seq。分页走 (conversation_id, seq DESC) 索引。
 func handleMessages(c *gin.Context) {
 	conversationID := c.Query("conversationId")
 	if conversationID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少 conversationId 参数"})
 		return
 	}
-	messages, err := queryMessages(c, "WHERE conversation_id = $1 ORDER BY timestamp ASC", conversationID)
-	if err != nil {
+
+	limitStr := c.Query("limit")
+	if limitStr == "" {
+		// 旧行为:全量升序(零改动兼容)
+		messages, err := queryMessages(c, "WHERE conversation_id = $1 ORDER BY timestamp ASC", conversationID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取会话消息失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": messages})
+		return
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 || limit > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "limit 参数非法(1~200)"})
+		return
+	}
+
+	var beforeSeq *int64
+	if bs := c.Query("beforeSeq"); bs != "" {
+		v, perr := strconv.ParseInt(bs, 10, 64)
+		if perr != nil || v <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "beforeSeq 参数非法"})
+			return
+		}
+		beforeSeq = &v
+	}
+
+	// 多取 1 条判 hasMore
+	where := "WHERE conversation_id = $1"
+	args := []any{conversationID}
+	if beforeSeq != nil {
+		where += " AND seq < $2"
+		args = append(args, *beforeSeq)
+	}
+	where += " ORDER BY seq DESC LIMIT $" + strconv.Itoa(len(args)+1)
+	args = append(args, limit+1)
+
+	rows, qerr := store.PG().Query(c.Request.Context(), `
+		SELECT id, conversation_id, sender_id, seq, client_msg_id, content, type, status,
+			mentions, is_edited, is_deleted, extra, file_info, edit_history, timestamp, created_at, updated_at
+		FROM messages `+where, args...)
+	if qerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取会话消息失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": messages})
+	defer rows.Close()
+	var out []service.Message
+	for rows.Next() {
+		var m service.Message
+		if serr := rows.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Seq, &m.ClientMsgID, &m.Content,
+			&m.Type, &m.Status, &m.Mentions, &m.IsEdited, &m.IsDeleted, &m.Extra, &m.FileInfo,
+			&m.EditHistory, &m.Timestamp.Time, &m.CreatedAt.Time, &m.UpdatedAt.Time); serr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取会话消息失败"})
+			return
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "获取会话消息失败"})
+		return
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": out, "hasMore": hasMore})
 }
 
 // handleUpdateConversationTime 会话/关系行双幂等 upsert(chat.ts:67-93)。

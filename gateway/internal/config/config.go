@@ -21,9 +21,11 @@ type Config struct {
 	UpstreamBaseURL string
 	// 上行通道模式:http(默认,每消息一次 POST,回滚兼容)/ grpc(双向流,26-9-16 演进方案)。
 	UpstreamMode string
-	// grpc 模式下 Node 的 gRPC 流服务地址。
+	// grpc 模式下 Node 的 gRPC 流服务地址(单地址,向后兼容)。
 	EdgeGrpcAddr string
-	// grpc 模式的分片流数量(按 userId 哈希分片)。
+	// grpc 模式的多后端地址列表(EDGE_GRPC_ADDR 逗号分隔;多副本业务层时每副本一组流)。
+	EdgeGrpcAddrs []string
+	// grpc 模式每个后端的流分片数量(按 userId 哈希分片)。
 	EdgeGrpcStreams int
 	// 是否以网关作为 HTTP 统一入口(/api 反代到 Node;目标态,默认关)。
 	ProxyAPI bool
@@ -55,6 +57,7 @@ func Load() (*Config, error) {
 		UpstreamBaseURL:  envOr("UPSTREAM_BASE_URL", "http://127.0.0.1:3007"),
 		UpstreamMode:     envOr("GATEWAY_UPSTREAM", "http"),
 		EdgeGrpcAddr:     envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008"),
+		EdgeGrpcAddrs:    parseOrigins(envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008")), // 逗号分隔多后端
 		EdgeGrpcStreams:  envInt("EDGE_GRPC_STREAMS", 4),
 		ProxyAPI:         os.Getenv("GATEWAY_PROXY_API") == "true",
 		InternalToken:    envOr("GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),

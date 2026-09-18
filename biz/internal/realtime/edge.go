@@ -8,6 +8,8 @@ import (
 	"net"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 
 	edgev1 "github.com/our-chat/biz/internal/contracts/gen/ourchat/edge/v1"
@@ -21,6 +23,7 @@ type EdgeServer struct {
 	cfg    *config.Config
 	logger *slog.Logger
 	grpc   *grpc.Server
+	health *health.Server
 }
 
 // StartEdge 启动 gRPC 流服务(仅内网)。失败(端口占用等)返回 error 由调用方决定退出。
@@ -33,6 +36,12 @@ func StartEdge(cfg *config.Config, logger *slog.Logger) (*EdgeServer, error) {
 	srv := grpc.NewServer()
 	s.grpc = srv
 	edgev1.RegisterRealtimeServer(srv, s)
+	// 标准 health 协议(V3-P4 扩缩容前置):副本滚动时供 gateway/编排探活。
+	hs := health.NewServer()
+	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	hs.SetServingStatus("ourchat.edge.v1.Realtime", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(srv, hs)
+	s.health = hs
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			logger.Error("gRPC 流服务异常退出", "err", err)
@@ -42,8 +51,12 @@ func StartEdge(cfg *config.Config, logger *slog.Logger) (*EdgeServer, error) {
 	return s, nil
 }
 
-// GracefulStop 优雅停止 gRPC 服务。
+// GracefulStop 优雅停止 gRPC 服务(先置 NOT_SERVING 让探活感知,再停流)。
 func (s *EdgeServer) GracefulStop() {
+	if s.health != nil {
+		s.health.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+		s.health.Shutdown()
+	}
 	if s.grpc != nil {
 		s.grpc.GracefulStop()
 	}

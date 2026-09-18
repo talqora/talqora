@@ -58,6 +58,7 @@ type Config struct {
 	RedisURL        string
 	Turn            TurnConfig
 	AuthRateLimit   RateLimitConfig
+	ConvRateLimit   RateLimitConfig
 	EdgeGrpcAddr    string
 	EdgeGrpcEnabled bool
 	ReplicaID       string
@@ -96,6 +97,12 @@ func Load() (*Config, error) {
 		AuthRateLimit: RateLimitConfig{
 			Max:      envInt("AUTH_RATE_LIMIT_MAX", 10),
 			WindowMS: time.Duration(envInt("AUTH_RATE_LIMIT_WINDOW_MS", 15*60*1000)) * time.Millisecond,
+		},
+		ConvRateLimit: RateLimitConfig{
+			// 会话热点限流:单会话 1s 窗口消息率上限(压测 tp_r30 每会话仅 30/s,不受影响;
+			// 默认 500/s 仅拦截热点/恶意会话)。
+			Max:      envInt("CONV_RATE_LIMIT_MAX", 500),
+			WindowMS: time.Duration(envInt("CONV_RATE_LIMIT_WINDOW_MS", 1000)) * time.Millisecond,
 		},
 		EdgeGrpcAddr:    envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008"),
 		EdgeGrpcEnabled: os.Getenv("EDGE_GRPC_ENABLED") != "false",

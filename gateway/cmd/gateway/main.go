@@ -63,18 +63,29 @@ func main() {
 	// 帧真正到达时 hub 必已就绪)。grpc 未启用下行流时(onDownlink 非空即启用)仍走 Redis backplane。
 	var router downlinkRouter
 	var up upstream.Upstream
-	var grpcUp *upstream.GrpcClient
+	var grpcCloser interface{ Close() error }
 	if cfg.UpstreamMode == "grpc" {
-		gc, gerr := upstream.NewGrpc(cfg.EdgeGrpcAddr, cfg.EdgeGrpcStreams, cfg.InternalToken, log, func(f *edgev1.DownlinkFrame) {
-			router.route(f)
-		})
-		if gerr != nil {
-			log.Error("gRPC 上行通道初始化失败", "err", gerr)
-			os.Exit(1)
+		// 多后端:EDGE_GRPC_ADDR 逗号分隔(业务层多副本),每地址一组流池。
+		onDownlink := func(f *edgev1.DownlinkFrame) { router.route(f) }
+		if len(cfg.EdgeGrpcAddrs) > 1 {
+			mc, merr := upstream.NewMultiGrpc(cfg.EdgeGrpcAddrs, cfg.EdgeGrpcStreams, cfg.InternalToken, log, onDownlink)
+			if merr != nil {
+				log.Error("gRPC 多后端初始化失败", "err", merr)
+				os.Exit(1)
+			}
+			grpcCloser = mc
+			up = mc
+			log.Info("上行通道:grpc 流(多后端)", "addrs", cfg.EdgeGrpcAddrs, "streams/后端", cfg.EdgeGrpcStreams)
+		} else {
+			gc, gerr := upstream.NewGrpc(cfg.EdgeGrpcAddr, cfg.EdgeGrpcStreams, cfg.InternalToken, log, onDownlink)
+			if gerr != nil {
+				log.Error("gRPC 上行通道初始化失败", "err", gerr)
+				os.Exit(1)
+			}
+			grpcCloser = gc
+			up = gc
+			log.Info("上行通道:grpc 流", "addr", cfg.EdgeGrpcAddr, "streams", cfg.EdgeGrpcStreams)
 		}
-		grpcUp = gc
-		up = gc
-		log.Info("上行通道:grpc 流", "addr", cfg.EdgeGrpcAddr, "streams", cfg.EdgeGrpcStreams)
 	} else {
 		up = upstream.New(cfg.UpstreamBaseURL, cfg.InternalToken)
 		log.Info("上行通道:http-per-message", "base", cfg.UpstreamBaseURL)
@@ -130,8 +141,8 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("HTTP 优雅关闭失败", "err", err)
 	}
-	if grpcUp != nil {
-		_ = grpcUp.Close()
+	if grpcCloser != nil {
+		_ = grpcCloser.Close()
 	}
 	_ = rdb.Close()
 	_ = subRdb.Close()
