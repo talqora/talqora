@@ -1,0 +1,74 @@
+{
+  "label": "s1_gateway_r1",
+  "mode": "gateway",
+  "exitCode": 0,
+  "params": {
+    "CONNS": 100,
+    "RATE": 10,
+    "DURATION": 20,
+    "RAMP": 25
+  },
+  "startedAt": 1789734977323,
+  "endedAt": 1789735005259,
+  "windowSec": 28,
+  "harness": {
+    "connectedCount": 100,
+    "attempted": 100,
+    "sent": 19600,
+    "ack": 19600,
+    "retriesSent": 0,
+    "reconnectsTriggered": 0,
+    "connectMs": {
+      "p50": 3,
+      "p95": 4,
+      "p99": 6,
+      "p999": 6,
+      "min": 2,
+      "max": 6,
+      "n": 100
+    },
+    "rttMs": {
+      "p50": 26,
+      "p95": 32,
+      "p99": 37,
+      "p999": 87,
+      "min": 11,
+      "max": 110,
+      "n": 19600
+    },
+    "errors": {}
+  },
+  "resource": {
+    "peakConnections": 100,
+    "peakServerRssMB": 62.5,
+    "baseServerRssMB": 55.8,
+    "peakGatewayRssMB": 40.3,
+    "baseGatewayRssMB": 37.5,
+    "peakEventloopP99Ms": null,
+    "peakGoroutines": 340,
+    "goGcSecondsDelta": 0.006,
+    "nodeGcPausesDelta": null,
+    "serverCpuSecondsDelta": 24.661,
+    "gatewayCpuSecondsDelta": 3.34
+  },
+  "serverInternalDurationMs": {
+    "p50": 26.8,
+    "p95": 47.8,
+    "p99": 49.7
+  },
+  "gatewayDownlinkDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "httpDurationMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "nodeGcPauseMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  }
+}

@@ -3,7 +3,7 @@
 # 数据落 docs/监测设施/测试报告/<OUT_SUBDIR>/data/(node 工具读 OUT_SUBDIR env,必须 export)。
 set -u
 cd "$(dirname "$0")/../../perf"
-export OUT_SUBDIR="${OUT_SUBDIR:-26-9-17-gobiz}"
+export OUT_SUBDIR="${OUT_SUBDIR:-26-9-18}"
 DATA_DIR="../docs/监测设施/测试报告/${OUT_SUBDIR}/data"
 
 echo "=== S6 连接爬坡:START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 ==="
