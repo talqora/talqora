@@ -294,10 +294,14 @@ export const useCall = () => {
         }
         // 建连前确保有最新 ICE servers(coturn STUN + 短期凭据 TURN);reset() 会用它重建 PeerConnection。
         await ensureIceServers();
-        webrtcRef.current.reset();
+        webrtcRef.current.reset(); // reset 保留本地流(重协商复用,不再重新采集媒体)
         await new Promise((r) => setTimeout(r, 200));
-        const localStream = await webrtcRef.current.getUserMedia(callState.callType === 'video');
-        dispatch(setLocalStream(localStream));
+        // 仅在本地流确实缺失时(如接受来电后尚未采集)才重新 getUserMedia;
+        // 通话中收到对端 rejoin 时流仍在,复用即可——重新采集会弹权限/设备忙,挂起重协商(实测根因)。
+        if (!webrtcRef.current.localMediaStream) {
+          const localStream = await webrtcRef.current.getUserMedia(callState.callType === 'video');
+          dispatch(setLocalStream(localStream));
+        }
         const answer = await webrtcRef.current.handleOffer(toRtcSdp(event.offer));
         wsClient.send('call:accept', {
           callId: event.callId,

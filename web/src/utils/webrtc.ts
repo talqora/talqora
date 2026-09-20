@@ -719,17 +719,17 @@ export class WebRTCManager {
    * 2. 调用后需要重新initialize才能再次使用
    * 3. 会触发所有轨道的onended事件
    */
-  cleanup(): void {
+  cleanup(opts?: { keepStream?: boolean }): void {
     console.log('清理WebRTC资源');
     
-    // 停止并释放本地媒体流
-    if (this.localStream) {
+    // 停止并释放本地媒体流;keepStream(重协商重建 PC)时不 stop 轨道,由 reset() 暂存恢复。
+    if (this.localStream && !opts?.keepStream) {
       this.localStream.getTracks().forEach(track => {
         track.stop();  // 停止轨道(触发onended)
         console.log('停止音频轨道');
       });
-      this.localStream = null;
     }
+    this.localStream = null;
 
     // 关闭PeerConnection
     if (this.peerConnection) {
@@ -766,9 +766,14 @@ export class WebRTCManager {
     // 保留「接受前对端已 trickle 过来、但因本端还没 setRemoteDescription 而暂存的 ICE 候选」。
     // cleanup() 会清空 pendingIceCandidates;若不保留,被叫 accept 时 reset() 新建 PC 就丢了主叫的早到候选,
     // 导致被叫不知道往哪发 → 媒体单向、通话建不起来(实测根因:直接接受打不通,刷新走 rejoin 重协商才通)。
+    // 同时保留本地媒体流:通话中收到对端 rejoin 重协商时,PC 重建但媒体流应复用——
+    // 旧实现 cleanup 会 stop 轨道并置空,迫使调用方重新 getUserMedia(权限弹窗/设备忙会挂起重协商,
+    // 实测根因:通话中刷新对端后本端卡在重采媒体,offer 得不到 answer,12s 后被服务端 grace 结束)。
     const preservedCandidates = this.pendingIceCandidates;
-    this.cleanup();      // 先清理
-    this.initialize();   // 再初始化
+    const preservedStream = this.localStream;
+    this.cleanup({ keepStream: true });      // 清 PC/状态,但不停媒体轨道
+    this.initialize();                       // 再初始化
+    this.localStream = preservedStream;      // 恢复本地流(createOffer/handleOffer 里重新 addTrack 到新 PC)
     this.pendingIceCandidates = preservedCandidates; // 还原,待 handleOffer 里 setRemoteDescription 后应用
   }
 
