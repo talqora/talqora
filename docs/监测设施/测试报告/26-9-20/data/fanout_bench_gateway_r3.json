@@ -1,0 +1,30 @@
+{
+  "label": "fanout_bench_gateway",
+  "mode": "gateway",
+  "params": {
+    "MEMBERS": 100,
+    "ROUNDS": 20,
+    "GROUP_ID": "9000002",
+    "conversationId": "group_9000002"
+  },
+  "connected": 100,
+  "roundsSent": 20,
+  "roundsDelivered": 20,
+  "fanoutSpanMs": {
+    "p50": 1,
+    "p95": 2,
+    "p99": 2,
+    "min": 0,
+    "max": 2,
+    "n": 20
+  },
+  "fanoutE2EMs": {
+    "p50": 20,
+    "p95": 24,
+    "p99": 24,
+    "min": 16,
+    "max": 24,
+    "n": 20
+  },
+  "endedAt": 1789886639855
+}
