@@ -1,0 +1,604 @@
+{
+  "id": null,
+  "uid": "realtime-system-authority",
+  "title": "Realtime: 系统权威监测",
+  "description": "全 Go 体系(gateway → gRPC 双向流 → biz ×N → PG 分区表/Redis)实时监测权威面板,覆盖连接面/上行链路/消息处理/下行双通道(定向直发 vs pub/sub 回退)/保护面/通话面/HTTP 面/DB 面/Go 运行时/副本面。指标全集以 biz/internal/metrics/metrics.go 与 gateway/internal/metrics/metrics.go 实测为准;server job=业务层副本1(曾指 Node,现 Go 化),biz2 job=业务层副本2。",
+  "tags": ["our-chat", "realtime", "authority", "go"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 101,
+      "type": "row",
+      "title": "连接面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "网关活跃连接数:gateway_connections",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "连接实体在 gateway(WS)。接近 GATEWAY_MAX_CONNS(默认 50000)即需扩网关副本。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "gateway_connections", "legendFormat": "gateway 活跃连接", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "biz gRPC 流数 + 在线用户:server_ws_connections / server_online_users",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "server_ws_connections 口径=本副本当前 gRPC edge 流数(每后端默认 4 流/副本);server_online_users 业务层无本地连接注册表恒 0(占位)。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(server_ws_connections) by (job)", "legendFormat": "biz gRPC 流数({{job}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(server_online_users) by (job)", "legendFormat": "在线用户({{job}})", "refId": "B" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "握手速率(按结果):rate(gateway_handshakes_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "unauthorized 激增=被刷或密钥不一致;over_quota=达连接配额。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(gateway_handshakes_total[1m])) by (result)", "legendFormat": "{{result}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "慢消费者逐出:rate(gateway_evicted_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "发送缓冲打满即逐出——这条上扬=有客户端读得太慢(背压生效),归因时单列,勿混入消息失败。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(gateway_evicted_total[1m])", "legendFormat": "逐出速率", "refId": "A" }
+      ]
+    },
+    {
+      "id": 201,
+      "type": "row",
+      "title": "上行链路",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "上行帧速率(按结果):rate(gateway_uplink_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "ok / bad_request / upstream_error。upstream_error 占比突增=上行流不可用(流建立窗口/biz 重启)。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(gateway_uplink_total{result=~\".+\"}[1m])) by (result)", "legendFormat": "{{result}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "上行端到端延迟 p50/p95/p99:gateway_uplink_duration_seconds",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "网关收帧 → biz 落库返回 ack 的端到端耗时。p99 是消息可靠性关键 SLI。",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, sum(rate(gateway_uplink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(gateway_uplink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(gateway_uplink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 301,
+      "type": "row",
+      "title": "消息处理",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "消息收发速率:server_message_in_total / out{result=ok}",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "in=收到 message.send 帧(不论成败);out{ok}=处理成功。in 与 out{ok} 差值含限流拒绝/参数错误/系统错误。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_message_in_total[1m])) by (job)", "legendFormat": "收帧({{job}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_message_out_total{result=\"ok\"}[1m])) by (job)", "legendFormat": "处理成功({{job}})", "refId": "B" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "消息处理延迟 p50/p95/p99:server_message_duration_seconds",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "message.send 从收到帧到 ack/error 的处理耗时(biz 侧,含限流/成员查询/落库/扇出)。",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, sum(rate(server_message_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(server_message_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(server_message_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 401,
+      "type": "row",
+      "title": "下行双通道(定向直发 vs pub/sub 回退)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "下行双通道速率:server_downlink_direct_total vs fallback_total",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "主通道=biz 按 presence.replica 经 gRPC 下行流定向直发;兜底=Redis gw:downlink pub/sub(副本未知/离线/发送失败)。fallback 陡增=定向下行异常(副本失联/流未建立)。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_downlink_direct_total[1m])) by (job)", "legendFormat": "定向直发({{job}})", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_downlink_fallback_total[1m])) by (job)", "legendFormat": "pub/sub 回退({{job}})", "refId": "B" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "网关下行投递分类:rate(gateway_downlink_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "delivered=路由到本地连接;dropped=本网关副本无此用户连接。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(gateway_downlink_total{result=~\"delivered|dropped|evicted\"}[1m])) by (result)", "legendFormat": "{{result}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "定向下行占比:direct/(direct+fallback)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "稳态应 ≈100%;<100% 需查 fallback 根因(流建立窗口/副本失联/presence 无记录)。",
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 4, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.99 }, { "color": "green", "value": 0.999 }] } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["last"], "fields": "" },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(sum(server_downlink_direct_total) or vector(0)) / ((sum(server_downlink_direct_total) + sum(server_downlink_fallback_total)) or vector(1))", "legendFormat": "direct 占比", "refId": "A" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "双通道累计:direct / fallback 帧数",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "累计口径(direct 总数与 fallback 总数),分布式演练记录 direct/fallback 比例用。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "thresholds" } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["last"], "fields": "" },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(server_downlink_direct_total)", "legendFormat": "direct", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(server_downlink_fallback_total)", "legendFormat": "fallback", "refId": "B" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "下行端到端延迟 p50/p95/p99:gateway_downlink_duration_seconds",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "网关从 backplane(流/pubsub)收到帧 → 写入客户端连接发送缓冲。",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, sum(rate(gateway_downlink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(gateway_downlink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(gateway_downlink_duration_seconds_bucket[1m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 501,
+      "type": "row",
+      "title": "保护面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 52 },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "会话热点限流拒绝:rate(server_conversation_rate_limited_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 53 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "单会话 1s 窗口消息率超 CONV_RATE_LIMIT_MAX(默认 500/s)被拒绝(429 message.error)。计数突增=热点会话在打爆发号/扇出路径,需按会话定位。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_conversation_rate_limited_total[1m])) by (job)", "legendFormat": "限流拒绝({{job}})", "refId": "A" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "HTTP 429(认证/限流类拒绝):rate(http_request_duration_seconds_count{status=429}[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 53 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "HTTP 面 429 计数(AUTH_RATE_LIMIT_MAX 认证限流等;会话热点限流走 WS 帧不走 HTTP)。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(http_request_duration_seconds_count{status=\"429\"}[1m])) by (job, route)", "legendFormat": "429({{job}} {{route}})", "refId": "A" }
+      ]
+    },
+    {
+      "id": 601,
+      "type": "row",
+      "title": "通话面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "通话信令事件:rate(server_call_events_total[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 62 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_call_events_total[1m])) by (event)", "legendFormat": "{{event}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "活跃通话数:server_active_calls",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 62 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "当前进行中的通话数(近似,含振铃阶段)。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(server_active_calls) by (job)", "legendFormat": "活跃通话({{job}})", "refId": "A" }
+      ]
+    },
+    {
+      "id": 701,
+      "type": "row",
+      "title": "HTTP 面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 70 },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "HTTP 请求速率 + 延迟 p99:http_request_duration_seconds",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 71 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "请求速率按 route 分线;右轴不可用,延迟 p99 同图(秒)。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(http_request_duration_seconds_count[1m])) by (route)", "legendFormat": "{{route}} 速率", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))", "legendFormat": "HTTP p99(秒)", "refId": "B" }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "RUM 客户端打点 p95:server_rum_web_vitals",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 71 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "前端 RUM web-vitals 上报分布(name 含 CLS/LCP/FID 等,rating 含 good/ni/po)。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(server_rum_web_vitals_bucket[1m])) by (le))", "legendFormat": "RUM p95", "refId": "A" }
+      ]
+    },
+    {
+      "id": 801,
+      "type": "row",
+      "title": "DB 面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 79 },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "DB 查询速率:rate(db_query_duration_seconds_count[1m])",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 80 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "pgx 查询计时埋点(model×operation)。写侧=发号/落库热点;分区表后 messages 写入分散 64 分区。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(db_query_duration_seconds_count[1m])) by (job, model)", "legendFormat": "{{job}} {{model}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "DB 延迟 p99 按 model:db_query_duration_seconds",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 80 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "按 model 分线的 p99 秒值;message/messages 相关分线走高=写库/读库竞争面问题。",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(db_query_duration_seconds_bucket[1m])) by (le, model))", "legendFormat": "{{model}} p99", "refId": "A" }
+      ]
+    },
+    {
+      "id": 901,
+      "type": "row",
+      "title": "Go 运行时",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 88 },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "goroutine 双端:go_goroutines",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 89 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "注意 job 标签区分(gateway/server/biz2)。eventloop 指标已随 Node 退役,goroutine 是 Go 体系并发水位。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "go_goroutines{job=~\"gateway|server|biz2\"}", "legendFormat": "{{job}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "GC 速率:rate(go_gc_duration_seconds_sum[1m])",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 89 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Go runtime 默认 Summary(无 _bucket,不用 histogram_quantile)。GC 墙钟占比=每秒 GC 总时长。",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(go_gc_duration_seconds_sum{job=~\"gateway|server|biz2\"}[1m])", "legendFormat": "{{job}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "进程内存:process_resident_memory_bytes",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 89 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Linux 下 client_golang 进程采集器导出;macOS 无 /proc 时该指标缺失,RSS 以压测编排 ps 采样为准(见 ab-run.mjs)。",
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "process_resident_memory_bytes{job=~\"gateway|server|biz2\"}", "legendFormat": "{{job}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "CPU:rate(process_cpu_seconds_total[1m])",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 89 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "同上,macOS 缺失时以压测编排 ps -o time 采样为准。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(process_cpu_seconds_total{job=~\"gateway|server|biz2\"}[1m])", "legendFormat": "{{job}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 1001,
+      "type": "row",
+      "title": "副本面",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 97 },
+      "panels": []
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "各 biz 副本消息分流对比:rate(server_message_in_total[1m]) by (job)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 98 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "多副本均衡性核心观测:userId 哈希分片后各副本收帧速率应接近;kill 演练时被杀副本曲线断崖=分流回归。",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(server_message_in_total[1m])) by (job)", "legendFormat": "副本 {{job}}", "refId": "A" }
+      ]
+    }
+  ]
+}

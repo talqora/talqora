@@ -1,15 +1,22 @@
-# Prometheus 抓取配置:server(Node)与 gateway(Go)均在宿主机运行,
+# Prometheus 抓取配置:业务层 biz(Go, 可多副本)与 gateway(Go)均在宿主机运行,
 # 容器内通过 host.docker.internal 访问宿主机暴露的端口。
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
 
 scrape_configs:
-  # Node 业务/信令后端,见 server/src/metrics/metrics.ts,端口取自 server/src/server.ts 的 PORT(默认 3007)。
+  # 业务层 biz(Go) 副本 1。job 名保留 server 以兼容旧面板(该 job 曾指 Node 后端,现业务层已全部 Go 化)。
+  # 指标全集见 biz/internal/metrics/metrics.go,端口取自 biz PORT(默认 3007)。
   - job_name: server
     metrics_path: /metrics
     static_configs:
       - targets: ['host.docker.internal:3007']
+
+  # 业务层 biz(Go) 副本 2(双副本压测/分布式演练时启用;单副本部署时该 target 抓取失败无碍)。
+  - job_name: biz2
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:3009']
 
   # Go 长连接网关,见 gateway/internal/metrics/metrics.go,端口取自 GATEWAY_ADDR(默认 :8090)。
   - job_name: gateway
