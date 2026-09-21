@@ -183,7 +183,7 @@ export const useCall = () => {
       }
       // 检查WebRTC状态，如果已经是stable说明已经处理过Answer
       if (webRTC?.getDetailedState()?.signalingState === 'stable') {
-        console.log('WebRTC状态已是stable，跳过重复的Answer处理');
+        console.log('WebRTC状态已是stable，跳过重复的Answer处理(多实例重复订阅嫌疑)', event.callId);
         return;
       }
       processedEvents.add(`accept_${event.callId}`); // 添加事件标记，防止重复处理
@@ -269,7 +269,13 @@ export const useCall = () => {
 
     // 对端刷新/断连后回来:收到其新 offer → 重置本端 PC、重取媒体、回 answer 完成重协商。
     const handleCallRejoin = async (event: CallRejoinEvent) => {
-      if (!webRTC || event.callId !== callState.callId || !event.offer) return;
+      if (!webRTC || event.callId !== callState.callId || !event.offer) {
+        console.log('[rejoin-peer] 收到对端 rejoin 但忽略', {
+          hasRtc: !!webRTC, eventCallId: event.callId, myCallId: callState.callId, hasOffer: !!event.offer,
+        });
+        return;
+      }
+      console.log('[rejoin-peer] 收到对端 rejoin,开始重协商');
       // 主叫刷新后重发新 offer,而本端是仍在振铃的被叫:仅替换 pendingOffer,等用户接听(不在此自动协商)。
       if (callState.status === 'ringing') {
         dispatch(updatePendingOffer(toRtcSdp(event.offer)));
@@ -495,8 +501,12 @@ export const useCall = () => {
   // 刷新/重载后重新入会:新建 PC、重取媒体、发新 offer,请对端重协商恢复连接。
   // 重连方永远是「发 offer」的一方(无论原先是主叫还是被叫),对端收到 call:rejoin 后回 answer。
   const rejoinCall = useCallback(async (persisted: PersistedCall, relayOnly = false) => {
-    if (!webRTC || !currentUser) return;
+    if (!webRTC || !currentUser) {
+      console.warn('[rejoin] 前置条件不满足', { hasRtc: !!webRTC, hasUser: !!currentUser });
+      return;
+    }
     try {
+      console.log('[rejoin] 步骤1: 开始重入会', persisted.callId, 'ws已连接=', wsClient.isConnected());
       currentCallId = persisted.callId;
       // relayOnly:直连失败后的升级重连,本端切 relay-only 并让对端也切(穿 VPN/对称NAT/防火墙)。
       if (relayOnly) {
@@ -506,10 +516,12 @@ export const useCall = () => {
       await ensureIceServers();
       webRTC.reset();
       await new Promise((resolve) => setTimeout(resolve, 200));
+      console.log('[rejoin] 步骤2: reset 完成,开始采集媒体');
       const localStream = await webRTC.getUserMedia(persisted.callType === 'video');
       dispatch(setLocalStream(localStream));
+      console.log('[rejoin] 步骤3: 媒体就绪,创建 offer');
       const offer = await webRTC.createOffer();
-      wsClient.send('call:rejoin', {
+      const sent = wsClient.send('call:rejoin', {
         callId: persisted.callId,
         from: {
           id: currentUser.id,
@@ -521,8 +533,33 @@ export const useCall = () => {
         offer,
         relay: relayOnly,
       });
+      console.log('[rejoin] 步骤4: call:rejoin 发送', sent ? '成功' : '失败(WS 未连接,帧被丢弃!)');
+      if (!sent) {
+        // WS 未就绪时 send 静默丢弃:等连接建立后补发(刷新后 WS 重连可能晚于 rejoin 流程)
+        const retry = () => {
+          if (wsClient.isConnected()) {
+            const ok = wsClient.send('call:rejoin', {
+              callId: persisted.callId,
+              from: {
+                id: currentUser.id,
+                username: currentUser.username,
+                nickname: currentUser.nickname ?? '',
+                avatar: currentUser.avatar ?? '',
+              },
+              to: persisted.peer,
+              offer,
+              relay: relayOnly,
+            });
+            console.log('[rejoin] WS 就绪后补发 call:rejoin:', ok ? '成功' : '仍失败');
+            return ok;
+          }
+          setTimeout(retry, 500);
+          return false;
+        };
+        setTimeout(retry, 500);
+      }
     } catch (error) {
-      console.error('重新入会失败:', error);
+      console.error('[rejoin] 重新入会失败:', error);
       dispatch(setError('重连失败'));
       cleanup();
     }

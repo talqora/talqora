@@ -133,6 +133,12 @@ class WsClient {
   }
 
   private open(): void {
+    // 单连接保证:打开新连接前先关闭旧连接(旧连接的 onclose 置空,防止其触发重连——
+    // 同 deviceId 的多连接会被服务端"同设备踢旧"互相踢下线,形成每秒自激振荡,26-9-21 实测)。
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      this.ws.onclose = null;
+      this.ws.close();
+    }
     const sep = this.url.includes('?') ? '&' : '?';
     // deviceId 走 query 与 gateway 握手对齐(ws/server.go 的 deviceId query);每标签页稳定值,
     // 服务端据此做同设备重连踢旧与通话属主路由。
@@ -207,6 +213,11 @@ class WsClient {
     this.reconnectAttempt += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
+      // 已有活跃连接时不再新建(防同 deviceId 多连接自激振荡:被服务端踢掉的旧连接
+      // 触发重连,与踢它的新连接互为因果,26-9-21 实测每秒重连风暴)。
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
       this.open();
     }, delay);
   }
