@@ -68,12 +68,14 @@ export const useCall = () => {
     webrtc.onRemoteStream = (stream) => {
       // 轨道：audio/video
       console.log('远程流轨道数量:', stream.getTracks().length);
-      // getTracks() 获取流中的轨道（音频/视频）
-      // stream.getTracks().forEach(track => {
-      //   console.log(`远程轨道: ${track.kind}, enabled: ${track.enabled}`);
-      // });
       // 存到store，方便其他组件共享处理音频流
       dispatch(setRemoteStream(stream));
+      // 媒体流到达 = 连接(或重连)实际建立(媒体经 DTLS,DTLS 完成即连接已通)。
+      // 双保险:重连场景若 connectionState 回调丢失/延迟,UI 会卡在"重连中"——此处直接收敛为已连接。
+      // connectCall 幂等:startTime 仅首次设置,重连不清零通话时长;首通时媒体到达亦代表连接建立。
+      if (reconnectGraceTimer) { clearTimeout(reconnectGraceTimer); reconnectGraceTimer = null; }
+      dispatch(connectCall());
+      startDurationTimer();
     };
     
     // ICE候选回调：当收到ICE候选时触发

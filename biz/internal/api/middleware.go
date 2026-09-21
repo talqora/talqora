@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +35,9 @@ func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 }
 
 // corsMiddleware 对齐 Express cors:白名单校验 + credentials:true;无 origin 放行;非白名单 500。
+// 26-9-21 增补:同源(Origin 的 host 与请求 Host 一致)放行——dev 下同一服务可能经 localhost 与
+// 局域网 IP(vite Network 输出)两个地址访问,IP 会随 DHCP 漂移无法穷举白名单;同源请求的 Origin
+// 头无法被跨站攻击者伪造为当前 Host(浏览器同源策略保证),故同源放行不降低安全性。
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	allowed := make(map[string]bool, len(cfg.AllowedOrigins))
 	for _, o := range cfg.AllowedOrigins {
@@ -41,6 +46,22 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 		if origin != "" && !allowed[origin] {
+			// 非生产环境放行任意 Origin:dev 下同一服务经 localhost/局域网 IP 多地址访问(vite Network
+			// 输出),且 Host 被 vite/gateway 两级代理改写,无法做同源判定;变更类接口另有 CSRF
+			// 双提交防护(X-CSRF-Token),放行 Origin 不影响 CSRF 防线。生产保持严格白名单。
+			if !cfg.IsProduction {
+				setCorsAllowHeaders(c, origin)
+				c.Next()
+				return
+			}
+			// 生产同源放行:Origin 与请求 Host 一致时视为同源
+			if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, c.Request.Host) {
+				setCorsAllowHeaders(c, origin)
+				c.Next()
+				return
+			}
+			// 观测性:拒绝时留日志(26-9-21 登录偶发 500 排查——此前静默拒绝无法定位 Origin)
+			slog.Default().Warn("CORS 拒绝", "origin", origin, "host", c.Request.Host, "path", c.FullPath())
 			// Express 版经 errorHandler 变 500:「不允许的跨域来源: {origin}」
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -49,10 +70,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 		if origin != "" {
-			h := c.Writer.Header()
-			h.Set("Access-Control-Allow-Origin", origin)
-			h.Set("Vary", "Origin")
-			h.Set("Access-Control-Allow-Credentials", "true")
+			setCorsAllowHeaders(c, origin)
 		}
 		if c.Request.Method == http.MethodOptions {
 			h := c.Writer.Header()
@@ -64,6 +82,14 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// setCorsAllowHeaders 写 CORS 放行响应头(白名单命中与同源放行共用)。
+func setCorsAllowHeaders(c *gin.Context, origin string) {
+	h := c.Writer.Header()
+	h.Set("Access-Control-Allow-Origin", origin)
+	h.Set("Vary", "Origin")
+	h.Set("Access-Control-Allow-Credentials", "true")
 }
 
 // httpDurationMiddleware 计时埋点:route 标签取路由模式(gin 的 FullPath),未匹配记 unmatched。
