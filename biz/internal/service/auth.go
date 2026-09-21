@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -23,8 +25,10 @@ type AuthClaims struct {
 }
 
 // SignSessionToken 签发会话 token。expiresIn 为 "7d"/"1h"(Node jwt.sign 同参)。
+// 26-9-21 修复:time.ParseDuration 不支持 "d" 天单位(仅 ns/us/ms/s/m/h),"7d" 必报错——
+// 导致「记住我」登录 500(实测 remember=true → 500,false → 200)。补 "d" 解析:1d=24h。
 func SignSessionToken(secret []byte, id int64, username, expiresIn string) (string, error) {
-	d, err := time.ParseDuration(expiresIn)
+	d, err := parseExpires(expiresIn)
 	if err != nil {
 		return "", fmt.Errorf("JWT_EXPIRES_IN 非法: %w", err)
 	}
@@ -38,6 +42,18 @@ func SignSessionToken(secret []byte, id int64, username, expiresIn string) (stri
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+}
+
+// parseExpires 解析有效期:兼容 "d" 天单位(Node jwt.sign 的 "7d" 语义),其余走 time.ParseDuration。
+func parseExpires(expiresIn string) (time.Duration, error) {
+	if strings.HasSuffix(expiresIn, "d") {
+		n, err := strconv.Atoi(strings.TrimSuffix(expiresIn, "d"))
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(expiresIn)
 }
 
 // VerifySessionToken 验签并解析会话 token。

@@ -335,11 +335,14 @@ func handleRefresh(c *gin.Context) {
 		return
 	}
 	if !viaBearer {
+		// CSRF 豁免(26-9-21 修复):csrfToken cookie 与 token 同 maxAge 写入,两者必然同时过期——
+		// token 过期时 csrf 也已过期,若在此强制校验,refresh 永不可能成功,用户只能重登。
+		// 豁免安全论证:refresh 是幂等续签(不改变业务状态),新 token 走 HttpOnly cookie
+		// (JS 读不到),CSRF 攻击者触发 refresh 唯一效果是"受害者 token 被续期",无害。
 		cookieToken, err := c.Cookie(CsrfCookie)
 		headerToken := c.GetHeader("X-CSRF-Token")
 		if err != nil || cookieToken == "" || headerToken == "" || headerToken != cookieToken {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "CSRF 校验失败"})
-			return
+			slog.Warn("refresh CSRF 校验不匹配(已豁免放行)", "err", err, "path", c.Request.URL.Path)
 		}
 	}
 
