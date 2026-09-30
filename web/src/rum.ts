@@ -43,9 +43,9 @@ export function initWebVitals() {
 
 // 实时消息 RTT（往返时延）打点：与 web-vitals 走同一上报通道/环境判定（dev 打印、生产 sendBeacon），
 // 但不经 web-vitals 的 Metric 结构——这是按消息事件触发的自定义指标，调用方在发送/收到回显处各调一次。
-// path 区分承载层：当前实时消息走 socket.io（server/），预留 'ws' 给未来可能接入的 Go gateway 原生 WebSocket。
+// path 区分承载层：实时消息走 gateway 原生 WebSocket('/ws')。
 // kind 可选，标注具体测的是哪种往返（如 'message.send'），便于后续分设备/分事件类型统计分位数。
-export function reportRealtimeRtt(path: 'socketio' | 'ws', rttMs: number, kind?: string) {
+export function reportRealtimeRtt(path: 'ws', rttMs: number, kind?: string) {
   const body = JSON.stringify({
     name: 'realtime_rtt',
     path,

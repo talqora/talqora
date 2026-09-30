@@ -36,8 +36,7 @@ export default defineConfig(({ command }) => ({
     // agent-server 用 Bearer header 鉴权,无 cookie 同源约束,前端直接打 + 后端 CORS
     // 白名单是更标准的做法,见 src/views/agentView/api.ts 与 docs。
     proxy: {
-      // 网关作为唯一对外入口(26-9-16 演进方案 P3):HTTP API 与 WS 全部经 gateway:8090。
-      // gateway 再反代 /api、/user、/oauth 到 server(3007 已内网化,仅回滚时直连)。
+      // 网关作为唯一对外入口:HTTP API 与 WS 全部经 gateway:8090(gateway 再反代 /api、/user、/oauth 到 biz)。
       '/api': {
         target: 'http://127.0.0.1:8090',
         changeOrigin: true,
@@ -51,14 +50,9 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:8090',
         changeOrigin: true,
       },
-      // 实时路径已切到 Go gateway:原生 WS 走 /ws → gateway:8090(保留 /socket.io 供回滚)。
+      // 实时:原生 WS 走 /ws → gateway:8090
       '/ws': {
         target: 'http://127.0.0.1:8090',
-        ws: true,
-        changeOrigin: true,
-      },
-      '/socket.io': {
-        target: 'http://127.0.0.1:3007',
         ws: true,
         changeOrigin: true,
       },

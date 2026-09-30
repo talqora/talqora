@@ -55,7 +55,8 @@ func Load() (*Config, error) {
 		JWTSecret:        []byte(secret),
 		RedisURL:         envOr("REDIS_URL", "redis://localhost:6379"),
 		UpstreamBaseURL:  envOr("UPSTREAM_BASE_URL", "http://127.0.0.1:3007"),
-		UpstreamMode:     envOr("GATEWAY_UPSTREAM", "http"),
+		// 默认 grpc 双向流(业务层已 Go 化);GATEWAY_UPSTREAM=http 仅保留给历史部署过渡。
+		UpstreamMode: envOr("GATEWAY_UPSTREAM", "grpc"),
 		EdgeGrpcAddr:     envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008"),
 		EdgeGrpcAddrs:    parseOrigins(envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008")), // 逗号分隔多后端
 		EdgeGrpcStreams:  envInt("EDGE_GRPC_STREAMS", 4),

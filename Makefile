@@ -1,8 +1,9 @@
 # our-chat 本地开发编排
 #
 # 一键启动:  make dev
-#   首次自动:建集中 env + 软链 server/.env + 装依赖 + 生成 Prisma Client + 起中间件,
-#   随后并发跑 server(:3007)/ gateway(:8090)/ web(:5173),合并输出,Ctrl-C 一起停。
+#   首次自动:建集中 env + 装依赖(go mod download / pnpm install) + 起中间件,
+#   随后并发跑 biz(:3007, gRPC edge :3008)/ gateway(:8090, grpc 上游)/ web(:5173),
+#   合并输出,Ctrl-C 一起停。
 # 其它:      make middleware(只起中间件) · make down(停中间件) · make env(只建 env)
 
 DEV_COMPOSE := docker/docker-compose.dev.yml
@@ -10,13 +11,16 @@ ENV_DEBUG   := docker/.env.debug
 
 .PHONY: dev middleware down env deps proto proto-check
 
-# 一键起全部:env/依赖就绪 → 起中间件 → 等 PG → 并发跑三个业务(Ctrl-C 一起退出)
+# 一键起全部:env/依赖就绪 → 起中间件 → 等 PG → 并发跑三个服务(Ctrl-C 一起退出)
 dev: env deps middleware
 	@printf '⏳ 等待 PostgreSQL'; \
 	until docker compose -f $(DEV_COMPOSE) exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do printf '.'; sleep 1; done; echo ' ✓'
-	@echo '▶ server:3007 · gateway:8090 · web:5173(Ctrl-C 全部停止)'
+	@echo '▶ biz:3007(+gRPC :3008) · gateway:8090 · web:5173(Ctrl-C 全部停止)'
 	@trap 'kill 0' INT TERM EXIT; \
-	( cd server && pnpm dev ) & \
+	( set -a; . $(ENV_DEBUG); set +a; \
+	  export AUTH_RATE_LIMIT_MAX=1000000 AUTH_RATE_LIMIT_WINDOW_MS=60000; \
+	  export OAUTH_PRIVATE_KEY_FILE=$(CURDIR)/server/keys/oauth-private-dev.pem; \
+	  cd biz && go run ./cmd/biz ) & \
 	( set -a; . $(ENV_DEBUG); set +a; cd gateway && go run ./cmd/gateway ) & \
 	( cd web && pnpm start ) & \
 	wait
@@ -29,18 +33,15 @@ middleware:
 down:
 	docker compose -f $(DEV_COMPOSE) down
 
-# 生成集中 dev env + 软链 server/.env(幂等;test -f X || cmd = 不存在才建)
+# 生成集中 dev env(幂等;test -f X || cmd = 不存在才建)
 env:
 	@test -f $(ENV_DEBUG) || { cp docker/.env.debug.example $(ENV_DEBUG); echo "✓ 已生成 $(ENV_DEBUG)(请填 JWT_SECRET)"; }
-	@test -e server/.env  || { ln -s ../docker/.env.debug server/.env; echo "✓ 已软链 server/.env → ../docker/.env.debug"; }
 
-# 首次装依赖 + 生成 Prisma Client(已就绪则跳过)
+# 首次装依赖(已就绪则跳过)
 deps:
-	@test -d server/node_modules || (cd server && pnpm install)
 	@test -d web/node_modules || (cd web && pnpm install)
-	@test -d server/src/generated/prisma || (cd server && pnpm db:generate)
 
-# 从 proto/ 单一契约源生成四端类型(server/web/gateway/mobile-swift)
+# 从 proto/ 单一契约源生成契约代码(web/gateway/mobile-swift)
 proto:
 	buf generate
 
@@ -49,7 +50,6 @@ proto-check:
 	buf lint
 	buf generate
 	git diff --exit-code -- \
-		server/src/contracts/gen \
 		web/src/contracts/gen \
 		gateway/internal/contracts/gen \
 		mobile-swift/Sources/Contracts/Gen

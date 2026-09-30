@@ -49,14 +49,14 @@ services:
       retries: 10
     networks: [our-chat]
 
-  server:
-    # 服务器本地构建(镜像不跨墙)。compose 在 docker/ 运行,上下文 = ../server(CI scp 同步的源码)。
+  biz:
+    # 服务器本地构建(镜像不跨墙)。compose 在 docker/ 运行,上下文 = ../biz(CI scp 同步的源码)。
     build:
-      context: ../server
+      context: ../biz
       args:
-        NPM_REGISTRY: https://registry.npmmirror.com
-    image: our-chat-server:local
-    container_name: our-chat-server
+        GOPROXY_URL: 'https://goproxy.cn,direct'
+    image: our-chat-biz:local
+    container_name: our-chat-biz
     restart: unless-stopped
     depends_on:
       postgres:
@@ -68,8 +68,10 @@ services:
       - .env
     # ①（通用、非机密）默认值；同名键 environment 优先于 env_file，作为权威默认。
     environment:
-      NODE_ENV: production
       PORT: '3007'
+      EDGE_GRPC_ENABLED: 'true'
+      EDGE_GRPC_ADDR: ':3008'
+      REPLICA_ID: biz-1
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-our_chat}
       REDIS_URL: redis://redis:6379
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
@@ -104,12 +106,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      biz:
+        condition: service_healthy
     # 机密（JWT_SECRET / GATEWAY_INTERNAL_TOKEN）来自 .env
     env_file:
       - .env
     environment:
       GATEWAY_ADDR: ':8090'
-      UPSTREAM_BASE_URL: http://server:3007
+      GATEWAY_UPSTREAM: grpc
+      EDGE_GRPC_ADDR: biz:3008
+      GATEWAY_PROXY_API: 'true'
       REDIS_URL: redis://redis:6379
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8090/healthz']
@@ -133,7 +139,7 @@ services:
     container_name: our-chat-web
     restart: unless-stopped
     depends_on:
-      - server
+      - biz
       - gateway
     ports:
       - '80:80'

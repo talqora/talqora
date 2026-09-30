@@ -2,7 +2,7 @@
 // 实时层必需能力:信封 {type,data}、心跳(25s,续约网关 presence TTL)、指数退避重连、
 // 可靠上行(message.send → message.ack 匹配 clientMsgId,超时同键重发,服务端幂等)。
 //
-// socket.io 旧路径(utils/socket.ts)保留供回滚,本模块是 gateway 路径的唯一客户端实现。
+// gateway 原生 WS 路径的唯一客户端实现(业务层已 Go 化,无 socket.io 路径)。
 import { getDeviceId } from '@/utils/device';
 
 export type WsFrame = { type: string; data?: unknown };

@@ -40,8 +40,6 @@ export const SERVER_ORIGIN = resolveServerOrigin();
 
 export const API_BASE_URL = SERVER_ORIGIN;
 
-export const SOCKET_URL = SERVER_ORIGIN;
-
 export const buildServerUrl = (path: string) => {
   if (/^https?:\/\//i.test(path)) {
     return path;
