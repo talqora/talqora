@@ -93,32 +93,36 @@ export interface ProjectItem {
 export const PROJECTS: ProjectItem[] = [
   {
     name:    { zh: 'our-chat · 实时 IM + 知识库 AI 助手', en: 'our-chat · Realtime IM + KB AI Assistant' },
-    tagline: { zh: '仿微信即时通讯,内嵌可对话的个人知识库 Agent', en: 'A WeChat-style messenger with an embedded, conversational personal-knowledge agent' },
+    tagline: { zh: '自研实时 IM + 个人知识库 Agent:分布式全 Go 实时层 + 双仓库工程治理', en: 'A self-built realtime IM + personal-knowledge agent: distributed all-Go realtime tier, two-repo engineering governance' },
     detail: {
-      zh: '横跨多端的全栈系统:Go 高性能长连接网关 + React 前端 + Node(Express) 主服务 + Nest 微服务。把大模型当黑盒,其余核心子系统都自己实现了一遍,而非调库拼装。',
-      en: 'A full-stack system across several surfaces: a Go realtime gateway + React web + a Node (Express) core + a Nest microservice. The LLM is a black box; every other core subsystem is implemented from scratch rather than glued from libraries.',
+      zh: '横跨双仓库(our-chat + agent-server)的全栈系统:Go 长连接网关 + Go 无状态业务层 + React Web + iOS 端。消息链路、IdP 鉴权、ReAct Agent、RAG 摄入、压测体系全部自研;架构演进由实测压测数据驱动——从 Node 单点逐步演进出分布式全 Go 实时层。',
+      en: 'A two-repo full-stack system (our-chat + agent-server): a Go long-connection gateway + stateless Go business tier + React web + iOS. The messaging path, IdP, ReAct agent, RAG pipeline and load-testing harness are all built from scratch; the architecture evolved under measured load-test data — from a single Node instance to a distributed all-Go realtime tier.',
     },
     highlights: {
       zh: [
-        '账号与鉴权:自建 OAuth2.1/OIDC IdP(授权码 + PKCE、JWKS 公钥分发、refresh token 轮换 + 重用检测);下游服务跨服务 JWKS 验签,server 自身即 IdP',
-        '自建 ReAct Agent(不依赖 LangChain/LangGraph):Reason-Act-Observation 循环 + function calling;工具异常包成 observation 喂回模型自纠不崩、MAX_ITERATIONS 防失控烧 token;每步落库 + 广播形成可断线回放的审计轨迹',
-        'RAG 摄入管线:pdf/docx/html 解析 → 递归字符切分 + overlap → 批量 embedding → Postgres 元数据与 Milvus 向量双写(先写 PG 拿 chunkId 再 upsert),按 document_id 清场做幂等',
-        '大文件上传:MD5 秒传去重 + S3 multipart 分片上传 + 断点续传(查 S3 已传 part 只补缺片)',
-        'IDL 工程治理:一份 Protobuf 经 buf 生成 TS / Go / Swift 四端类型,端到端类型安全、消除手写 DTO 漂移',
-        '系统工程:nginx 同源反代消除跨域;Docker Compose + GitHub Actions 自动化部署;前端路由懒加载、状态下沉隔离高频输入、虚拟列表 + 分页',
+        '实时消息链路(Go):原生 WebSocket 网关 + gRPC 双向流接入业务层(userId 哈希分片、in-flight 背压);业务层无状态多副本,seq 发号/幂等/通话态/presence 全部外置 Redis/PG,副本故障自动降级零失败;下行按 presence 定位网关副本定向直发(实测 direct 占比 99.9998%),pub/sub 兜底',
+        '性能优化闭环(实测驱动):三轮压测定位「seq 发号 DB 行锁」为 p99 2 秒根源 → Redis INCR 发号 + messages 哈希 64 分区(359 万行回填原子切换)+ 读写分离(25 处读切只读池)+ 四级进程内缓存;最终 33 轮 32.5 万条消息零错误、p99 2075ms→65ms、过载错误率 79.9%→0%',
+        '分布式健壮性与监测:kill 副本演练 980/980 零失败、1 万连接爬坡 100% 成功(31.5KB/连接)、300 连接惊群重连 p99=42ms;会话热点限流、慢消费者逐出、keepalive 治理;Prometheus + Grafana 10 面权威面板,压测 SOP 化',
+        '账号与鉴权:自建 OAuth2.1/OIDC IdP(授权码 + PKCE S256、Discovery、JWKS 分发、refresh token 轮换 + 重用检测);会话经 /oauth/agent-token 铸下游 scope token,agent-server 用 JWKS 验签,两端解耦独立扩缩容',
+        '自建 ReAct Agent(不依赖 LangChain/LangGraph):Reason-Act-Observation 循环 + function calling(检索/列文档/摘要/筛选);工具异常包成 observation 喂回模型自纠不崩、MAX_ITERATIONS 防失控烧 token、参数 JSON 兜底解析;每步事件落库 + 广播,断线按事件序列号回放',
+        'RAG 摄入管线:pdf/docx/html 解析 → 递归字符切分(段落/行/空格/字符分隔符层级 + overlap)→ 批量 embedding → PG 元数据 + Milvus 向量双写(先写 PG 拿 chunkId 再 upsert);Pulsar 异步消费,开写前按 document_id 清场保证重试幂等;多租户 user 过滤收口唯一检索出口',
+        '大文件上传:MD5 秒传去重 + S3 multipart 分片上传 + 断点续传(查询 S3 已传 part 只补缺片)+ 流式/压缩端点',
+        'IDL 工程治理:Protobuf 单一契约源,经 buf 生成 TS(web/server)、Go(gateway/biz)、Python(rag-server)多端类型,发布 @talqora/agent-contracts 类型包,CI 校验生成物不漂移;前端路由懒加载、输入框草稿态下沉隔离重渲染、RUM(Web Vitals + 实时 RTT)三层性能防线',
       ],
       en: [
-        'Auth: a self-built OAuth2.1/OIDC IdP (auth code + PKCE, JWKS key distribution, refresh-token rotation + reuse detection); the server is itself the IdP, downstream services verify via cross-service JWKS',
-        'A from-scratch ReAct agent (no LangChain/LangGraph): Reason-Act-Observation loop + function calling; tool errors wrapped as observations for self-correction, MAX_ITERATIONS guard against runaway token burn; every step persisted + broadcast as a replayable audit trail',
-        'RAG ingestion: pdf/docx/html parsing → recursive char splitting + overlap → batched embedding → dual-write Postgres metadata + Milvus vectors (PG first for chunkId, then upsert), idempotent via per-document cleanup',
-        'Large-file upload: MD5 instant-dedupe + S3 multipart + resumable (probe uploaded parts, send only the gaps)',
-        'IDL governance: one Protobuf generates TS / Go / Swift types for all surfaces — end-to-end type safety, no hand-written DTO drift',
-        'Systems: same-origin nginx reverse proxy removing CORS; Docker Compose + GitHub Actions CI/CD; lazy routes, state push-down for hot inputs, virtualized + paginated message list',
+        'Realtime messaging (Go): raw-WebSocket gateway + gRPC bidi streams into the business tier (userId-hash sharding, in-flight backpressure); stateless multi-replica business tier with seq/idempotency/call/presence state fully externalized to Redis/PG — replicas fail over with zero loss; downlink routed directly to the gateway replica owning the peer (99.9998% direct), pub/sub as fallback',
+        'Measurement-driven performance loop: three load-test rounds pinpointed the DB row-lock seq generator as the 2s-p99 root cause → Redis INCR sequencing + 64-way hash-partitioned messages table (3.59M rows backfilled with atomic cutover) + read/write split (25 reads on a read-only pool) + 4-tier in-process caches; end state: 325K messages across 33 rounds with zero errors, p99 2075ms→65ms, overload error rate 79.9%→0%',
+        'Distributed robustness & observability: kill-replica drills 980/980 zero failures, 10K-connection ramp 100% success (31.5KB/conn), 300-connection thundering-herd reconnect p99=42ms; per-conversation hot-path rate limiting, slow-consumer eviction, keepalive tuning; a 10-row authoritative Grafana board plus SOP-ized load-test reporting',
+        'AuthN/AuthZ: self-built OAuth2.1/OIDC IdP (authorization code + PKCE S256, Discovery, JWKS, refresh-token rotation + reuse detection); the session mints a downstream scoped token via /oauth/agent-token, verified by agent-server through JWKS — decoupled and independently scalable',
+        'From-scratch ReAct agent (no LangChain/LangGraph): Reason-Act-Observation loop + function calling (retrieve / list documents / summarize / filter); tool errors wrapped as observations for self-correction, MAX_ITERATIONS guard against token burn, lenient JSON arg parsing; every tool_called/tool_result/final_answer persisted + broadcast, replayable after disconnects by sequence number',
+        'RAG ingestion: pdf/docx/html parsing → recursive character splitting (paragraph/line/space/char separators + overlap) → batched embedding → dual-write PG metadata + Milvus vectors (PG first for chunkId, then upsert); async via Pulsar, idempotent via per-document cleanup before writing; multi-tenant user filtering funneled into a single retrieval exit',
+        'Large-file upload: MD5 instant-dedupe + S3 multipart + resumable (probe uploaded parts, send only the gaps) + streaming/compression endpoints',
+        'IDL governance: Protobuf as the single contract source, buf-generating TS (web/server), Go (gateway/biz) and Python (rag-server) types, publishing the @talqora/agent-contracts package with drift-checked CI; front-end perf: lazy routes, draft-state push-down isolating hot inputs, RUM (Web Vitals + realtime RTT) defense line',
       ],
     },
     role:  { zh: '独立开发', en: 'Solo' },
-    stack: ['Go', 'React', 'Zustand', 'TypeScript', 'Node / Express', 'Nest', 'PostgreSQL', 'Redis', 'BullMQ', 'Milvus', 'Docker', 'Nginx'],
-    year:  '2025',
+    stack: ['Go', 'TypeScript', 'React', 'Redux Toolkit', 'gRPC / Protobuf', 'Python / FastAPI', 'PostgreSQL', 'Redis', 'Pulsar', 'Milvus', 'Docker', 'Nginx'],
+    year:  '2025 — 2026',
   },
   {
     name:    { zh: '掘金风格技术博客', en: 'Juejin-style Tech Blog' },
@@ -149,19 +153,19 @@ export interface SkillGroup { title: I18nText; items: string[] }
 export const SKILLS: SkillGroup[] = [
   {
     title: { zh: '前端', en: 'Front-end' },
-    items: ['Vue', 'React', 'Flutter', 'Uniapp', 'TypeScript', 'Tailwind', 'SCSS', 'ElementPlus', 'AntD'],
+    items: ['Vue', 'React', 'Flutter', 'Uniapp', 'TypeScript', 'Tailwind', 'SCSS', 'ElementPlus', 'AntD', 'WebRTC'],
   },
   {
     title: { zh: '后端', en: 'Back-end' },
-    items: ['Node (Express / Nest)', 'Python (FastAPI / Flask)', 'Go'],
+    items: ['Go', 'Node (Express / Nest)', 'Python (FastAPI / Flask)'],
   },
   {
     title: { zh: '工程化', en: 'Tooling' },
-    items: ['Vite', 'Git', 'Docker', 'Prisma', 'GitHub Actions', 'Nginx', 'Linux', 'Shell', 'Cursor / Claude'],
+    items: ['Vite', 'Git', 'Docker', 'Prisma', 'GitHub Actions', 'Nginx', 'Linux', 'Shell', 'Cursor / Claude', 'gRPC / Protobuf', 'Prometheus / Grafana'],
   },
   {
     title: { zh: '数据与中间件', en: 'Data & Middleware' },
-    items: ['MySQL', 'MongoDB', 'PostgreSQL', 'Redis', 'Milvus', 'Neo4j', 'BullMQ', 'RabbitMQ'],
+    items: ['MySQL', 'MongoDB', 'PostgreSQL', 'Redis', 'Milvus', 'Neo4j', 'BullMQ', 'RabbitMQ', 'Pulsar'],
   },
 ];
 

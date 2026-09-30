@@ -1,20 +1,26 @@
 # our-chat
 
 实时 IM + WebRTC 音视频通话。多语言、多服务单仓(monorepo),主开发分支 `dev`。
-长连接接入在 `gateway`(Go),业务层在 `biz`(Go 模块化单体,可多副本)。
+长连接接入在 `gateway`(Go)。业务层当前存在两套实现:
+
+- **`biz/`(Go)** — 模块化单体,可多副本,功能面已完整(业务/信令/发号/OAuth/上传/通话),本地经 `biz/scripts/dev.sh` 双副本运行并已完成压测与联调验证;
+- **`server/`(Node)** — 仓库默认编排(`make dev`、`docker/docker-compose.prod.yml`)目前仍以它作为业务层。
+
+> 两套业务层实现功能面对齐,编排切换(`make dev`/prod compose 指向 biz)为待办事项。
 
 ## 服务地图
 
 | 服务 | 栈 | 端口 | 职责 |
 |---|---|---|---|
-| `biz/` | Go(gin HTTP + gRPC edge 双面)+ pgx + go-redis | 3007/3008(副本1)、3009/30081(副本2) | 业务 / 信令 / 发号 / OAuth IdP / 迁移 |
+| `biz/` | Go(gin HTTP + gRPC edge 双面)+ pgx + go-redis | 3007/3008(副本1)、3009/30081(副本2) | 业务 / 信令 / 发号 / OAuth IdP / 迁移(功能面完整,本地双副本验证) |
+| `server/` | Node + Express + Prisma + Socket.io | 3007 | 业务层(Node 版,现默认编排仍引用) |
 | `gateway/` | Go + gorilla/websocket + gRPC + JWT | 8090 | WebSocket 长连接接入、gRPC 流上行、下行路由、presence 写侧 |
 | `web/` | React + Redux Toolkit + antd + Vite + WebRTC | 5173(dev,HTTPS) | Web 端 |
 | `mobile-swift/` | iOS Swift | — | 移动端 |
 | `perf/` | Node(mjs) | — | 压测 harness / 编排 / 报告生成(协议对齐生产客户端) |
 | `docker/monitoring/` | Prometheus + Grafana | 9090 / 3001 | 监测栈(指标抓取 + 权威面板) |
 
-> 部署编排收口在顶层 `docker/`;业务代码在 `biz/` 与 `gateway/`。
+> 部署编排收口在顶层 `docker/`。gateway 上行有两种通道模式:`GATEWAY_UPSTREAM=http`(HTTP 上行到业务层 HTTP,回滚兼容)与 `GATEWAY_UPSTREAM=grpc`(gRPC 双向流,配合 biz)。
 
 ## 架构总览
 
@@ -119,11 +125,15 @@ sequenceDiagram
 
 ## 快速开始(本地开发)
 
+**方式一(仓库默认,业务层 Node)**:`make dev` —— 自动起中间件 + `server`(Node :3007)+ `gateway` + `web`,合并输出,Ctrl-C 一起停。
+
+**方式二(业务层 biz Go,双副本)**:
+
 ```bash
 # 1. 中间件(colima):PG/Redis/MinIO
 docker compose -f docker/docker-compose.dev.yml up -d
 
-# 2. 业务层双副本(端口/开关类 env 必须显式 export;迁移 embed,先 build)
+# 2. biz 双副本(端口/开关类 env 必须显式 export;迁移 embed,先 build)
 cd biz && go build -o /tmp/biz-server ./cmd/biz
 PORT=3007 EDGE_GRPC_ADDR=127.0.0.1:3008 EDGE_GRPC_ENABLED=true REPLICA_ID=biz-1 \
   AUTH_RATE_LIMIT_MAX=1000000 AUTH_RATE_LIMIT_WINDOW_MS=60000 CONV_RATE_LIMIT_MAX=500 \
@@ -170,6 +180,7 @@ our-chat/
 ├── gateway/        Go 长连接网关 —— 见 gateway/CLAUDE.md
 ├── web/            React Web 端 —— 见 web/CLAUDE.md
 ├── mobile-swift/   iOS 客户端
+├── server/         Node 业务层(现默认编排引用)
 ├── perf/           压测工具链
 ├── docker/         部署编排:compose(dev/prod) + monitoring(Prometheus/Grafana) + nginx
 └── docs/           技术方案 / 架构 / 监测设施 / 音视频模块 / 性能优化 等
