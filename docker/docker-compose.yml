@@ -1,4 +1,4 @@
-# our-chat 生产全栈编排:nginx(边缘入口)+ server(Node 业务)+ gateway(Go 长连接)+ 中间件
+# our-chat 生产全栈编排:nginx(边缘入口)+ biz(Go 业务)+ gateway(Go 长连接)+ 中间件
 #
 # 用法(在本目录 docker/ 下执行,自动加载同目录 .env):
 #   cd docker && cp .env.example .env      首次:填好 JWT_SECRET 等
@@ -44,12 +44,11 @@ services:
       retries: 10
     networks: [our-chat]
 
-  server:
-    image: ${SERVER_IMAGE:-our-chat-server:local}
+  biz:
+    image: ${BIZ_IMAGE:-our-chat-biz:local}
     build:
-      context: ../server
-      target: runner
-    container_name: our-chat-server
+      context: ../biz
+    container_name: our-chat-biz
     restart: unless-stopped
     depends_on:
       postgres:
@@ -58,10 +57,12 @@ services:
         condition: service_healthy
     env_file: *env_file
     environment:
-      NODE_ENV: production
-      PORT: 3007
+      PORT: '3007'
+      EDGE_GRPC_ENABLED: 'true'
+      EDGE_GRPC_ADDR: ':3008'
+      REPLICA_ID: biz-1
     volumes:
-      - ../server/keys:/app/keys:ro
+      - ../keys:/app/keys:ro
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3007/health']
       interval: 10s
@@ -79,10 +80,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      biz:
+        condition: service_healthy
     env_file: *env_file
     environment:
       GATEWAY_ADDR: ':8090'
-      UPSTREAM_BASE_URL: http://server:3007
+      GATEWAY_UPSTREAM: grpc
+      EDGE_GRPC_ADDR: biz:3008
+      GATEWAY_PROXY_API: 'true'
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8090/healthz']
       interval: 10s
@@ -97,7 +102,7 @@ services:
     container_name: our-chat-web
     restart: unless-stopped
     depends_on:
-      - server
+      - biz
       - gateway
     ports:
       - '${WEB_PORT:-8080}:80'

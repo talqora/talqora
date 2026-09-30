@@ -18,6 +18,9 @@ dist-ssr
 !.env.example
 !.env.*.example
 
+# OAuth 私钥(勿提交;dev 私钥本地生成,prod 私钥由 CI 写入服务器)
+keys/*.pem
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

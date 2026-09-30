@@ -19,7 +19,7 @@ fi
 export PORT="${1:-${PORT:-3007}}"
 export EDGE_GRPC_ADDR="${2:-${EDGE_GRPC_ADDR:-127.0.0.1:3008}}"
 export EDGE_GRPC_ENABLED="${EDGE_GRPC_ENABLED:-true}"
-export OAUTH_PRIVATE_KEY_FILE="${OAUTH_PRIVATE_KEY_FILE:-$ROOT/server/keys/oauth-private-dev.pem}"
+export OAUTH_PRIVATE_KEY_FILE="${OAUTH_PRIVATE_KEY_FILE:-$ROOT/keys/oauth-private-dev.pem}"
 export AUTH_RATE_LIMIT_MAX="${AUTH_RATE_LIMIT_MAX:-1000000}"
 export AUTH_RATE_LIMIT_WINDOW_MS="${AUTH_RATE_LIMIT_WINDOW_MS:-60000}"
 export OAUTH_WEB_REDIRECT_URI="${OAUTH_WEB_REDIRECT_URI:-http://localhost:5173/oauth/callback}"

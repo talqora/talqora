@@ -19,7 +19,7 @@ dev: env deps middleware
 	@trap 'kill 0' INT TERM EXIT; \
 	( set -a; . $(ENV_DEBUG); set +a; \
 	  export AUTH_RATE_LIMIT_MAX=1000000 AUTH_RATE_LIMIT_WINDOW_MS=60000; \
-	  export OAUTH_PRIVATE_KEY_FILE=$(CURDIR)/server/keys/oauth-private-dev.pem; \
+	  export OAUTH_PRIVATE_KEY_FILE=$(CURDIR)/keys/oauth-private-dev.pem; \
 	  cd biz && go run ./cmd/biz ) & \
 	( set -a; . $(ENV_DEBUG); set +a; cd gateway && go run ./cmd/gateway ) & \
 	( cd web && pnpm start ) & \
