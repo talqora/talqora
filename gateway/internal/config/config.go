@@ -62,8 +62,10 @@ func Load() (*Config, error) {
 		MaxConns:         envInt("GATEWAY_MAX_CONNS", 50000),
 		SendBuffer:       envInt("GATEWAY_SEND_BUFFER", 256),
 		HeartbeatTimeout: time.Duration(envInt("GATEWAY_HEARTBEAT_TIMEOUT_SEC", 60)) * time.Second,
-		ReplicaID:        envOr("REPLICA_ID", "gw-"+host),
-		AllowedOrigins:   parseOrigins(os.Getenv("CLIENT_ORIGINS")),
+		// 独立于 biz 的 REPLICA_ID:两者共用一份 .env(dev)时,网关会误用业务层副本号,
+		// 多网关副本下会互相覆盖 presence:meta,导致定向下行路由到错误副本。
+		ReplicaID:      envOr("GATEWAY_REPLICA_ID", "gw-"+host),
+		AllowedOrigins: parseOrigins(os.Getenv("CLIENT_ORIGINS")),
 	}
 	return cfg, nil
 }

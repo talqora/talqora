@@ -91,6 +91,9 @@ services:
       timeout: 3s
       start_period: 20s
       retries: 3
+    # 默认 10s 太短:HTTP 排空 + gRPC 流关闭 + seq 终检 checkpoint 需要余量,
+    # 否则被 SIGKILL 打断会丢掉最后一次发号位点。
+    stop_grace_period: 15s
     # our-chat 内网 + 与 agent-server 互通的共享网络（供 agent 经 oc-shared 访问本服务的 JWKS）
     networks: [our-chat, oc-shared]
 
@@ -122,6 +125,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    # 关闭时要向存量连接发 1012 并等 send 缓冲排空(内部上限 10s),默认 10s 会被 SIGKILL 打断。
+    stop_grace_period: 15s
     networks: [our-chat]
 
   web:

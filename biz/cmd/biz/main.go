@@ -124,13 +124,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// 顺序很重要:先停 HTTP(不再收新请求并排空在途),再收 gRPC 流,
+	// 最后才做 seq 终检 checkpoint。若先收 gRPC,长驻流会让进程卡在 GracefulStop 上,
+	// HTTP 排空与 checkpoint 都执行不到(实测 10s 不退出,最终被 SIGKILL)。
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if edgeSrv != nil {
-		edgeSrv.GracefulStop()
-	}
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP 优雅关闭出错", "err", err)
+	}
+	if edgeSrv != nil {
+		edgeSrv.GracefulStop()
 	}
 	realtime.FinalCheckpoint(context.Background(), logger)
 	if rdb := store.Redis(); rdb != nil {

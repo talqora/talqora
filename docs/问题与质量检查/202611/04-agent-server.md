@@ -6,6 +6,8 @@
 >
 > 先说做得好的两处，因为后面的清单容易让人误判整体质量：**多租户隔离**把 `user_id` 过滤下沉到向量检索的唯一出口（`packages/agent-core/src/agent_core/vector.py:129-141`），`retrieval.py` 强制复用，agent 的工具函数全部按 `ctx.user_id` 过滤——这是最容易出越权的地方，做对了。**SSE 断线补发**实现了「先订阅后补发 + watermark 去重 + 终态收尾」（`apps/rag-server/src/rag_server/modules/runs/router.py:84-109`），顺序是对的。
 
+> **整改状态**：本文记录的是审计当时（2026-11-15）的代码状态，不代表当前状态。已完成的整改项与改动后的实测结果，统一见 [00-总览与整改顺序](./00-总览与整改顺序.md) 第 3 节。
+
 ## 0 一段话总评
 
 服务拆分与职责边界是清楚的：`rag-http` 只做门面（鉴权、上传、SSE），`rag-worker` 消费 Pulsar 跑解析/切分/embedding/工具编排，`agent-core` 是共享库。事件溯源的 run-engine 是全仓设计最讲究的一块。

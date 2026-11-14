@@ -71,13 +71,30 @@ func StartEdge(cfg *config.Config, logger *slog.Logger) (*EdgeServer, error) {
 }
 
 // GracefulStop 优雅停止 gRPC 服务(先置 NOT_SERVING 让探活感知,再停流)。
+//
+// GracefulStop 会等所有 RPC 自然结束,而 gateway 持有的是长驻双向流(不会自己结束),
+// 因此必须设超时兜底:否则进程收到 SIGTERM 后会永久挂起,后续的
+// HTTP 排空与 seq 终检 checkpoint 都执行不到,最后被编排层 SIGKILL 掉。
 func (s *EdgeServer) GracefulStop() {
 	if s.health != nil {
 		s.health.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 		s.health.Shutdown()
 	}
-	if s.grpc != nil {
+	if s.grpc == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
 		s.grpc.GracefulStop()
+		close(done)
+	}()
+	// gateway 的长驻流永远不会自己结束,所以这里的等待只为了给「正在处理中的那一帧」收尾;
+	// 1s 足够(单帧处理是毫秒级),继续等只是白白拖长每次滚动发布。
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		s.logger.Warn("gRPC 优雅停止超时(存在未结束的长驻流),强制关闭")
+		s.grpc.Stop()
 	}
 }
 

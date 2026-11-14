@@ -6,6 +6,8 @@
 >
 > 先给结论性的正面判断：**架构切换是干净的。** 全仓 `socket.io-client` 在依赖表与源码中零残留；实时帧名（`message.send`/`receiveMessage`/`receiveFriendReq`/`friendListChanged`/`heartbeat`/`call:*`）与 `biz/internal/realtime` 和 `gateway/internal/hub/conn.go` 完全对得上；`wsClient.ts` 的心跳 25s、指数退避、`message.send`→`message.ack` 重发幂等与网关的 `GATEWAY_HEARTBEAT_TIMEOUT_SEC=60` 匹配。没有 `dangerouslySetInnerHTML`，所有 `target="_blank"` 都带 `noopener,noreferrer`，手写代码里也没有 `any`。这些是很多同类项目做不到的。
 
+> **整改状态**：本文记录的是审计当时（2026-11-15）的代码状态，不代表当前状态。已完成的整改项与改动后的实测结果，统一见 [00-总览与整改顺序](./00-总览与整改顺序.md) 第 3 节。
+
 ## 0 一段话总评
 
 前端的整体判断是：**新代码写得好，早期代码缺错误处理**。

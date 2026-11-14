@@ -6,6 +6,8 @@
 >
 > 事实基线（已核实）：`docker/docker-compose.prod.yml` 的服务是 postgres/redis/**biz**/gateway/web/coturn；`Makefile:23-25` 起的是 biz/gateway/web；`docker/docker-compose.yml` 与 `docker/docker-compose.dev.yml` 也都没有 `server`。**Node 业务层已于 9 月 30 日下线，`server/` 目录不再参与任何运行路径。**
 
+> **整改状态**：本文记录的是审计当时（2026-11-15）的代码状态，不代表当前状态。已完成的整改项与改动后的实测结果，统一见 [00-总览与整改顺序](./00-总览与整改顺序.md) 第 3 节。
+
 ## 0 一段话总评
 
 `server/` 已经不在任何部署编排里，但它仍然在四个地方起作用：部署脚本把它 scp 到生产机（同时漏掉真正要构建的 `biz/`）、`buf.gen.yaml` 把它当作 proto 生成目标、`proto.yml` 把它的生成物当作门禁、四份文档把它描述成「业务层」。

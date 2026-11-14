@@ -9,12 +9,16 @@
 DEV_COMPOSE := docker/docker-compose.dev.yml
 ENV_DEBUG   := docker/.env.debug
 
-.PHONY: dev middleware down env deps proto proto-check
+# 兼容两种 compose 实现:docker compose 插件 / docker-compose 独立二进制(colima 默认只带后者)。
+# 可用 `make COMPOSE="docker compose" dev` 显式覆盖。
+COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
-# 一键起全部:env/依赖就绪 → 起中间件 → 等 PG → 并发跑三个服务(Ctrl-C 一起退出)
-dev: env deps middleware
+.PHONY: dev middleware down env keys deps proto proto-check
+
+# 一键起全部:env/密钥/依赖就绪 → 起中间件 → 等 PG → 并发跑三个服务(Ctrl-C 一起退出)
+dev: env keys deps middleware
 	@printf '⏳ 等待 PostgreSQL'; \
-	until docker compose -f $(DEV_COMPOSE) exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do printf '.'; sleep 1; done; echo ' ✓'
+	until $(COMPOSE) -f $(DEV_COMPOSE) exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do printf '.'; sleep 1; done; echo ' ✓'
 	@echo '▶ biz:3007(+gRPC :3008) · gateway:8090 · web:5173(Ctrl-C 全部停止)'
 	@trap 'kill 0' INT TERM EXIT; \
 	( set -a; . $(ENV_DEBUG); set +a; \
@@ -27,15 +31,24 @@ dev: env deps middleware
 
 # 只起中间件(postgres + redis + minio)
 middleware:
-	docker compose -f $(DEV_COMPOSE) up -d
+	$(COMPOSE) -f $(DEV_COMPOSE) up -d
 
 # 停中间件
 down:
-	docker compose -f $(DEV_COMPOSE) down
+	$(COMPOSE) -f $(DEV_COMPOSE) down
 
 # 生成集中 dev env(幂等;test -f X || cmd = 不存在才建)
 env:
 	@test -f $(ENV_DEBUG) || { cp docker/.env.debug.example $(ENV_DEBUG); echo "✓ 已生成 $(ENV_DEBUG)(请填 JWT_SECRET)"; }
+
+# 生成开发用 OAuth 私钥(RSA 2048,PKCS#8)。biz 启动要求 OAUTH_ACTIVE_KID + 可读私钥,
+# 缺了会 fail-fast。私钥在 keys/*.pem,已被 .gitignore 忽略,不进仓库。
+keys:
+	@test -f keys/oauth-private-dev.pem || { \
+	  mkdir -p keys; \
+	  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out keys/oauth-private-dev.pem; \
+	  chmod 600 keys/oauth-private-dev.pem; \
+	  echo "✓ 已生成 keys/oauth-private-dev.pem"; }
 
 # 首次装依赖(已就绪则跳过)
 deps:
