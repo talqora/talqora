@@ -1,0 +1,57 @@
+{
+  "label": "http_bench",
+  "mode": "http",
+  "params": {
+    "CONCURRENCY": 20,
+    "DURATION": 10,
+    "userId": 5,
+    "conversationId": "single_5_11"
+  },
+  "startedAt": 1794689845925,
+  "endedAt": 1794689865967,
+  "targets": [
+    {
+      "target": "GET /.well-known/openid-configuration",
+      "method": "GET",
+      "rps": 10967.8,
+      "total": 109722,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 2,
+        "p95": 2,
+        "p99": 3,
+        "p999": 5,
+        "min": 0,
+        "max": 8
+      },
+      "status": {
+        "200": 109722
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /.well-known/jwks.json",
+      "method": "GET",
+      "rps": 10999.6,
+      "total": 110018,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 2,
+        "p95": 3,
+        "p99": 4,
+        "p999": 8,
+        "min": 0,
+        "max": 10
+      },
+      "status": {
+        "200": 110018
+      },
+      "errors": 0
+    }
+  ],
+  "resource": {
+    "serverRssMB": 453.9,
+    "eventloopP99Ms": null,
+    "cpuSecondsTotal": 4690.546972
+  }
+}

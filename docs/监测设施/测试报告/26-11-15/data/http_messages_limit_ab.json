@@ -1,0 +1,76 @@
+{
+  "label": "http_bench",
+  "mode": "http",
+  "params": {
+    "CONCURRENCY": 20,
+    "DURATION": 10,
+    "userId": 5,
+    "conversationId": "single_5_11"
+  },
+  "startedAt": 1794689935013,
+  "endedAt": 1794689966261,
+  "targets": [
+    {
+      "target": "GET /user/messages",
+      "method": "GET",
+      "rps": 7.1,
+      "total": 79,
+      "wallSec": 11.18,
+      "latencyMs": {
+        "p50": 1961,
+        "p95": 4170,
+        "p99": 4474,
+        "p999": 4474,
+        "min": 1027,
+        "max": 4474
+      },
+      "status": {
+        "200": 79
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/messages?limit=50",
+      "method": "GET",
+      "rps": 3963.9,
+      "total": 39675,
+      "wallSec": 10.01,
+      "latencyMs": {
+        "p50": 5,
+        "p95": 8,
+        "p99": 12,
+        "p999": 22,
+        "min": 2,
+        "max": 249
+      },
+      "status": {
+        "200": 39675
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/lastMessages",
+      "method": "GET",
+      "rps": 369.9,
+      "total": 3711,
+      "wallSec": 10.03,
+      "latencyMs": {
+        "p50": 56,
+        "p95": 73,
+        "p99": 88,
+        "p999": 102,
+        "min": 30,
+        "max": 111
+      },
+      "status": {
+        "200": 3711
+      },
+      "errors": 0
+    }
+  ],
+  "resource": {
+    "serverRssMB": 3474.4,
+    "eventloopP99Ms": null,
+    "cpuSecondsTotal": 4771.867878
+  }
+}

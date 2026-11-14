@@ -33,3 +33,5 @@ keys/*.pem
 *.sw?
 
 uploads
+# 部署脚本在 docker/ 下生成的 OAuth 私钥目录（本地跑 compose 时产生，禁止提交）
+docker/keys/

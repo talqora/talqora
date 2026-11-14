@@ -1,0 +1,218 @@
+{
+ "idle": {
+  "samples": 9,
+  "window": {
+   "from": "2026-11-15T05:02:42+0800",
+   "to": "2026-11-15T05:03:36+0800"
+  },
+  "host": {
+   "cpu_busy_pct": {
+    "med": 20.1,
+    "min": 16.34,
+    "max": 27.17,
+    "mean": 21.09
+   },
+   "cpu_idle_pct": {
+    "med": 79.89,
+    "min": 73.53,
+    "max": 83.64,
+    "mean": 78.97
+   },
+   "load1": {
+    "med": 6.29,
+    "min": 5.33,
+    "max": 7.49,
+    "mean": 6.51
+   },
+   "mem_used_mb": {
+    "med": 37920,
+    "min": 37695,
+    "max": 38591,
+    "mean": 38016
+   },
+   "mem_free_mb": {
+    "med": 231,
+    "min": 76,
+    "max": 306,
+    "mean": 185.56
+   },
+   "compressor_mb": {
+    "med": 14758,
+    "min": 14512,
+    "max": 15081,
+    "mean": 14793.44
+   },
+   "swap_used_mb": {
+    "med": 45317.3,
+    "min": 45301.3,
+    "max": 45325.3,
+    "mean": 45316.41
+   },
+   "pageout_per_min": {
+    "med": 1520,
+    "min": 0,
+    "max": 3420,
+    "mean": 1302.22
+   },
+   "disk_mbs": {
+    "med": 1.48,
+    "min": 0.45,
+    "max": 4.05,
+    "mean": 1.99
+   },
+   "net_rx_mbps": {
+    "med": 5.92,
+    "min": 0,
+    "max": 7.59,
+    "mean": 5.5
+   },
+   "net_tx_mbps": {
+    "med": 1.29,
+    "min": 0,
+    "max": 2.16,
+    "mean": 1.15
+   }
+  },
+  "vm": {
+   "load1": {
+    "med": 0.36,
+    "min": 0.36,
+    "max": 0.46,
+    "mean": 0.4
+   },
+   "mem_used_mb": {
+    "med": 3133,
+    "min": 3131,
+    "max": 3133,
+    "mean": 3132.11
+   },
+   "mem_total_mb": 32028
+  },
+  "ctr": {
+   "cpu_pct_sum": {
+    "med": 12.3,
+    "min": 7.9,
+    "max": 21.6,
+    "mean": 13.23
+   },
+   "mem_mb_sum": {
+    "med": 1243,
+    "min": 1243,
+    "max": 1248,
+    "mean": 1244.22
+   },
+   "count": 22
+  },
+  "sampler": {
+   "tick_ms_max": 6000
+  }
+ },
+ "load": {
+  "samples": 9,
+  "window": {
+   "from": "2026-11-15T05:03:48+0800",
+   "to": "2026-11-15T05:04:44+0800"
+  },
+  "host": {
+   "cpu_busy_pct": {
+    "med": 37.99,
+    "min": 22.2,
+    "max": 59.98,
+    "mean": 38.88
+   },
+   "cpu_idle_pct": {
+    "med": 61.99,
+    "min": 40.1,
+    "max": 77.79,
+    "mean": 61.27
+   },
+   "load1": {
+    "med": 4.98,
+    "min": 4.42,
+    "max": 7.21,
+    "mean": 5.38
+   },
+   "mem_used_mb": {
+    "med": 37589,
+    "min": 37174,
+    "max": 37997,
+    "mean": 37594.67
+   },
+   "mem_free_mb": {
+    "med": 80,
+    "min": 58,
+    "max": 117,
+    "mean": 81.89
+   },
+   "compressor_mb": {
+    "med": 14014,
+    "min": 13351,
+    "max": 14633,
+    "mean": 14045.22
+   },
+   "swap_used_mb": {
+    "med": 45101.3,
+    "min": 44957.3,
+    "max": 45301.3,
+    "mean": 45109.3
+   },
+   "pageout_per_min": {
+    "med": 1760,
+    "min": 0,
+    "max": 4180,
+    "mean": 1884.44
+   },
+   "disk_mbs": {
+    "med": 22.41,
+    "min": 5.53,
+    "max": 48.12,
+    "mean": 25.35
+   },
+   "net_rx_mbps": {
+    "med": 6.99,
+    "min": 0,
+    "max": 8.27,
+    "mean": 5.88
+   },
+   "net_tx_mbps": {
+    "med": 1.83,
+    "min": 0,
+    "max": 2.98,
+    "mean": 1.69
+   }
+  },
+  "vm": {
+   "load1": {
+    "med": 0.47,
+    "min": 0.47,
+    "max": 2.89,
+    "mean": 1.55
+   },
+   "mem_used_mb": {
+    "med": 3135,
+    "min": 3135,
+    "max": 3184,
+    "mean": 3156.78
+   },
+   "mem_total_mb": 32028
+  },
+  "ctr": {
+   "cpu_pct_sum": {
+    "med": 17.2,
+    "min": 10.9,
+    "max": 73.3,
+    "mean": 28.61
+   },
+   "mem_mb_sum": {
+    "med": 1246,
+    "min": 1245,
+    "max": 1248,
+    "mean": 1246.22
+   },
+   "count": 22
+  },
+  "sampler": {
+   "tick_ms_max": 6000
+  }
+ }
+}

@@ -191,6 +191,7 @@ our-chat/
 
 ## 文档索引
 
+- 本地 HTTPS / 局域网调试证书 — `docs/SOPs/01-mkcert-证书安装SOP.md`
 - 压测流程与红线 — `docs/监测设施/压测分析SOPV2.md`
 - 架构与关键设计 — `docs/架构/`、`docs/技术方案/`
 - 音视频排障记录 — `docs/音视频模块/debug/`

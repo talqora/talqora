@@ -1,0 +1,152 @@
+{
+  "label": "http_bench",
+  "mode": "http",
+  "params": {
+    "CONCURRENCY": 20,
+    "DURATION": 10,
+    "userId": 5,
+    "conversationId": "single_5_11"
+  },
+  "startedAt": 1794688437364,
+  "endedAt": 1794688508690,
+  "targets": [
+    {
+      "target": "GET /health",
+      "method": "GET",
+      "rps": 10856.6,
+      "total": 108609,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 2,
+        "p95": 3,
+        "p99": 4,
+        "p999": 6,
+        "min": 0,
+        "max": 9
+      },
+      "status": {
+        "200": 108609
+      },
+      "errors": 0
+    },
+    {
+      "target": "POST /api/login (bcrypt)",
+      "method": "POST",
+      "rps": 84.2,
+      "total": 860,
+      "wallSec": 10.22,
+      "latencyMs": {
+        "p50": 233,
+        "p95": 266,
+        "p99": 293,
+        "p999": 324,
+        "min": 203,
+        "max": 324
+      },
+      "status": {
+        "200": 860
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/userConversations",
+      "method": "GET",
+      "rps": 5226.7,
+      "total": 52283,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 4,
+        "p95": 6,
+        "p99": 9,
+        "p999": 13,
+        "min": 1,
+        "max": 29
+      },
+      "status": {
+        "200": 52283
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/messages",
+      "method": "GET",
+      "rps": 7,
+      "total": 77,
+      "wallSec": 11.03,
+      "latencyMs": {
+        "p50": 1874,
+        "p95": 4121,
+        "p99": 4124,
+        "p999": 4124,
+        "min": 863,
+        "max": 4124
+      },
+      "status": {
+        "200": 77
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/lastMessages",
+      "method": "GET",
+      "rps": 384.9,
+      "total": 3861,
+      "wallSec": 10.03,
+      "latencyMs": {
+        "p50": 52,
+        "p95": 75,
+        "p99": 99,
+        "p999": 131,
+        "min": 27,
+        "max": 133
+      },
+      "status": {
+        "200": 3861
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/sync",
+      "method": "GET",
+      "rps": 3196.3,
+      "total": 31976,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 6,
+        "p95": 9,
+        "p99": 12,
+        "p999": 14,
+        "min": 3,
+        "max": 17
+      },
+      "status": {
+        "200": 31976
+      },
+      "errors": 0
+    },
+    {
+      "target": "GET /user/mentions",
+      "method": "GET",
+      "rps": 5474.4,
+      "total": 54760,
+      "wallSec": 10,
+      "latencyMs": {
+        "p50": 4,
+        "p95": 5,
+        "p99": 6,
+        "p999": 9,
+        "min": 1,
+        "max": 10
+      },
+      "status": {
+        "200": 54760
+      },
+      "errors": 0
+    }
+  ],
+  "resource": {
+    "serverRssMB": 2474.1,
+    "eventloopP99Ms": null,
+    "cpuSecondsTotal": 4053.069361
+  }
+}

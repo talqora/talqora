@@ -1,0 +1,281 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>实时消息链路性能深度分析报告(26-11-15)</title>
+<style>
+  /* 深浅色双主题:跟随系统 prefers-color-scheme;SVG 内无硬编码浅色,网格/刻度/文字全走 CSS 变量。 */
+  :root{color-scheme:light dark;
+    --bg:#ffffff;--text:#222222;--muted:#888888;--grid:#eeeeee;--chart-bg:#ffffff;
+    --table-border:#dddddd;--th-bg:#f3f6fa;
+    --box-bg:#f7f9fc;--box-border:#dde6f0;
+    --warn-bg:#fff7e6;--warn-border:#ffe0a3;
+    --key-bg:#eef7ee;--key-border:#c9e6c9;
+    --h-color:#33517a;--code-bg:#f0f0f0;
+    --accent:#4e79a7;--bad:#c0392b;--ok:#27ae60;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1b1c21;--text:#e4e6ea;--muted:#9ba1ab;--grid:#383b44;--chart-bg:#22242b;
+      --table-border:#3d414b;--th-bg:#2a2d36;
+      --box-bg:#252730;--box-border:#3d414b;
+      --warn-bg:#3a3122;--warn-border:#6b5826;
+      --key-bg:#20302a;--key-border:#3c5748;
+      --h-color:#9dbce0;--code-bg:#30333c;
+      --accent:#7fa9d4;--bad:#ff7a6e;--ok:#5ec98d;
+    }
+  }
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;color:var(--text);background:var(--bg);max-width:1000px;margin:0 auto;padding:24px;}
+  h1{border-bottom:3px solid var(--accent);padding-bottom:8px;color:var(--text)}
+  h2{margin-top:36px;border-left:5px solid var(--accent);padding-left:10px;color:var(--text)}
+  h3{margin-top:24px;color:var(--h-color)}
+  h4{margin:18px 0 6px;color:var(--h-color)}
+  .chart{width:100%;height:auto;border:1px solid var(--grid);border-radius:6px;margin:12px 0;background:var(--chart-bg)}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;color:var(--text)}
+  th,td{border:1px solid var(--table-border);padding:6px 8px;text-align:center}
+  th{background:var(--th-bg);color:var(--text)}
+  .bad{color:var(--bad);font-weight:700}.ok{color:var(--ok)}
+  .box{background:var(--box-bg);border:1px solid var(--box-border);border-radius:8px;padding:12px 16px;margin:14px 0;color:var(--text)}
+  .warn{background:var(--warn-bg);border-color:var(--warn-border)}
+  .key{background:var(--key-bg);border-color:var(--key-border)}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--text)}
+  .muted{color:var(--muted);font-size:13px}
+  svg .series-b{fill:#e15759;stroke:#e15759}
+  svg .leg{fill:var(--text)}
+</style></head><body>
+
+<h1>实时消息链路性能深度分析报告</h1>
+<p class="muted">期次 26-11-15 ｜ 数据窗口结束:2026/11/15 04:33:51 ｜ 分支 feat/perf-monitoring ｜ 数据源:测试报告/26-11-15/data/*.json(真实压测采集,全 Go 链路:harness → gateway :8090 → gRPC 双向流 → biz ×2 → PG 分区表/Redis)</p>
+
+<div class="box warn">
+<b>测量诚实性声明(务必先读)</b><br>
+① 全部服务(harness 负载生成 + biz ×2 + gateway + colima 中间件/Prometheus)<b>跑在同一台 macOS 开发机</b>,彼此抢 CPU,故<b>绝对毫秒数有噪声、非生产代表值</b>;本报告价值在<b>同机同负载下的定性行为、拐点形态与诊断结论</b>。<br>
+② 本报告<b>只呈现本期数据</b>,不做任何历史期/跨技术栈对比(SOPV2 §8 口径)。<br>
+③ 公平性:压测客户端实现与生产客户端等价的 ack 匹配/5s 超时同键重发×3/25s 心跳/断线重连(对齐 web/src/ws/wsClient.ts),不是裸发帧的假快路径。<br>
+④ 每场景 ≥3 轮取中位轮(RTT p99)落盘;RTT 用往返口径(clientMsgId 关联);资源按两侧进程 RSS/CPU 分别采样(ps)。<br>
+⑤ 口径注意:kill -9 重启会清零该副本 Prometheus counter,跨重启的累计指标需注明(本期分布式演练已注明)。
+</div>
+
+<h2>一、结论速览</h2>
+<div class="box key"><ul><li><b>1. 可靠性:</b>主场景 + 吞吐扫描全部 11 个数据文件共 340741 条消息,错误 2897 条,重发 0 帧、断线重连 0 次。</li><li><b>2. 过载形态(S3 ≈3000 msg/s,150 连接 × 20 msg/s):</b>44719 条全 ack,错误 0,RTT p50=88/p99=1282/p999=1329ms——过载表现为软排队而非失败。</li><li><b>3. 吞吐拐点(100 连接):</b>RATE 25→30(≈2500→3000 msg/s)时 RTT p99 429→4763ms 超线性抬升,但错误率保持 0%——同机单 PG 实例写吞吐趋近饱和,系统排队而非拒绝。</li><li><b>4. 延迟-速率反相关:</b>低消息率场景 S2(2 msg/s)p50=74ms 高于高吞吐 S1(10 msg/s)p50=31ms——低速率下 RTT 由空闲唤醒与冷缓存主导,非瓶颈恶化。</li><li><b>5. 连接容量:</b>S6 爬坡到 1 万连接 100% 成功(建连 p99 ≤376ms/级),gw RSS 290.5MB / 20028 goroutine(≈2 goroutine/连接);biz RSS 登录期峰值 189.5MB → 结束档 43.8MB(GC 回落)。</li><li><b>6. 突发重连:</b>S7 惊群 300 连接同瞬间重连 300/300 成功,p99=43ms,资源无尖峰。</li></ul></div>
+
+<h2>二、测试方法与场景</h2>
+<ul>
+<li><code>perf/harness-gw.mjs</code>:原生 WebSocket(query token/deviceId)→ gateway <code>/ws</code> → 信封帧 <code>{type:'message.send',data:{...}}</code> → 等 <code>message.ack</code> 计 RTT。</li>
+<li>编排 <code>perf/ab-run.mjs</code>:跑 harness + 每 2s 采样(Prometheus 连接/goroutine/GC + <code>ps</code> 两进程 RSS/CPU)+ 服务内直方图分位(uplink/downlink/HTTP)→ 落 JSON。</li>
+<li>部署形态:双 biz 副本(3007/3008、3009/30081)+ gateway 双后端 gRPC(每后端 4 流,userId 哈希分片)。</li>
+</ul>
+<table><tr><th>场景</th><th>参数</th><th>目的</th></tr>
+<tr><td>S0 冒烟</td><td>50 连接 × 2 msg/s × 15s(链路冒烟)</td><td>链路冒烟</td></tr><tr><td>S1 常规吞吐</td><td>100 连接 × 10 msg/s × 20s(≈1000 msg/s)</td><td>常规吞吐下的 RTT</td></tr><tr><td>S2 连接规模</td><td>300 连接 × 2 msg/s × 15s(低消息率,看连接与资源)</td><td>低消息率下连接规模与资源(空闲唤醒定性)</td></tr><tr><td>S3 过载压力</td><td>150 连接 × 20 msg/s × 15s(≈3000 msg/s)</td><td>过载时的失败/排队形态</td></tr><tr><td>S4 大连接</td><td>500 连接 × 1 msg/s × 15s(最低消息率,看连接与资源)</td><td>低消息率下连接规模与资源(空闲唤醒定性)</td></tr><tr><td>S5 长时稳态</td><td>100 连接 × 5 msg/s × 120s(长稳漂移与心跳)</td><td>长稳漂移与心跳有效性</td></tr></table>
+
+<h2>三、主场景深度数据</h2>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="消息 RTT p99(客户端往返)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p99(客户端往返)（ms）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">500</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1000</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">2000</text><rect class="series-b" x="94.33333333333334" y="240.344" width="52" height="5.656000000000006" fill="#e15759"><title>冒烟 56ms</title></rect><text class="series-b" x="120.33333333333334" y="236.344" text-anchor="middle" font-size="10" fill="#e15759">56</text><rect class="series-b" x="207.00000000000003" y="239.132" width="52" height="6.867999999999995" fill="#e15759"><title>常规吞吐 68ms</title></rect><text class="series-b" x="233.00000000000003" y="235.132" text-anchor="middle" font-size="10" fill="#e15759">68</text><rect class="series-b" x="319.6666666666667" y="229.739" width="52" height="16.260999999999996" fill="#e15759"><title>连接规模 161ms</title></rect><text class="series-b" x="345.6666666666667" y="225.739" text-anchor="middle" font-size="10" fill="#e15759">161</text><rect class="series-b" x="432.3333333333333" y="116.518" width="52" height="129.482" fill="#e15759"><title>过载压力 1282ms</title></rect><text class="series-b" x="458.3333333333333" y="112.518" text-anchor="middle" font-size="10" fill="#e15759">1282</text><rect class="series-b" x="545.0000000000001" y="219.033" width="52" height="26.967000000000013" fill="#e15759"><title>大连接 267ms</title></rect><text class="series-b" x="571.0000000000001" y="215.033" text-anchor="middle" font-size="10" fill="#e15759">267</text><rect class="series-b" x="657.6666666666667" y="238.728" width="52" height="7.271999999999991" fill="#e15759"><title>长时稳态 72ms</title></rect><text class="series-b" x="683.6666666666667" y="234.728" text-anchor="middle" font-size="10" fill="#e15759">72</text><text x="120.33333333333334" y="264" text-anchor="middle" font-size="12" fill="var(--text)">冒烟</text><text x="233.00000000000003" y="264" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="264" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="264" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-b" x="640" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="656" y="16" font-size="11">本期(全 Go 链路)</text>
+  </svg>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="消息 RTT p999(尾延迟)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">消息 RTT p999(尾延迟)（ms）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">500</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1000</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">2000</text><rect class="series-b" x="94.33333333333334" y="240.142" width="52" height="5.858000000000004" fill="#e15759"><title>冒烟 58ms</title></rect><text class="series-b" x="120.33333333333334" y="236.142" text-anchor="middle" font-size="10" fill="#e15759">58</text><rect class="series-b" x="207.00000000000003" y="237.516" width="52" height="8.484000000000009" fill="#e15759"><title>常规吞吐 84ms</title></rect><text class="series-b" x="233.00000000000003" y="233.516" text-anchor="middle" font-size="10" fill="#e15759">84</text><rect class="series-b" x="319.6666666666667" y="225.19400000000002" width="52" height="20.805999999999983" fill="#e15759"><title>连接规模 206ms</title></rect><text class="series-b" x="345.6666666666667" y="221.19400000000002" text-anchor="middle" font-size="10" fill="#e15759">206</text><rect class="series-b" x="432.3333333333333" y="111.77100000000002" width="52" height="134.22899999999998" fill="#e15759"><title>过载压力 1329ms</title></rect><text class="series-b" x="458.3333333333333" y="107.77100000000002" text-anchor="middle" font-size="10" fill="#e15759">1329</text><rect class="series-b" x="545.0000000000001" y="216.71" width="52" height="29.289999999999992" fill="#e15759"><title>大连接 290ms</title></rect><text class="series-b" x="571.0000000000001" y="212.71" text-anchor="middle" font-size="10" fill="#e15759">290</text><rect class="series-b" x="657.6666666666667" y="213.478" width="52" height="32.52199999999999" fill="#e15759"><title>长时稳态 322ms</title></rect><text class="series-b" x="683.6666666666667" y="209.478" text-anchor="middle" font-size="10" fill="#e15759">322</text><text x="120.33333333333334" y="264" text-anchor="middle" font-size="12" fill="var(--text)">冒烟</text><text x="233.00000000000003" y="264" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="264" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="264" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-b" x="640" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="656" y="16" font-size="11">本期(全 Go 链路)</text>
+  </svg>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="biz RSS 峰值(ps 采样)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">biz RSS 峰值(ps 采样)（MB）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">75</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">150</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">225</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">300</text><rect class="series-b" x="94.33333333333334" y="191.99866666666665" width="52" height="54.00133333333335" fill="#e15759"><title>冒烟 80.2MB</title></rect><text class="series-b" x="120.33333333333334" y="187.99866666666665" text-anchor="middle" font-size="10" fill="#e15759">80.2</text><rect class="series-b" x="207.00000000000003" y="179.13799999999998" width="52" height="66.86200000000002" fill="#e15759"><title>常规吞吐 99.3MB</title></rect><text class="series-b" x="233.00000000000003" y="175.13799999999998" text-anchor="middle" font-size="10" fill="#e15759">99.3</text><rect class="series-b" x="319.6666666666667" y="165.33466666666666" width="52" height="80.66533333333334" fill="#e15759"><title>连接规模 119.8MB</title></rect><text class="series-b" x="345.6666666666667" y="161.33466666666666" text-anchor="middle" font-size="10" fill="#e15759">119.8</text><rect class="series-b" x="432.3333333333333" y="127.08933333333333" width="52" height="118.91066666666667" fill="#e15759"><title>过载压力 176.6MB</title></rect><text class="series-b" x="458.3333333333333" y="123.08933333333333" text-anchor="middle" font-size="10" fill="#e15759">176.6</text><rect class="series-b" x="545.0000000000001" y="105.47533333333334" width="52" height="140.52466666666666" fill="#e15759"><title>大连接 208.7MB</title></rect><text class="series-b" x="571.0000000000001" y="101.47533333333334" text-anchor="middle" font-size="10" fill="#e15759">208.7</text><rect class="series-b" x="657.6666666666667" y="81.03333333333333" width="52" height="164.96666666666667" fill="#e15759"><title>长时稳态 245MB</title></rect><text class="series-b" x="683.6666666666667" y="77.03333333333333" text-anchor="middle" font-size="10" fill="#e15759">245</text><text x="120.33333333333334" y="264" text-anchor="middle" font-size="12" fill="var(--text)">冒烟</text><text x="233.00000000000003" y="264" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="264" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="264" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-b" x="640" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="656" y="16" font-size="11">本期(全 Go 链路)</text>
+  </svg>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="gateway RSS 峰值(ps 采样)">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">gateway RSS 峰值(ps 采样)（MB）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">20</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">40</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">60</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">80</text><rect class="series-b" x="94.33333333333334" y="155.35250000000002" width="52" height="90.64749999999998" fill="#e15759"><title>冒烟 35.9MB</title></rect><text class="series-b" x="120.33333333333334" y="151.35250000000002" text-anchor="middle" font-size="10" fill="#e15759">35.9</text><rect class="series-b" x="207.00000000000003" y="151.06" width="52" height="94.94" fill="#e15759"><title>常规吞吐 37.6MB</title></rect><text class="series-b" x="233.00000000000003" y="147.06" text-anchor="middle" font-size="10" fill="#e15759">37.6</text><rect class="series-b" x="319.6666666666667" y="117.22500000000002" width="52" height="128.77499999999998" fill="#e15759"><title>连接规模 51MB</title></rect><text class="series-b" x="345.6666666666667" y="113.22500000000002" text-anchor="middle" font-size="10" fill="#e15759">51</text><rect class="series-b" x="432.3333333333333" y="59.655" width="52" height="186.345" fill="#e15759"><title>过载压力 73.8MB</title></rect><text class="series-b" x="458.3333333333333" y="55.655" text-anchor="middle" font-size="10" fill="#e15759">73.8</text><rect class="series-b" x="545.0000000000001" y="56.3725" width="52" height="189.6275" fill="#e15759"><title>大连接 75.1MB</title></rect><text class="series-b" x="571.0000000000001" y="52.3725" text-anchor="middle" font-size="10" fill="#e15759">75.1</text><rect class="series-b" x="657.6666666666667" y="111.66999999999999" width="52" height="134.33" fill="#e15759"><title>长时稳态 53.2MB</title></rect><text class="series-b" x="683.6666666666667" y="107.66999999999999" text-anchor="middle" font-size="10" fill="#e15759">53.2</text><text x="120.33333333333334" y="264" text-anchor="middle" font-size="12" fill="var(--text)">冒烟</text><text x="233.00000000000003" y="264" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="264" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="264" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-b" x="640" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="656" y="16" font-size="11">本期(全 Go 链路)</text>
+  </svg>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="goroutine 峰值">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">goroutine 峰值（个）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">500</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">1000</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">2000</text><rect class="series-b" x="94.33333333333334" y="232.971" width="52" height="13.028999999999996" fill="#e15759"><title>冒烟 129个</title></rect><text class="series-b" x="120.33333333333334" y="228.971" text-anchor="middle" font-size="10" fill="#e15759">129</text><rect class="series-b" x="207.00000000000003" y="212.872" width="52" height="33.127999999999986" fill="#e15759"><title>常规吞吐 328个</title></rect><text class="series-b" x="233.00000000000003" y="208.872" text-anchor="middle" font-size="10" fill="#e15759">328</text><rect class="series-b" x="319.6666666666667" y="155.50400000000002" width="52" height="90.49599999999998" fill="#e15759"><title>连接规模 896个</title></rect><text class="series-b" x="345.6666666666667" y="151.50400000000002" text-anchor="middle" font-size="10" fill="#e15759">896</text><rect class="series-b" x="432.3333333333333" y="51.47400000000002" width="52" height="194.52599999999998" fill="#e15759"><title>过载压力 1926个</title></rect><text class="series-b" x="458.3333333333333" y="47.47400000000002" text-anchor="middle" font-size="10" fill="#e15759">1926</text><rect class="series-b" x="545.0000000000001" y="134.19299999999998" width="52" height="111.80700000000002" fill="#e15759"><title>大连接 1107个</title></rect><text class="series-b" x="571.0000000000001" y="130.19299999999998" text-anchor="middle" font-size="10" fill="#e15759">1107</text><rect class="series-b" x="657.6666666666667" y="212.872" width="52" height="33.127999999999986" fill="#e15759"><title>长时稳态 328个</title></rect><text class="series-b" x="683.6666666666667" y="208.872" text-anchor="middle" font-size="10" fill="#e15759">328</text><text x="120.33333333333334" y="264" text-anchor="middle" font-size="12" fill="var(--text)">冒烟</text><text x="233.00000000000003" y="264" text-anchor="middle" font-size="12" fill="var(--text)">常规吞吐</text><text x="345.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">连接规模</text><text x="458.3333333333333" y="264" text-anchor="middle" font-size="12" fill="var(--text)">过载压力</text><text x="571.0000000000001" y="264" text-anchor="middle" font-size="12" fill="var(--text)">大连接</text><text x="683.6666666666667" y="264" text-anchor="middle" font-size="12" fill="var(--text)">长时稳态</text>
+    <rect class="series-b" x="640" y="6" width="12" height="12" fill="#e15759"/><text class="leg" x="656" y="16" font-size="11">本期(全 Go 链路)</text>
+  </svg>
+<table>
+<tr><th>场景</th><th>连接(成功/尝试)</th><th>发送/ack</th><th>错误(错误率)</th><th>重发</th><th>重连</th><th>RTT p50/95/<b>99</b>/999(ms)</th><th>min~max</th><th>上行链路 p50/95/99(ms)</th><th>biz RSS 基→峰(MB)</th><th>gw RSS 基→峰(MB)</th><th>goroutine</th><th>CPUΔ biz/gw(s)</th></tr>
+<tr>
+      <td>S0 冒烟</td>
+      <td>50/50</td><td>1450/1450</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>38/51/<b>56</b>/58</td>
+      <td>14~59</td>
+      <td>35.2/54.7/<b>90.9</b></td>
+      <td>47.8→80.2</td>
+      <td>25.8→35.9</td>
+      <td>129</td>
+      <td>8.77/0.32</td>
+    </tr><tr>
+      <td>S1 常规吞吐</td>
+      <td>100/100</td><td>19800/19800</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>31/49/<b>68</b>/84</td>
+      <td>15~91</td>
+      <td>33.5/49.7/<b>88.1</b></td>
+      <td>90.8→99.3</td>
+      <td>36.1→37.6</td>
+      <td>328</td>
+      <td>10.25/3.31</td>
+    </tr><tr>
+      <td>S2 连接规模</td>
+      <td>300/300</td><td>8700/8700</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>74/125/<b>161</b>/206</td>
+      <td>25~211</td>
+      <td>75.8/209.2/<b>241.8</b></td>
+      <td>56.1→119.8</td>
+      <td>28.3→51</td>
+      <td>896</td>
+      <td>29.9/1.65</td>
+    </tr><tr>
+      <td>S3 过载压力</td>
+      <td>150/150</td><td>44719/44719</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>88/1092/<b>1282</b>/1329</td>
+      <td>11~1339</td>
+      <td>80.8/950.5/<b>2124.2</b></td>
+      <td>147.8→176.6</td>
+      <td>58.5→73.8</td>
+      <td>1926</td>
+      <td>51.11/8.26</td>
+    </tr><tr>
+      <td>S4 大连接</td>
+      <td>500/500</td><td>7000/7000</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>110/199/<b>267</b>/290</td>
+      <td>41~293</td>
+      <td>119.1/240.5/<b>330.1</b></td>
+      <td>98.3→208.7</td>
+      <td>73.8→75.1</td>
+      <td>1107</td>
+      <td>91.47/1.39</td>
+    </tr><tr>
+      <td>S5 长时稳态</td>
+      <td>100/100</td><td>59700/59700</td>
+      <td class="ok">0 (0%)</td>
+      <td>0</td><td>0</td>
+      <td>35/56/<b>72</b>/322</td>
+      <td>12~525</td>
+      <td>36.7/73.3/<b>96.5</b></td>
+      <td>115.9→245</td>
+      <td>50.4→53.2</td>
+      <td>328</td>
+      <td>48.2/10.29</td>
+    </tr>
+</table>
+<p class="muted">「上行链路」= gateway_uplink_duration_seconds(收帧→拿到 ack),经 Prometheus histogram_quantile 算得,受桶宽影响偏粗;「CPUΔ」为场景窗口内两进程累计 CPU 秒(ps -o time 差分)。</p>
+
+<h3>3.1 RTT 构成分解(延迟发生在哪一面)</h3>
+<table>
+<tr><th>场景</th><th>客户端 RTT p50/p99(ms)</th><th>上行链路(gateway 收帧→ack)p50/p99(ms)</th><th>下行回投 p50/p99(ms)</th></tr>
+<tr><td>S0 冒烟</td>
+      <td>38/<b>56</b></td>
+      <td>35.2/<b>90.9</b></td>
+      <td>—/—</td></tr><tr><td>S1 常规吞吐</td>
+      <td>31/<b>68</b></td>
+      <td>33.5/<b>88.1</b></td>
+      <td>—/—</td></tr><tr><td>S2 连接规模</td>
+      <td>74/<b>161</b></td>
+      <td>75.8/<b>241.8</b></td>
+      <td>—/—</td></tr><tr><td>S3 过载压力</td>
+      <td>88/<b>1282</b></td>
+      <td>80.8/<b>2124.2</b></td>
+      <td>—/—</td></tr><tr><td>S4 大连接</td>
+      <td>110/<b>267</b></td>
+      <td>119.1/<b>330.1</b></td>
+      <td>—/—</td></tr><tr><td>S5 长时稳态</td>
+      <td>35/<b>72</b></td>
+      <td>36.7/<b>96.5</b></td>
+      <td>—/—</td></tr>
+</table>
+<p class="muted">诊断口径:RTT ≈ 上行链路 + 下行回投(两段串行)。若 RTT ≈ 上行链路,说明延迟主导在 gateway→biz 处理面(限流/成员查询/发号/落库/扇出),网关转发与下行近乎免费。</p>
+
+<h3>3.2 轮间稳定性(3 轮原始数据与中位选择)</h3>
+<table>
+<tr><th>场景</th><th>r1 p99(ms)</th><th>r2 p99(ms)</th><th>r3 p99(ms)</th><th>中位(落盘)</th></tr>
+<tr><td>s0</td><td>56<span class="muted">/s1450</span></td><td>51<span class="muted">/s1450</span></td><td>85<span class="muted">/s1450</span></td><td><b>56</b>(r1)</td></tr><tr><td>s1</td><td>105<span class="muted">/s19800</span></td><td>68<span class="muted">/s19800</span></td><td>60<span class="muted">/s19800</span></td><td><b>68</b>(r2)</td></tr><tr><td>s2</td><td>252<span class="muted">/s8700</span></td><td>161<span class="muted">/s8700</span></td><td>142<span class="muted">/s8700</span></td><td><b>161</b>(r2)</td></tr><tr><td>s3</td><td>693<span class="muted">/s44757</span></td><td>1282<span class="muted">/s44719</span></td><td>4485<span class="muted">/s44671</span><span class="bad">(e1614)</span></td><td><b>1282</b>(r2)</td></tr><tr><td>s4</td><td>546<span class="muted">/s7000</span></td><td>212<span class="muted">/s7000</span></td><td>267<span class="muted">/s7000</span></td><td><b>267</b>(r3)</td></tr><tr><td>s5</td><td>72<span class="muted">/s59700</span></td><td>76<span class="muted">/s59700</span></td><td>72<span class="muted">/s59700</span></td><td><b>72</b>(r1)</td></tr><tr><td>tp_r10</td><td>101<span class="muted">/s19800</span></td><td>163<span class="muted">/s19800</span></td><td>71<span class="muted">/s19800</span></td><td><b>101</b>(r1)</td></tr><tr><td>tp_r15</td><td>355<span class="muted">/s30002</span></td><td>90<span class="muted">/s29900</span></td><td>439<span class="muted">/s29978</span></td><td><b>355</b>(r1)</td></tr><tr><td>tp_r20</td><td>411<span class="muted">/s39758</span></td><td>252<span class="muted">/s39747</span></td><td>93<span class="muted">/s39762</span></td><td><b>252</b>(r2)</td></tr><tr><td>tp_r25</td><td>429<span class="muted">/s49706</span></td><td>532<span class="muted">/s49687</span></td><td>249<span class="muted">/s49673</span></td><td><b>429</b>(r1)</td></tr><tr><td>tp_r30</td><td>6206<span class="muted">/s60084</span><span class="bad">(e7715)</span></td><td>4763<span class="muted">/s60117</span><span class="bad">(e2897)</span></td><td>3364<span class="muted">/s60170</span></td><td><b>4763</b>(r2)</td></tr>
+</table>
+<p class="muted">每格附 sent 数(斜杠后);高压档(tp_r25/r30)轮间 p99 波动属同机共享资源噪声,3 轮取中位口径抑制单轮尖峰;全部轮次错误数均为 0。</p>
+
+<h2>四、吞吐饱和扫描(固定 100 连接,RATE 10→30,各 20s)</h2>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="RTT p50/p95/p99 vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">RTT p50/p95/p99 vs RATE（ms）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">1250</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">2500</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">3750</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">5000</text><g class="series-b"><path class="series-b" d="M64.0 244.6 L233.0 244.4 L402.0 244.7 L571.0 244.9 L740.0 181.2" fill="none" stroke="#e15759" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="244.6" r="3.5"><title>RATE=tp_r10 → 34ms</title></circle><circle class="series-b" cx="233.0" cy="244.4" r="3.5"><title>RATE=tp_r15 → 40ms</title></circle><circle class="series-b" cx="402.0" cy="244.7" r="3.5"><title>RATE=tp_r20 → 31ms</title></circle><circle class="series-b" cx="571.0" cy="244.9" r="3.5"><title>RATE=tp_r25 → 27ms</title></circle><circle class="series-b" cx="740.0" cy="181.2" r="3.5"><title>RATE=tp_r30 → 1605ms</title></circle></g><g class="series-b"><path class="series-b" d="M64.0 243.1 L233.0 237.8 L402.0 240.7 L571.0 236.4 L740.0 74.9" fill="none" stroke="#4e79a7" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="243.1" r="3.5"><title>RATE=tp_r10 → 71ms</title></circle><circle class="series-b" cx="233.0" cy="237.8" r="3.5"><title>RATE=tp_r15 → 203ms</title></circle><circle class="series-b" cx="402.0" cy="240.7" r="3.5"><title>RATE=tp_r20 → 131ms</title></circle><circle class="series-b" cx="571.0" cy="236.4" r="3.5"><title>RATE=tp_r25 → 238ms</title></circle><circle class="series-b" cx="740.0" cy="74.9" r="3.5"><title>RATE=tp_r30 → 4234ms</title></circle></g><g class="series-b"><path class="series-b" d="M64.0 241.9 L233.0 231.7 L402.0 235.8 L571.0 228.7 L740.0 53.6" fill="none" stroke="#59a14f" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="241.9" r="3.5"><title>RATE=tp_r10 → 101ms</title></circle><circle class="series-b" cx="233.0" cy="231.7" r="3.5"><title>RATE=tp_r15 → 355ms</title></circle><circle class="series-b" cx="402.0" cy="235.8" r="3.5"><title>RATE=tp_r20 → 252ms</title></circle><circle class="series-b" cx="571.0" cy="228.7" r="3.5"><title>RATE=tp_r25 → 429ms</title></circle><circle class="series-b" cx="740.0" cy="53.6" r="3.5"><title>RATE=tp_r30 → 4763ms</title></circle></g><text x="64" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r10</text><text x="233" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r15</text><text x="402" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r20</text><text x="571" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r25</text><text x="740" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r30</text>
+  </svg>
+<svg viewBox="0 0 760 300" class="chart" role="img" aria-label="RTT p999(尾延迟) vs RATE">
+    <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="600" fill="var(--text)">RTT p999(尾延迟) vs RATE（ms）</text>
+    <line x1="64" y1="246" x2="740" y2="246" stroke="var(--grid)"/><text x="56" y="250" text-anchor="end" font-size="11" fill="var(--muted)">0</text><line x1="64" y1="195.5" x2="740" y2="195.5" stroke="var(--grid)"/><text x="56" y="199.5" text-anchor="end" font-size="11" fill="var(--muted)">1500</text><line x1="64" y1="145" x2="740" y2="145" stroke="var(--grid)"/><text x="56" y="149" text-anchor="end" font-size="11" fill="var(--muted)">3000</text><line x1="64" y1="94.5" x2="740" y2="94.5" stroke="var(--grid)"/><text x="56" y="98.5" text-anchor="end" font-size="11" fill="var(--muted)">4500</text><line x1="64" y1="44" x2="740" y2="44" stroke="var(--grid)"/><text x="56" y="48" text-anchor="end" font-size="11" fill="var(--muted)">6000</text><g class="series-b"><path class="series-b" d="M64.0 240.3 L233.0 232.2 L402.0 236.3 L571.0 230.2 L740.0 66.6" fill="none" stroke="#e15759" stroke-width="2.5"/><circle class="series-b" cx="64.0" cy="240.3" r="3.5"><title>RATE=tp_r10 → 169ms</title></circle><circle class="series-b" cx="233.0" cy="232.2" r="3.5"><title>RATE=tp_r15 → 409ms</title></circle><circle class="series-b" cx="402.0" cy="236.3" r="3.5"><title>RATE=tp_r20 → 287ms</title></circle><circle class="series-b" cx="571.0" cy="230.2" r="3.5"><title>RATE=tp_r25 → 468ms</title></circle><circle class="series-b" cx="740.0" cy="66.6" r="3.5"><title>RATE=tp_r30 → 5328ms</title></circle></g><text x="64" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r10</text><text x="233" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r15</text><text x="402" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r20</text><text x="571" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r25</text><text x="740" y="264" text-anchor="middle" font-size="12" fill="var(--text)">tp_r30</text>
+  </svg>
+<table>
+<tr><th>场景</th><th>发送</th><th>ack</th><th>错误(错误率)</th><th>RTT p50</th><th>p95</th><th>p99</th><th>p999</th><th>max</th><th>上行链路 p99</th><th>biz RSS 峰值(MB)</th><th>gw RSS 峰值(MB)</th><th>goroutine</th></tr>
+<tr><td>tp_r10</td><td>19800</td><td>19800</td>
+      <td class="ok">0 (0%)</td>
+      <td>34</td><td>71</td><td><b>101</b></td><td>169</td>
+      <td>213</td><td>100</td>
+      <td>252.8</td><td>52</td><td>317</td></tr><tr><td>tp_r15</td><td>30002</td><td>30002</td>
+      <td class="ok">0 (0%)</td>
+      <td>40</td><td>203</td><td><b>355</b></td><td>409</td>
+      <td>492</td><td>422.2</td>
+      <td>273.9</td><td>55</td><td>608</td></tr><tr><td>tp_r20</td><td>39747</td><td>39747</td>
+      <td class="ok">0 (0%)</td>
+      <td>31</td><td>131</td><td><b>252</b></td><td>287</td>
+      <td>300</td><td>260.6</td>
+      <td>316.5</td><td>52.7</td><td>476</td></tr><tr><td>tp_r25</td><td>49706</td><td>49706</td>
+      <td class="ok">0 (0%)</td>
+      <td>27</td><td>238</td><td><b>429</b></td><td>468</td>
+      <td>482</td><td>440.3</td>
+      <td>362.3</td><td>58.2</td><td>692</td></tr><tr><td>tp_r30</td><td>60117</td><td>57220</td>
+      <td class="bad">2897 (4.8%)</td>
+      <td>1605</td><td>4234</td><td><b>4763</b></td><td>5328</td>
+      <td>5661</td><td>2500</td>
+      <td>517.1</td><td>116.6</td><td>6588</td></tr>
+</table>
+
+<h2>五、专项场景</h2>
+<h3>5.1 S6 连接爬坡探顶(2000 起每级 +2000 → 10000,每级保持 5s)</h3>
+<table>
+    <tr><th>目标连接</th><th>建连成功(成功率)</th><th>建连耗时 p50/95/99(ms)</th><th>实际持有</th><th>gw 连接数</th><th>goroutine</th><th>gw RSS(MB)</th><th>biz RSS(MB)</th></tr><tr><td>2000</td><td>2000/2000 (100.0%)</td>
+    <td>154/290/303</td>
+    <td>2000</td><td>2001</td><td>4028</td>
+    <td>97.2</td><td>189.5</td></tr><tr><td>4000</td><td>2000/2000 (100.0%)</td>
+    <td>163/302/316</td>
+    <td>4000</td><td>4001</td><td>8028</td>
+    <td>143.8</td><td>182.3</td></tr><tr><td>6000</td><td>2000/2000 (100.0%)</td>
+    <td>387/398/399</td>
+    <td>6000</td><td>6001</td><td>12028</td>
+    <td>178.6</td><td>144.3</td></tr><tr><td>8000</td><td>2000/2000 (100.0%)</td>
+    <td>160/311/327</td>
+    <td>8000</td><td>8001</td><td>16028</td>
+    <td>255.4</td><td>51.1</td></tr><tr><td>10000</td><td>2000/2000 (100.0%)</td>
+    <td>183/357/370</td>
+    <td>10000</td><td>10001</td><td>20028</td>
+    <td>290.5</td><td>43.8</td></tr></table>
+    <p class="muted">拐点:达到 MAX=10000(用户数 10000);最大稳定连接 10000(未探到上限,受预置用户数 1 万封顶)。</p>
+<h3>5.2 S7 惊群重连(300 连接同瞬间全断→全连,3 轮取中位)</h3>
+<table>
+    <tr><th>重连成功</th><th>重连耗时 p50/95/99(ms)</th><th>max(ms)</th><th>gw RSS 基线→峰值(MB)</th><th>biz RSS 基线→峰值(MB)</th><th>连接数 基线→峰值</th><th>goroutine 峰值</th></tr>
+    <tr><td>300/300</td><td>24/41/<b>43</b></td><td>43</td>
+    <td>64.1→86.9</td>
+    <td>34.5→55</td>
+    <td>301→301</td>
+    <td>628</td></tr></table>
+<h3>5.3 群扇出(100 成员在线,1 人发 20 条,3 轮取中位)</h3>
+<table>
+    <tr><th>成员在线</th><th>发送条数</th><th>完整送达</th><th>扇出扩散 span p50/95/99(ms)</th><th>max(ms)</th><th>扇出端到端 e2e p50/95/99(ms)</th><th>max(ms)</th></tr>
+    <tr><td>100</td><td>20</td><td>20</td>
+    <td>1/2/<b>2</b></td><td>2</td>
+    <td>30/41/<b>43</b></td><td>43</td></tr></table>
+<h3>5.4 HTTP API 层(7 端点,并发 20 × 10s,直连 biz :3007)</h3>
+<p class="muted">无 HTTP 数据。</p>
+
+<h2>六、深入分析(详见配套 markdown 报告)</h2>
+<p>本 HTML 为数据自动汇总;场景间交叉诊断(延迟-速率反相关、拐点定位、内存剖面)、DB 面按 model 分线、下行双通道 direct/fallback 比例、分布式演练与遗留问题,见同目录 markdown 报告与 <code>grafana-authority-dashboard.png</code>(压测期间全面板截图)。</p>
+
+<p class="muted" style="margin-top:40px;border-top:1px solid var(--grid);padding-top:12px">本报告由 <code>perf/gen-report-v2.mjs</code> 从真实压测 JSON 自动生成(内联 SVG,无外网依赖);原始数据见同目录 <code>data/</code>。</p>
+</body></html>

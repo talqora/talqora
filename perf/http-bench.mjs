@@ -1,20 +1,27 @@
 #!/usr/bin/env node
-// HTTP API 层压测(纯 Node,补 RED 的 HTTP 盲区):对 server 的典型 HTTP 接口
-// 逐个做并发持续压测,统计吞吐(req/s)、时延分位、错误分类,并采样 server 资源。
-// 数据落 docs/监测设施/测试报告/26-9-14/data/http_bench.json。
+// HTTP API 层压测(纯 Node,补 RED 的 HTTP 盲区):对 biz 的典型 HTTP 接口
+// 逐个做并发持续压测,统计吞吐(req/s)、时延分位、错误分类,并采样 biz 资源。
+// 数据落 docs/监测设施/测试报告/<OUT_SUBDIR>/data/http_bench.json。
 //
-// 用法:node http-bench.mjs [CONCURRENCY=20] [DURATION=10]
+// 用法:OUT_SUBDIR=<日期> node http-bench.mjs [CONCURRENCY=20] [DURATION=10]
+//   未指定 OUT_SUBDIR 时回落 26-9-14(仅兼容历史脚本);新一期必须显式指定,
+//   否则数据会静默写进旧日期目录、污染归档。
 import { execSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', '26-9-14', 'data');
+const OUT_SUBDIR = process.env.OUT_SUBDIR || '26-9-14';
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', OUT_SUBDIR, 'data');
 const BASE = process.env.BASE || 'http://localhost:3007';
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '20', 10);
 const DURATION = parseInt(process.env.DURATION || '10', 10);
 const PASSWORD = process.env.BENCH_PASSWORD || 'bench_pw_123456';
+// ONLY:按名称子串只跑指定端点(逗号分隔),用于补测单条链路(如 ONLY="well-known")。
+// OUT_NAME:输出文件名(不含 .json),默认 http_bench;补测时用它避免覆盖主结果。
+const ONLY = (process.env.ONLY || '').toLowerCase();
+const OUT_NAME = process.env.OUT_NAME || 'http_bench';
 
 function percentile(sortedArr, p) {
   if (sortedArr.length === 0) return NaN;
@@ -96,15 +103,28 @@ async function main() {
     { name: 'POST /api/login (bcrypt)', method: 'POST', path: '/api/login', body: { username: 'bench_user_0', password: PASSWORD }, auth: false },
     { name: 'GET /user/userConversations', method: 'GET', path: `/user/userConversations?userId=${a.id}`, auth: true },
     { name: 'GET /user/messages', method: 'GET', path: `/user/messages?conversationId=${conv}`, auth: true },
+    { name: 'GET /user/messages?limit=50', method: 'GET', path: `/user/messages?conversationId=${conv}&limit=50`, auth: true },
     { name: 'GET /user/lastMessages', method: 'GET', path: `/user/lastMessages?userConversationIds=${encodeURIComponent(JSON.stringify([conv]))}`, auth: true },
     { name: 'GET /user/sync', method: 'GET', path: `/user/sync?conv=${conv}&since=0&limit=50`, auth: true },
     { name: 'GET /user/mentions', method: 'GET', path: `/user/mentions`, auth: true },
+    // OAuth IdP 面(L14):跨仓契约,下游 agent-server 验签强依赖。两个端点都必须公开可访问且可缓存。
+    { name: 'GET /.well-known/openid-configuration', method: 'GET', path: '/.well-known/openid-configuration', auth: false },
+    { name: 'GET /.well-known/jwks.json', method: 'GET', path: '/.well-known/jwks.json', auth: false },
   ];
+
+  const selected = ONLY
+    ? targets.filter((t) => ONLY.split(',').some((k) => t.name.toLowerCase().includes(k.trim())))
+    : targets;
+  if (!selected.length) {
+    console.error(`[http-bench] ONLY=${process.env.ONLY} 没有匹配到任何端点`);
+    process.exit(1);
+  }
+  if (ONLY) console.log(`[http-bench] 仅跑 ${selected.length} 个端点: ${selected.map((t) => t.name).join(' | ')}`);
 
   const results = [];
   const startedAt = Date.now();
 
-  for (const t of targets) {
+  for (const t of selected) {
     const latencies = [];
     const statusCount = new Map();
     let running = true;
@@ -179,7 +199,7 @@ async function main() {
     },
   };
   mkdirSync(OUT_DIR, { recursive: true });
-  const path = join(OUT_DIR, 'http_bench.json');
+  const path = join(OUT_DIR, `${OUT_NAME}.json`);
   writeFileSync(path, JSON.stringify(result, null, 2));
   console.log(`\n[http-bench] 已写 ${path}`);
 }
