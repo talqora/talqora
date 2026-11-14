@@ -1,6 +1,7 @@
 // Package migrate 用 golang-migrate 管理 schema(embed 单二进制)。
-// 存量衔接:库若已被 Prisma 管理(_prisma_migrations 表存在)而 golang-migrate 尚未成功接管,
+// 存量衔接:库若曾被早期 Prisma 版管理(_prisma_migrations 表存在)而 golang-migrate 尚未成功接管,
 // 自动 force 到最大版本基线;全新库直接 migrate up 从头重放;此后迁移唯一入口 = golang-migrate。
+// 该分支只为兼容存量库(Prisma 源码已随 Node 业务层下线删除),新环境不会命中。
 package migrate
 
 import (

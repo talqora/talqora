@@ -7,16 +7,21 @@ on:
       - 'proto/**'
       - 'buf.yaml'
       - 'buf.gen.yaml'
-      - 'server/src/contracts/gen/**'
+      - 'buf.gen.biz.yaml'
+      - 'openapi/**'
       - 'web/src/contracts/gen/**'
       - 'gateway/internal/contracts/gen/**'
+      - 'biz/internal/contracts/gen/**'
       - 'mobile-swift/Sources/Contracts/Gen/**'
+      - 'mobile-swift/openapi-codegen/**'
   push:
     branches: [main]
     paths:
       - 'proto/**'
       - 'buf.yaml'
       - 'buf.gen.yaml'
+      - 'buf.gen.biz.yaml'
+      - 'openapi/**'
       - '.github/workflows/proto.yml'
   workflow_dispatch:
 
@@ -41,11 +46,19 @@ jobs:
           else
             echo "main 尚无 proto 基线,跳过 breaking 检查(合并到 main 后自动生效)"
           fi
+      - name: OpenAPI copy freshness
+        run: |
+          # swift-openapi-generator 的 build 插件要求契约文件位于 target 源目录内，
+          # 因此 mobile-swift 侧保留一份副本。副本必须与单一契约源逐字节一致，
+          # 否则 iOS 生成类型会与 web 静默漂移。
+          diff -u openapi/openapi.yaml mobile-swift/openapi-codegen/Sources/Contracts/openapi.yaml
       - name: Generated code freshness
         run: |
+          # 两套模板：默认模板生成 web/gateway/mobile 目标，biz 用独立模板（go_package 前缀按 module 隔离）。
           buf generate
+          buf generate --template buf.gen.biz.yaml
           git diff --exit-code -- \
-            server/src/contracts/gen \
             web/src/contracts/gen \
             gateway/internal/contracts/gen \
+            biz/internal/contracts/gen \
             mobile-swift/Sources/Contracts/Gen

@@ -5,7 +5,8 @@ import WebSocket from 'ws';
 
 const HTTP = process.env.BASE || 'http://localhost:3007';
 const WS = process.env.GW || 'ws://localhost:8090/ws';
-const PW = 'probe123456';
+// 探针自建账号(下面 reg 会先注册)的密码;可用 PROBE_PASSWORD 覆盖,避免与真实账号混淆。
+const PW = process.env.PROBE_PASSWORD || 'probe123456';
 
 async function reg(username, email) {
   const r = await fetch(`${HTTP}/api/register`, {

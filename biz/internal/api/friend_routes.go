@@ -95,8 +95,8 @@ func handleSearchUser(c *gin.Context) {
 		idKw = n
 	}
 	var (
-		matchedID  int64
-		matchedUsr string
+		matchedID      int64
+		matchedUsr     string
 		avatar, gender *string
 	)
 	err := store.RO().QueryRow(ctx, `

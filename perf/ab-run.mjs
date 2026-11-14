@@ -1,7 +1,8 @@
-// A/B 单次运行编排器:跑一个 harness(socketio 或 gateway),运行中采样 Prometheus 资源指标,
+// 单次运行编排器:跑 gateway harness,运行中采样 Prometheus 资源指标,
 // 结束后解析 harness 统计 + 查询消息时延分位,产出结构化 JSON 落盘到 测试报告/<期目录>/data/。
 // 期目录用 env OUT_SUBDIR 指定(默认 26-9-16,与归档规范一致)。
-// 用法:node ab-run.mjs <mode socketio|gateway> <label> [CONNS] [RATE] [DURATION] [RAMP]
+// 用法:node ab-run.mjs gateway <label> [CONNS] [RATE] [DURATION] [RAMP]
+//   第一个位置参数保留为 gateway(既有脚本与 SOP 均以该形式调用);Node/socket.io 路径已随业务层 Go 化下线。
 import { spawn, execSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -12,8 +13,12 @@ const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', proces
 const PROM = process.env.PROM || 'http://localhost:9090';
 
 const [mode, label, CONNS = '100', RATE = '10', DURATION = '20', RAMP = '25'] = process.argv.slice(2);
-if (!mode || !label) { console.error('用法: node ab-run.mjs <socketio|gateway> <label> [CONNS RATE DURATION RAMP]'); process.exit(1); }
-const harnessFile = mode === 'gateway' ? 'harness-gw.mjs' : 'harness.mjs';
+if (!mode || !label) { console.error('用法: node ab-run.mjs gateway <label> [CONNS RATE DURATION RAMP]'); process.exit(1); }
+if (mode !== 'gateway') {
+  console.error(`仅支持 gateway 路径(socket.io/Node 已下线),收到 mode=${mode}`);
+  process.exit(1);
+}
+const harnessFile = 'harness-gw.mjs';
 
 // macOS 上 Go 的 client_golang 进程采集器依赖 /proc(仅 Linux),不导出 process_resident_memory_bytes,
 // 故 RSS 统一用 ps 直接读进程(跨平台一致)。按端口解析 pid。

@@ -18,7 +18,7 @@ import (
 )
 
 // Upstream 上行通道抽象:Forward 把一条客户端上行帧交给 Node 处理并返回 ack/error 回投载荷;
-// NotifyDisconnect 通知 Node 一条连接已断开(通话 grace 重连等,对齐 socket.io disconnect 事件)。
+// NotifyDisconnect 通知业务层一条连接已断开(通话 grace 重连等)。
 type Upstream interface {
 	Forward(ctx context.Context, userID int64, deviceID string, frame []byte) ([]byte, error)
 	NotifyDisconnect(ctx context.Context, userID int64, deviceID string) error

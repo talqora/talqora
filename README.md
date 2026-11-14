@@ -1,19 +1,15 @@
 # our-chat
 
 实时 IM + WebRTC 音视频通话。多语言、多服务单仓(monorepo),主开发分支 `dev`。
-长连接接入在 `gateway`(Go)。业务层当前存在两套实现:
 
-- **`biz/`(Go)** — 模块化单体,可多副本,功能面已完整(业务/信令/发号/OAuth/上传/通话),本地经 `biz/scripts/dev.sh` 双副本运行并已完成压测与联调验证;
-- **`server/`(Node)** — 仓库默认编排(`make dev`、`docker/docker-compose.prod.yml`)目前仍以它作为业务层。
-
-> 两套业务层实现功能面对齐,编排切换(`make dev`/prod compose 指向 biz)为待办事项。
+**业务层只有一套实现:`biz/`(Go)**。Node + Socket.io 版业务层已于 2026-09 下线并删除目录,
+不要再参考任何以此为前提的旧文档或旧分支。
 
 ## 服务地图
 
 | 服务 | 栈 | 端口 | 职责 |
 |---|---|---|---|
-| `biz/` | Go(gin HTTP + gRPC edge 双面)+ pgx + go-redis | 3007/3008(副本1)、3009/30081(副本2) | 业务 / 信令 / 发号 / OAuth IdP / 迁移(功能面完整,本地双副本验证) |
-| `server/` | Node + Express + Prisma + Socket.io | 3007 | 业务层(Node 版,现默认编排仍引用) |
+| `biz/` | Go(gin HTTP + gRPC edge 双面)+ pgx + go-redis | 3007 / 3008(副本1)、3009 / 30081(副本2) | 业务 / 信令 / 发号 / OAuth IdP / 迁移 |
 | `gateway/` | Go + gorilla/websocket + gRPC + JWT | 8090 | WebSocket 长连接接入、gRPC 流上行、下行路由、presence 写侧 |
 | `web/` | React + Redux Toolkit + antd + Vite + WebRTC | 5173(dev,HTTPS) | Web 端 |
 | `mobile-swift/` | iOS Swift | — | 移动端 |
@@ -125,7 +121,7 @@ sequenceDiagram
 
 ## 快速开始(本地开发)
 
-**方式一(仓库默认,业务层 Node)**:`make dev` —— 自动起中间件 + `server`(Node :3007)+ `gateway` + `web`,合并输出,Ctrl-C 一起停。
+**方式一(仓库默认)**:`make dev` —— 自动起中间件 + `biz`(Go :3007 / gRPC :3008)+ `gateway`(:8090)+ `web`(:5173),合并输出,Ctrl-C 一起停。
 
 **方式二(业务层 biz Go,双副本)**:
 
@@ -180,8 +176,7 @@ our-chat/
 ├── gateway/        Go 长连接网关 —— 见 gateway/CLAUDE.md
 ├── web/            React Web 端 —— 见 web/CLAUDE.md
 ├── mobile-swift/   iOS 客户端
-├── server/         Node 业务层(现默认编排引用)
-├── perf/           压测工具链
+├── perf/           压测工具链(gateway WS + biz HTTP)
 ├── docker/         部署编排:compose(dev/prod) + monitoring(Prometheus/Grafana) + nginx
 └── docs/           技术方案 / 架构 / 监测设施 / 音视频模块 / 性能优化 等
 ```

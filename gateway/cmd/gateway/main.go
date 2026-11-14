@@ -3,6 +3,7 @@
 // 上行通道两种模式(env GATEWAY_UPSTREAM):
 //   - http:每消息一次 POST /internal/gateway/uplink(默认,回滚兼容);
 //   - grpc :双向流(ourchat.edge.v1.Realtime/Stream),单长连接复用 + 异步确认(演进方案文档 §4)。
+//
 // GATEWAY_PROXY_API=true 时网关同时反代 /api、/user 到 Node,作为唯一对外入口(目标态,方案文档 §6)。
 package main
 
@@ -26,7 +27,6 @@ import (
 	"github.com/our-chat/gateway/internal/hub"
 	"github.com/our-chat/gateway/internal/metrics"
 	"github.com/our-chat/gateway/internal/presence"
-	"github.com/our-chat/gateway/internal/proxy"
 	"github.com/our-chat/gateway/internal/upstream"
 	"github.com/our-chat/gateway/internal/ws"
 )
@@ -110,17 +110,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// 网关作为唯一对外入口(目标态):HTTP API 反代到 Node 业务层。
-	// 覆盖业务层完整对外路由面:/api/*、/user/*、/oauth/*、/health
-	// (容器探针在网关侧由 /healthz 承接,客户端侧仍透传业务 health 对齐既有契约)。
-	if cfg.ProxyAPI {
-		px := proxy.New(cfg.UpstreamBaseURL, log)
-		mux.Handle("/api/", px)
-		mux.Handle("/user/", px)
-		mux.Handle("/oauth/", px)
-		mux.Handle("/health", px)
-		log.Info("HTTP 反代已启用(唯一入口模式)", "base", cfg.UpstreamBaseURL)
-	}
+	// HTTP 面不经过网关:生产由 nginx 直连 biz,开发由 vite dev proxy 直连 biz。
+	// 网关只承担长连接(/ws)与自身可观测端点,这样它的重启不影响 HTTP 面。
+	// (容器探针在网关侧由 /healthz 承接;客户端侧的 /health 由 biz 提供。)
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: mux}
 	go func() {

@@ -1,4 +1,4 @@
-# 26-9-14 · 纯 Node(socket.io) 性能基线（无 gateway）
+# 纯 Node(socket.io) 性能基线 · 场景清单与复现说明（无 gateway）
 
 > 分支 `feat/perf-monitoring`。这是"先无 go 层"的纯 Node 完整性能基线：**gateway(Go) 全程未启动、未参与任何流量**，
 > 用于留存引入 Go 层之前的完整性能记录，作为后续 Node vs Go 对比的唯一对照基座。

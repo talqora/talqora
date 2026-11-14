@@ -36,18 +36,19 @@ export default defineConfig(({ command }) => ({
     // agent-server 用 Bearer header 鉴权,无 cookie 同源约束,前端直接打 + 后端 CORS
     // 白名单是更标准的做法,见 src/views/agentView/api.ts 与 docs。
     proxy: {
-      // 网关作为唯一对外入口:HTTP API 与 WS 全部经 gateway:8090(gateway 再反代 /api、/user、/oauth 到 biz)。
+      // 与生产 nginx 保持同一拓扑:HTTP 直连 biz(:3007),实时走 gateway(:8090)。
+      // 不让 HTTP 绕经 gateway —— 网关只管长连接,它的重启不应影响 HTTP 面。
       '/api': {
-        target: 'http://127.0.0.1:8090',
+        target: 'http://127.0.0.1:3007',
         changeOrigin: true,
       },
       // /oauth/agent-token 走 our-chat 会话 cookie 鉴权,必须同源,故 proxy 到后端。
       '/oauth': {
-        target: 'http://127.0.0.1:8090',
+        target: 'http://127.0.0.1:3007',
         changeOrigin: true,
       },
       '/user': {
-        target: 'http://127.0.0.1:8090',
+        target: 'http://127.0.0.1:3007',
         changeOrigin: true,
       },
       // 实时:原生 WS 走 /ws → gateway:8090

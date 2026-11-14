@@ -41,15 +41,19 @@ env:
 deps:
 	@test -d web/node_modules || (cd web && pnpm install)
 
-# 从 proto/ 单一契约源生成契约代码(web/gateway/mobile-swift)
+# 从 proto/ 单一契约源生成契约代码(web/gateway/biz/mobile-swift)
+# biz 用独立模板:managed go_package_prefix 是单值,必须按 module 隔离。
 proto:
 	buf generate
+	buf generate --template buf.gen.biz.yaml
 
 # CI:校验 proto 规范 + 生成物是否最新(不一致则失败)
 proto-check:
 	buf lint
 	buf generate
+	buf generate --template buf.gen.biz.yaml
 	git diff --exit-code -- \
-		web/src/contracts/gen \
-		gateway/internal/contracts/gen \
-		mobile-swift/Sources/Contracts/Gen
+			web/src/contracts/gen \
+			gateway/internal/contracts/gen \
+			biz/internal/contracts/gen \
+			mobile-swift/Sources/Contracts/Gen

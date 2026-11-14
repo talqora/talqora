@@ -3,8 +3,8 @@ info:
   title: our-chat REST API
   version: 0.1.0
   description: >
-    our-chat 业务后端 REST 接口的单一契约源。四端(server/gateway/web/mobile-swift)由本文件生成类型。
-    实时 Socket.io 事件不在此文件范围(见 docs 实时通信契约边界),但事件 payload 复用此处的 components/schemas。
+    our-chat 业务后端(biz, Go)的 REST 接口单一契约源。web 与 mobile-swift 由本文件生成类型。
+    实时事件(gateway 原生 WebSocket)不在本文件范围(见 docs 实时通信契约边界),但其 payload 复用此处的 components/schemas。
 servers:
   - url: http://localhost:3007
     description: 本地开发
@@ -231,8 +231,8 @@ paths:
               type: object
               required: [userId, friendId, status]
               properties:
-                userId: { type: string }
-                friendId: { type: string }
+                userId: { type: integer, format: int64 }
+                friendId: { type: integer, format: int64 }
                 status: { type: string, enum: [accepted, blocked] }
       responses:
         '200':

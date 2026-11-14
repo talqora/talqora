@@ -5,17 +5,7 @@ managed:
     - file_option: go_package_prefix
       value: github.com/our-chat/gateway/internal/contracts/gen
 plugins:
-  # server 业务契约(仅 message 类型:onlyTypes + outputServices=false,无 grpc/rxjs 依赖)
-  - remote: buf.build/community/stephenh-ts-proto:v2.11.8
-    out: server/src/contracts/gen
-    opt:
-      - onlyTypes=true
-      - outputServices=false
-      - forceLong=number
-      - useDate=string
-      - useOptionals=messages
-      - esModuleInterop=true
-  # web 业务契约(同上,仅类型)
+  # web 业务契约(仅 message 类型:onlyTypes + outputServices=false,无 grpc/rxjs 依赖)
   - remote: buf.build/community/stephenh-ts-proto:v2.11.8
     out: web/src/contracts/gen
     opt:
@@ -36,17 +26,5 @@ plugins:
     opt:
       - paths=source_relative
   # biz(Go 业务层)edge 契约生成见 buf.gen.biz.yaml(独立模板,go_package 前缀按 module 隔离)
-  # server Node gRPC service 代码(内部 edge 契约;全量 message 类型一并生成,
-  # 运行时依赖 @bufbuild/protobuf + @grpc/grpc-js,grpc-js callback 风格)
-  - remote: buf.build/community/stephenh-ts-proto:v2.11.8
-    out: server/src/contracts/gen-edge
-    opt:
-      - forceLong=number
-      - useDate=string
-      - useOptionals=messages
-      - esModuleInterop=true
-      - importSuffix=.js
-      # 强制 grpc-js callback 风格(bidi 流默认会生成 rxjs Observable,这里不引 rxjs 依赖)
-      - outputServices=grpc-js
   # mobile-swift 已改用 OpenAPI(openapi/openapi.yaml + swift-openapi-generator)生成惯用 Codable,
   # 不再用 SwiftProtobuf(二进制类、命名分叉、对 JSON-REST 不友好),故移除 apple/swift 插件。

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gateway(Go)实时路径压测 harness —— 与 harness.mjs(socket.io/Node)同口径,便于 A/B。
+// gateway(Go)实时路径压测 harness —— 全站实时路径的唯一负载入口。
 // 协议严格对齐 web/src/ws/wsClient.ts 语义:
 //   · 信封 {type, data}:上行 {type:'message.send', data:{clientMsgId, conversationId, content, type:'text'}}
 //   · 可靠上行:等 message.ack(按 clientMsgId 匹配)计 RTT;5s 超时同键重发,上限 3 次(服务端幂等);

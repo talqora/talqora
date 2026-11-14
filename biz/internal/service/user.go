@@ -11,19 +11,19 @@ import (
 
 // FullUser users 表全量字段(Prisma User 对齐;BigInt→int64 JSON 输出 number)。
 type FullUser struct {
-	ID        int64   `json:"id"`
-	Username  string  `json:"username"`
-	Email     *string `json:"email"`
-	Phone     *string `json:"phone"`
-	Password  string  `json:"-"`
-	Nickname  *string `json:"nickname"`
-	Avatar    *string `json:"avatar"`
-	Bio       *string `json:"bio"`
-	Gender    *string `json:"gender"`
-	Status    string     `json:"status"`
-	LastSeen  *JSONTime  `json:"lastSeen"`
-	CreatedAt JSONTime   `json:"createdAt"`
-	UpdatedAt JSONTime   `json:"updatedAt"`
+	ID        int64     `json:"id"`
+	Username  string    `json:"username"`
+	Email     *string   `json:"email"`
+	Phone     *string   `json:"phone"`
+	Password  string    `json:"-"`
+	Nickname  *string   `json:"nickname"`
+	Avatar    *string   `json:"avatar"`
+	Bio       *string   `json:"bio"`
+	Gender    *string   `json:"gender"`
+	Status    string    `json:"status"`
+	LastSeen  *JSONTime `json:"lastSeen"`
+	CreatedAt JSONTime  `json:"createdAt"`
+	UpdatedAt JSONTime  `json:"updatedAt"`
 }
 
 // WithoutPassword 返回剔除密码后的用户信息(login.ts:45 语义:...userInfo + token)。

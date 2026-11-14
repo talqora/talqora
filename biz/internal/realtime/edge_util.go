@@ -23,13 +23,13 @@ func isCancelled(err error) bool {
 // makeAck 构造 UplinkAck(proto3 标量必填,未用字段补零值,edgeGrpc.ts:25-43)。
 func makeAck(ok bool, clientMsgID string, userID int64, seq, serverMsgID int64, errMsg string, rawResponse []byte) *edgev1.EdgeFrame {
 	ack := &edgev1.UplinkAck{
-		Ok:           ok,
-		ClientMsgId:  clientMsgID,
-		UserId:       userID,
-		Seq:          seq,
-		ServerMsgId:  serverMsgID,
-		Error:        errMsg,
-		RawResponse:  rawResponse,
+		Ok:          ok,
+		ClientMsgId: clientMsgID,
+		UserId:      userID,
+		Seq:         seq,
+		ServerMsgId: serverMsgID,
+		Error:       errMsg,
+		RawResponse: rawResponse,
 	}
 	return &edgev1.EdgeFrame{Kind: &edgev1.EdgeFrame_Ack{Ack: ack}}
 }

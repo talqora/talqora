@@ -29,16 +29,16 @@ type CallSide = string
 
 // CallSession 通话会话(callSession.ts:17-28)。
 type CallSession struct {
-	CallID        string     `json:"callId"`
-	CallerID      int64      `json:"callerId"`
-	CalleeID      int64      `json:"calleeId"`
-	CallType      string     `json:"callType"`
-	Status        string     `json:"status"`
-	StartTime     *int64     `json:"startTime"` // 毫秒时间戳
-	CallerDevice  *string    `json:"callerDevice"`
-	CalleeDevice  *string    `json:"calleeDevice"`
-	GraceEpoch    int64      `json:"graceEpoch"`
-	ResumeStatus  string     `json:"resumeStatus,omitempty"`
+	CallID       string  `json:"callId"`
+	CallerID     int64   `json:"callerId"`
+	CalleeID     int64   `json:"calleeId"`
+	CallType     string  `json:"callType"`
+	Status       string  `json:"status"`
+	StartTime    *int64  `json:"startTime"` // 毫秒时间戳
+	CallerDevice *string `json:"callerDevice"`
+	CalleeDevice *string `json:"calleeDevice"`
+	GraceEpoch   int64   `json:"graceEpoch"`
+	ResumeStatus string  `json:"resumeStatus,omitempty"`
 }
 
 func callSessionKey(callID string) string { return "call:session:" + callID }

@@ -61,11 +61,11 @@ func TestTryCreateSessionConcurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			s := &CallSession{
-				CallID:    "call_" + itoa64(int64(100+i)) + "_2_1",
-				CallerID:  int64(100 + i),
-				CalleeID:  2,
-				CallType:  "voice",
-				Status:    "ringing",
+				CallID:   "call_" + itoa64(int64(100+i)) + "_2_1",
+				CallerID: int64(100 + i),
+				CalleeID: 2,
+				CallType: "voice",
+				Status:   "ringing",
 			}
 			ok, err := TryCreateSession(ctx, s)
 			if err != nil {

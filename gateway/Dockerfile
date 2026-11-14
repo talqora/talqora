@@ -1,5 +1,7 @@
 # 构建阶段:静态编译 Go 二进制
-FROM golang:1.22-alpine AS builder
+# 构建镜像的 Go 版本必须 ≥ go.mod 里的 go 指令(当前 1.25.0)。
+# Go 1.21 起官方镜像默认 GOTOOLCHAIN=local,不会自动下载更高版本工具链。
+FROM golang:1.25-alpine AS builder
 WORKDIR /src
 # 依赖源:默认官方;服务器本地 build 时由 compose 传 GOPROXY_URL=goproxy.cn(国内快)。
 ARG GOPROXY_URL=https://proxy.golang.org,direct

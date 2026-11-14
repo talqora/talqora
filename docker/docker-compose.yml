@@ -87,7 +87,7 @@ services:
       GATEWAY_ADDR: ':8090'
       GATEWAY_UPSTREAM: grpc
       EDGE_GRPC_ADDR: biz:3008
-      GATEWAY_PROXY_API: 'true'
+      # HTTP 由 nginx 直连 biz；网关只承担长连接。
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8090/healthz']
       interval: 10s

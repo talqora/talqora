@@ -1,5 +1,5 @@
 # our-chat 生产部署编排（镜像在服务器本地构建，不跨墙拉/推）。
-# 应用镜像(server/gateway/web)用 build: 就地构建；基础镜像(postgres/redis)仍走 daemon 镜像加速拉取。
+# 应用镜像(biz/gateway/web)用 build: 就地构建；基础镜像(postgres/redis)仍走 daemon 镜像加速拉取。
 #
 # 配置分层（重要）：
 #   ① 通用、非机密、哪都一样 → 本文件 environment: 里用 ${VAR:-默认值}，无需任何 env 文件即可跑。
@@ -115,7 +115,7 @@ services:
       GATEWAY_ADDR: ':8090'
       GATEWAY_UPSTREAM: grpc
       EDGE_GRPC_ADDR: biz:3008
-      GATEWAY_PROXY_API: 'true'
+      # HTTP 由 nginx 直连 biz（见 nginx/conf.d/default.conf）；网关只承担长连接。
       REDIS_URL: redis://redis:6379
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8090/healthz']
@@ -152,7 +152,7 @@ services:
       # certbot-www 是续期 HTTP-01 的 webroot(certbot 写挑战文件,nginx 在 80 端口读)。
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./certbot-www:/var/www/certbot:ro
-    # 加入 oc-shared，让 nginx 能同源反代到 agent-node-server:3101（/agent/）
+    # 加入 oc-shared，让 nginx 能同源反代到 agent-rag-http:3101（/agent/）
     networks: [our-chat, oc-shared]
 
   # ── coturn:STUN/TURN,给 WebRTC 音视频做 NAT 穿透(异网络/对称 NAT 的兜底中继)──
@@ -188,6 +188,6 @@ networks:
   our-chat:
     driver: bridge
   # 跨项目共享网络（与 agent-server 互通）；以 external 引用，由部署脚本幂等创建（谁先部署谁建）。
-  # nginx(web) 经此网络同源反代 /agent/ → agent-node-server:3101；agent 也经此访问本服务 JWKS。
+  # nginx(web) 经此网络同源反代 /agent/ → agent-rag-http:3101；agent 也经此访问本服务 JWKS。
   oc-shared:
     external: true

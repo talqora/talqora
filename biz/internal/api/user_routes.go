@@ -17,14 +17,14 @@ func mountUserRoutes(r *gin.Engine) {
 
 // allowedFields 白名单(user.ts:11-20,含 last_seen→lastSeen 双写兼容)。
 var allowedFields = map[string]string{
-	"email":      "email",
-	"phone":      "phone",
-	"nickname":   "nickname",
-	"avatar":     "avatar",
-	"bio":        "bio",
-	"gender":     "gender",
-	"last_seen":  "last_seen",
-	"lastSeen":   "last_seen",
+	"email":     "email",
+	"phone":     "phone",
+	"nickname":  "nickname",
+	"avatar":    "avatar",
+	"bio":       "bio",
+	"gender":    "gender",
+	"last_seen": "last_seen",
+	"lastSeen":  "last_seen",
 }
 
 // handleProfile 当前登录用户资料(user.ts:24-26,直接回中间件挂上的现值)。

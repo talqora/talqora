@@ -2,8 +2,9 @@
 // 让 Node 的读扩散(filterOnline)把网关上的在线用户也算进在线子集(docs 14 §6③ / 15 §5.1)。
 //
 // 键结构与 server/src/realtime/presence.ts 完全一致(必须一致,否则两侧互相看不见对方的连接):
-//   presence:{userId}        ZSET  member=deviceId, score=过期时刻(ms)
-//   presence:{userId}:meta   HASH  field=deviceId,  value="{replica}:{socketId}"
+//
+//	presence:{userId}        ZSET  member=deviceId, score=过期时刻(ms)
+//	presence:{userId}:meta   HASH  field=deviceId,  value="{replica}:{socketId}"
 package presence
 
 import (
@@ -15,8 +16,8 @@ import (
 )
 
 type Registry struct {
-	rdb    *redis.Client
-	ttl    time.Duration
+	rdb     *redis.Client
+	ttl     time.Duration
 	replica string
 }
 

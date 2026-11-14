@@ -27,9 +27,7 @@ type Config struct {
 	EdgeGrpcAddrs []string
 	// grpc 模式每个后端的流分片数量(按 userId 哈希分片)。
 	EdgeGrpcStreams int
-	// 是否以网关作为 HTTP 统一入口(/api 反代到 Node;目标态,默认关)。
-	ProxyAPI bool
-	// 网关与 Node 内部端点的共享密钥,防止内部端点被外部直接调用。
+	// 网关与业务层内部端点的共享密钥,防止内部端点被外部直接调用。
 	InternalToken string
 	// 单网关进程的连接数硬上限(配额),超过即拒绝握手,防 fd/内存爆(docs 16 坑6)。
 	MaxConns int
@@ -51,16 +49,15 @@ func Load() (*Config, error) {
 	}
 	host, _ := os.Hostname()
 	cfg := &Config{
-		Addr:             envOr("GATEWAY_ADDR", ":8090"),
-		JWTSecret:        []byte(secret),
-		RedisURL:         envOr("REDIS_URL", "redis://localhost:6379"),
-		UpstreamBaseURL:  envOr("UPSTREAM_BASE_URL", "http://127.0.0.1:3007"),
+		Addr:            envOr("GATEWAY_ADDR", ":8090"),
+		JWTSecret:       []byte(secret),
+		RedisURL:        envOr("REDIS_URL", "redis://localhost:6379"),
+		UpstreamBaseURL: envOr("UPSTREAM_BASE_URL", "http://127.0.0.1:3007"),
 		// 默认 grpc 双向流(业务层已 Go 化);GATEWAY_UPSTREAM=http 仅保留给历史部署过渡。
-		UpstreamMode: envOr("GATEWAY_UPSTREAM", "grpc"),
+		UpstreamMode:     envOr("GATEWAY_UPSTREAM", "grpc"),
 		EdgeGrpcAddr:     envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008"),
 		EdgeGrpcAddrs:    parseOrigins(envOr("EDGE_GRPC_ADDR", "127.0.0.1:3008")), // 逗号分隔多后端
 		EdgeGrpcStreams:  envInt("EDGE_GRPC_STREAMS", 4),
-		ProxyAPI:         os.Getenv("GATEWAY_PROXY_API") == "true",
 		InternalToken:    envOr("GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
 		MaxConns:         envInt("GATEWAY_MAX_CONNS", 50000),
 		SendBuffer:       envInt("GATEWAY_SEND_BUFFER", 256),

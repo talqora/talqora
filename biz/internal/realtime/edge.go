@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 
-	edgev1 "github.com/our-chat/biz/internal/contracts/gen/ourchat/edge/v1"
 	"github.com/our-chat/biz/internal/config"
+	edgev1 "github.com/our-chat/biz/internal/contracts/gen/ourchat/edge/v1"
 	"github.com/our-chat/biz/internal/metrics"
 )
 
@@ -50,8 +50,8 @@ func StartEdge(cfg *config.Config, logger *slog.Logger) (*EdgeServer, error) {
 			Timeout: 20 * time.Second,
 		}),
 		// 流控窗口调大:减少小消息高频下的 WINDOW_UPDATE 往返,不增稳态内存。
-		grpc.InitialWindowSize(1 << 20),
-		grpc.InitialConnWindowSize(1 << 20),
+		grpc.InitialWindowSize(1<<20),
+		grpc.InitialConnWindowSize(1<<20),
 	)
 	s.grpc = srv
 	edgev1.RegisterRealtimeServer(srv, s)

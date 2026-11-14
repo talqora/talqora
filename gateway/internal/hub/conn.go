@@ -14,6 +14,7 @@ import (
 // Conn 是一条客户端 WS 连接。读写各跑一个 goroutine:
 //   - readLoop:收上行帧 → 透传 Node / 处理心跳;
 //   - writeLoop:从有界 send channel 取下行帧写出,并定时发协议 ping 保活。
+//
 // send 是有界 channel——这是背压的支点:打满即判定慢消费者并逐出,绝不让单个慢客户端拖垮网关(docs 16 §4.4)。
 //
 // 上行模式随通道实现分化:
@@ -86,7 +87,7 @@ func (c *Conn) close() {
 		if err := c.hub.presence.Remove(ctx, c.userID, c.deviceID); err != nil {
 			c.hub.log.Warn("presence 摘除失败", "userId", c.userID, "deviceId", c.deviceID, "err", err)
 		}
-		// 通知 Node 业务侧连接已断开(通话 grace 重连等,对齐 socket.io disconnect 事件语义)。
+		// 通知业务层(biz)连接已断开(通话 grace 重连等)。
 		// upstream 为 nil 仅出现在测试装配,跳过。
 		if c.hub.upstream != nil {
 			if err := c.hub.upstream.NotifyDisconnect(ctx, c.userID, c.deviceID); err != nil {

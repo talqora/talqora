@@ -23,19 +23,19 @@ func mountChatRoutes(r *gin.Engine) {
 
 // UserConversation 会话关系行(Prisma camelCase;BigInt→number)。
 type UserConversation struct {
-	ID               int64   `json:"id"`
-	UserID           int64   `json:"userId"`
-	ConversationID   string  `json:"conversationId"`
-	LastReadMsgID    *string `json:"lastReadMessageId"`
-	LastSyncedSeq    int64   `json:"lastSyncedSeq"`
-	LastReadSeq      int64   `json:"lastReadSeq"`
-	MentionSeq       int64   `json:"mentionSeq"`
-	UnreadCount      int     `json:"unreadCount"`
-	IsMuted          bool    `json:"isMuted"`
-	IsPinned         bool    `json:"isPinned"`
-	IsArchived       bool    `json:"isArchived"`
-	JoinedAt         service.JSONTime `json:"joinedAt"`
-	LastActivity     service.JSONTime `json:"lastActivity"`
+	ID             int64            `json:"id"`
+	UserID         int64            `json:"userId"`
+	ConversationID string           `json:"conversationId"`
+	LastReadMsgID  *string          `json:"lastReadMessageId"`
+	LastSyncedSeq  int64            `json:"lastSyncedSeq"`
+	LastReadSeq    int64            `json:"lastReadSeq"`
+	MentionSeq     int64            `json:"mentionSeq"`
+	UnreadCount    int              `json:"unreadCount"`
+	IsMuted        bool             `json:"isMuted"`
+	IsPinned       bool             `json:"isPinned"`
+	IsArchived     bool             `json:"isArchived"`
+	JoinedAt       service.JSONTime `json:"joinedAt"`
+	LastActivity   service.JSONTime `json:"lastActivity"`
 }
 
 // Conversation 会话行(Prisma camelCase)。

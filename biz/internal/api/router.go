@@ -50,14 +50,14 @@ func NewRouter(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	r.Use(limiterForPaths("/api/login", "/api/register"))
 
 	// 业务路由挂载(与 app.ts:91-104 同面)
-	mountAuthRoutes(r, cfg)        // /api: register/login/refresh/logout/check-*/turn-credentials
-	mountUserRoutes(r)             // /user: profile/update
-	mountFriendRoutes(r)           // /user: friend 全部
-	mountChatRoutes(r)             // /user: userConversations/conversations/messages/updateConversationTime/lastMessages
-	mountSyncRoutes(r)             // /user: sync/read/mentions/readCount
-	mountUploadRoutes(r, cfg)      // /user/uploads/uploadImg + /api/upload/*
-	mountInternalRoutes(r, cfg)    // /internal: gateway/uplink、gateway/disconnect
-	mountRumRoutes(r)              // /api/rum
+	mountAuthRoutes(r, cfg)          // /api: register/login/refresh/logout/check-*/turn-credentials
+	mountUserRoutes(r)               // /user: profile/update
+	mountFriendRoutes(r)             // /user: friend 全部
+	mountChatRoutes(r)               // /user: userConversations/conversations/messages/updateConversationTime/lastMessages
+	mountSyncRoutes(r)               // /user: sync/read/mentions/readCount
+	mountUploadRoutes(r, cfg)        // /user/uploads/uploadImg + /api/upload/*
+	mountInternalRoutes(r, cfg)      // /internal: gateway/uplink、gateway/disconnect
+	mountRumRoutes(r)                // /api/rum
 	mountOAuthRoutes(r, cfg, logger) // /.well-known/* + /oauth/*
 
 	// 错误处理(注册在所有路由之后;对齐 app.ts:107-114)

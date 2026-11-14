@@ -1,8 +1,8 @@
 name: our-chat-monitoring
 
-# 本地监测栈:Prometheus 抓取宿主机上运行的 server(Node, :3007/metrics)与
-# gateway(Go, :8090/metrics),Grafana 可视化对比。
-# server/gateway 不在本 compose 里(它们在宿主机上跑 npm run dev / go run),
+# 本地监测栈:Prometheus 抓取宿主机上运行的 biz(Go, :3007/metrics)与
+# gateway(Go, :8090/metrics),Grafana 可视化。
+# biz/gateway 不在本 compose 里(它们由 make dev 或 go run 跑在宿主机),
 # 容器通过 host.docker.internal 访问宿主机端口。
 
 services:

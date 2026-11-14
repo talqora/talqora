@@ -25,46 +25,46 @@ type RateLimitConfig struct {
 }
 
 type OAuthConfig struct {
-	IssuerBaseURL string
-	ActiveKid     string
-	RetiredKids   []string
+	IssuerBaseURL  string
+	ActiveKid      string
+	RetiredKids    []string
 	PrivateKeyFile string // OAUTH_PRIVATE_KEY_FILE(active kid 优先)
-	KeyDir        string // OAUTH_KEY_DIR(未配 privateKeyFile 时按 kid 拼文件名)
-	ATTtlSec      int
-	RTTtlSec      int
-	IDTtlSec      int
-	CodeTTLSec    int
+	KeyDir         string // OAUTH_KEY_DIR(未配 privateKeyFile 时按 kid 拼文件名)
+	ATTtlSec       int
+	RTTtlSec       int
+	IDTtlSec       int
+	CodeTTLSec     int
 	WebRedirectURI []string
 }
 
 type S3Config struct {
-	Endpoint        string
-	Region          string
-	Bucket          string
-	AccessKey       string
-	SecretKey       string
-	ForcePathStyle  bool
-	PublicBaseURL   string
+	Endpoint       string
+	Region         string
+	Bucket         string
+	AccessKey      string
+	SecretKey      string
+	ForcePathStyle bool
+	PublicBaseURL  string
 }
 
 type Config struct {
-	Port            string
-	IsProduction    bool
-	AllowedOrigins  []string
-	JWTSecret       []byte
-	JWTExpiresIn    string
-	InternalToken   string
-	DatabaseURL     string
+	Port                string
+	IsProduction        bool
+	AllowedOrigins      []string
+	JWTSecret           []byte
+	JWTExpiresIn        string
+	InternalToken       string
+	DatabaseURL         string
 	ReadOnlyDatabaseURL string
-	RedisURL        string
-	Turn            TurnConfig
-	AuthRateLimit   RateLimitConfig
-	ConvRateLimit   RateLimitConfig
-	EdgeGrpcAddr    string
-	EdgeGrpcEnabled bool
-	ReplicaID       string
-	OAuth           OAuthConfig
-	S3              S3Config
+	RedisURL            string
+	Turn                TurnConfig
+	AuthRateLimit       RateLimitConfig
+	ConvRateLimit       RateLimitConfig
+	EdgeGrpcAddr        string
+	EdgeGrpcEnabled     bool
+	ReplicaID           string
+	OAuth               OAuthConfig
+	S3                  S3Config
 }
 
 // Load 装载全部配置。JWT_SECRET 缺失 fail-fast(与 gateway/Node 同语义)。
@@ -80,16 +80,16 @@ func Load() (*Config, error) {
 	s3Bucket := envOr("S3_BUCKET", "our-chat")
 
 	cfg := &Config{
-		Port:            envOr("PORT", "3007"),
-		IsProduction:    isProd,
-		AllowedOrigins:  parseList(envOr("CLIENT_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://localhost:5173,https://127.0.0.1:5173")),
-		JWTSecret:       []byte(secret),
-		JWTExpiresIn:    envOr("JWT_EXPIRES_IN", "7d"),
-		InternalToken:   envOr("GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
-		DatabaseURL:     envOr("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/our_chat"),
+		Port:           envOr("PORT", "3007"),
+		IsProduction:   isProd,
+		AllowedOrigins: parseList(envOr("CLIENT_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://localhost:5173,https://127.0.0.1:5173")),
+		JWTSecret:      []byte(secret),
+		JWTExpiresIn:   envOr("JWT_EXPIRES_IN", "7d"),
+		InternalToken:  envOr("GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
+		DatabaseURL:    envOr("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/our_chat"),
 		// 只读副本:未配置回退写库(store.NewRO 空串处理,单实例部署零改动)。
 		ReadOnlyDatabaseURL: envOr("PG_READONLY_URL", ""),
-		RedisURL:        envOr("REDIS_URL", "redis://localhost:6379"),
+		RedisURL:            envOr("REDIS_URL", "redis://localhost:6379"),
 		Turn: TurnConfig{
 			Secret:   strings.TrimSpace(os.Getenv("TURN_SECRET")),
 			Host:     strings.TrimSpace(os.Getenv("TURN_HOST")),

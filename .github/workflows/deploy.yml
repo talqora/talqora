@@ -62,7 +62,10 @@ jobs:
           fi
           echo "✅ 所有必填 Secret 齐全（environment: pro 读取正常）"
 
-      # 把构建上下文(三服务源码 + docker/) scp 到服务器部署目录。
+      # 把构建上下文(biz/gateway/web 三服务源码 + docker/) scp 到服务器部署目录。
+      # 清单必须与 docker/docker-compose.prod.yml 的 build.context 一一对应：
+      #   biz ← ../biz、gateway ← ../gateway、web ← ../web。
+      # 新增/改名服务时两处同步改，否则服务器构建会失败或用旧源码“假成功”。
       # 仅 git 跟踪的文本源码(无 node_modules/dist),~MB 级,经 SSH 通道很稳。overwrite 覆盖旧源码;
       # 不删服务器侧专属文件(.env/keys/certbot-www 不在源码里,scp 不动它们)。
       - name: 同步构建上下文到服务器
@@ -72,7 +75,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          source: 'server,gateway,web,docker'
+          source: 'biz,gateway,web,docker'
           target: ${{ secrets.DEPLOY_PATH || '/opt/our-chat' }}
           overwrite: true
 

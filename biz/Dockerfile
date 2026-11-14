@@ -1,5 +1,8 @@
 # 构建阶段:静态编译 Go 二进制(迁移文件 embed 进二进制)
-FROM golang:1.22-alpine AS builder
+# 构建镜像的 Go 版本必须 ≥ go.mod 里的 go 指令(当前 1.26.5)。
+# Go 1.21 起官方镜像默认 GOTOOLCHAIN=local,不会自动下载更高版本工具链,
+# 版本不匹配会直接构建失败。改 go.mod 时同步改这里。
+FROM golang:1.26-alpine AS builder
 WORKDIR /src
 # 依赖源:默认官方;服务器本地 build 时由 compose 传 GOPROXY_URL=goproxy.cn(国内快)。
 ARG GOPROXY_URL=https://proxy.golang.org,direct
@@ -18,3 +21,8 @@ RUN apk add --no-cache wget ca-certificates \
 COPY --from=builder /biz /usr/local/bin/biz
 USER app
 EXPOSE 3007 3008
+# 没有 ENTRYPOINT 时容器会执行基础镜像的默认 /bin/sh,非交互环境下立即退出,
+# 表现为「镜像能构建、容器起不来」——这类问题只有真的 run 一次才能发现。
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+  CMD wget -qO- http://localhost:3007/health || exit 1
+ENTRYPOINT ["/usr/local/bin/biz"]

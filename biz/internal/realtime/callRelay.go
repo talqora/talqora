@@ -20,159 +20,165 @@ func HandleCallEvent(ctx context.Context, eventType string, uctx UplinkContext, 
 	callID := jsonField(data, "callId")
 
 	switch eventType {
-	case "call:start": {
-		metrics.CallEventsTotal.WithLabelValues("start").Inc()
-		calleeID, ok := parseID(jsonField(data, "to"))
-		if callID == "" || !ok || calleeID <= 0 {
-			return UplinkResult{Status: 400, Body: map[string]any{"type": "call:error", "message": "缺少 callId 或合法被叫"}}
-		}
-		callType := jsonField(data, "callType")
-		if callType == "" {
-			callType = "voice"
-		}
-		created, err := service.TryCreateSession(ctx, &service.CallSession{
-			CallID:       callID,
-			CallerID:     uctx.UserID,
-			CalleeID:     calleeID,
-			CallType:     callType,
-			Status:       "ringing",
-			StartTime:    nil,
-			CallerDevice: strPtr(uctx.DeviceID),
-			CalleeDevice: nil,
-			GraceEpoch:   0,
-		})
-		if err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
-		}
-		if !created {
-			metrics.CallEventsTotal.WithLabelValues("busy").Inc()
-			// 仅回主叫本设备,不打扰被叫(callRelay.ts:58-62)
-			return UplinkResult{Status: 200, Body: map[string]any{"type": "call:busy", "data": map[string]any{"callId": callID}}}
-		}
-		metrics.ActiveCalls.Inc()
-		_ = service.PublishDownlink(ctx, calleeID, "call:start", rawJSON(data), nil)
-		return UplinkResult{Status: 204}
-	}
-
-	case "call:accept": {
-		metrics.CallEventsTotal.WithLabelValues("accept").Inc()
-		if _, err := service.MarkAccepted(ctx, callID, uctx.DeviceID); err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
-		}
-		toID, _ := parseID(jsonField(data, "to"))
-		if toID > 0 {
-			_ = service.PublishDownlink(ctx, toID, "call:accept", rawJSON(data), nil)
-		}
-		_ = service.PublishDownlink(ctx, uctx.UserID, "call:handled",
-			map[string]any{"callId": callID, "status": "accepted"},
-			&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
-		return UplinkResult{Status: 204}
-	}
-
-	case "call:reject": {
-		metrics.CallEventsTotal.WithLabelValues("reject").Inc()
-		s, err := service.ClearSession(ctx, callID)
-		if err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
-		}
-		if s != nil {
-			metrics.ActiveCalls.Dec()
-		}
-		callerID := int64(0)
-		if s != nil {
-			callerID = s.CallerID
-		} else if parts := strings.Split(callID, "_"); len(parts) > 1 {
-			callerID, _ = strconv.ParseInt(parts[1], 10, 64)
-		}
-		if callerID > 0 {
-			_ = service.PublishDownlink(ctx, callerID, "call:reject", rawJSON(data), nil)
-		}
-		_ = service.PublishDownlink(ctx, uctx.UserID, "call:handled",
-			map[string]any{"callId": callID, "status": "rejected"},
-			&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
-		return UplinkResult{Status: 204}
-	}
-
-	case "call:end": {
-		metrics.CallEventsTotal.WithLabelValues("end").Inc()
-		s, err := service.ClearSession(ctx, callID)
-		if err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
-		}
-		if s != nil {
-			metrics.ActiveCalls.Dec()
-		}
-		parts := strings.Split(callID, "_")
-		if len(parts) > 2 {
-			id1, err1 := strconv.ParseInt(parts[1], 10, 64)
-			id2, err2 := strconv.ParseInt(parts[2], 10, 64)
-			if err1 == nil && id1 > 0 {
-				_ = service.PublishDownlink(ctx, id1, "call:end", rawJSON(data), nil)
+	case "call:start":
+		{
+			metrics.CallEventsTotal.WithLabelValues("start").Inc()
+			calleeID, ok := parseID(jsonField(data, "to"))
+			if callID == "" || !ok || calleeID <= 0 {
+				return UplinkResult{Status: 400, Body: map[string]any{"type": "call:error", "message": "缺少 callId 或合法被叫"}}
 			}
-			if err2 == nil && id2 > 0 && id2 != id1 {
-				_ = service.PublishDownlink(ctx, id2, "call:end", rawJSON(data), nil)
+			callType := jsonField(data, "callType")
+			if callType == "" {
+				callType = "voice"
 			}
+			created, err := service.TryCreateSession(ctx, &service.CallSession{
+				CallID:       callID,
+				CallerID:     uctx.UserID,
+				CalleeID:     calleeID,
+				CallType:     callType,
+				Status:       "ringing",
+				StartTime:    nil,
+				CallerDevice: strPtr(uctx.DeviceID),
+				CalleeDevice: nil,
+				GraceEpoch:   0,
+			})
+			if err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+			}
+			if !created {
+				metrics.CallEventsTotal.WithLabelValues("busy").Inc()
+				// 仅回主叫本设备,不打扰被叫(callRelay.ts:58-62)
+				return UplinkResult{Status: 200, Body: map[string]any{"type": "call:busy", "data": map[string]any{"callId": callID}}}
+			}
+			metrics.ActiveCalls.Inc()
+			_ = service.PublishDownlink(ctx, calleeID, "call:start", rawJSON(data), nil)
+			return UplinkResult{Status: 204}
 		}
-		return UplinkResult{Status: 204}
-	}
 
-	case "call:rejoin": {
-		metrics.CallEventsTotal.WithLabelValues("rejoin").Inc()
-		s, err := service.GetCallSession(ctx, callID)
-		if err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+	case "call:accept":
+		{
+			metrics.CallEventsTotal.WithLabelValues("accept").Inc()
+			if _, err := service.MarkAccepted(ctx, callID, uctx.DeviceID); err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+			}
+			toID, _ := parseID(jsonField(data, "to"))
+			if toID > 0 {
+				_ = service.PublishDownlink(ctx, toID, "call:accept", rawJSON(data), nil)
+			}
+			_ = service.PublishDownlink(ctx, uctx.UserID, "call:handled",
+				map[string]any{"callId": callID, "status": "accepted"},
+				&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+			return UplinkResult{Status: 204}
 		}
-		if s == nil {
-			// 会话已不存在:让重连方干净收场(callRelay.ts:113-116)
-			return UplinkResult{Status: 200, Body: map[string]any{"type": "call:end", "data": map[string]any{"callId": callID}}}
+
+	case "call:reject":
+		{
+			metrics.CallEventsTotal.WithLabelValues("reject").Inc()
+			s, err := service.ClearSession(ctx, callID)
+			if err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+			}
+			if s != nil {
+				metrics.ActiveCalls.Dec()
+			}
+			callerID := int64(0)
+			if s != nil {
+				callerID = s.CallerID
+			} else if parts := strings.Split(callID, "_"); len(parts) > 1 {
+				callerID, _ = strconv.ParseInt(parts[1], 10, 64)
+			}
+			if callerID > 0 {
+				_ = service.PublishDownlink(ctx, callerID, "call:reject", rawJSON(data), nil)
+			}
+			_ = service.PublishDownlink(ctx, uctx.UserID, "call:handled",
+				map[string]any{"callId": callID, "status": "rejected"},
+				&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+			return UplinkResult{Status: 204}
 		}
-		side := "callee"
-		peerID := s.CallerID
-		if uctx.UserID == s.CallerID {
-			side = "caller"
-			peerID = s.CalleeID
-		}
-		updated, err := service.MarkRejoined(ctx, callID, side, uctx.DeviceID)
-		if err != nil {
-			return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
-		}
-		peerDevice := ""
-		if updated != nil {
-			if side == "caller" {
-				if updated.CalleeDevice != nil {
-					peerDevice = *updated.CalleeDevice
+
+	case "call:end":
+		{
+			metrics.CallEventsTotal.WithLabelValues("end").Inc()
+			s, err := service.ClearSession(ctx, callID)
+			if err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+			}
+			if s != nil {
+				metrics.ActiveCalls.Dec()
+			}
+			parts := strings.Split(callID, "_")
+			if len(parts) > 2 {
+				id1, err1 := strconv.ParseInt(parts[1], 10, 64)
+				id2, err2 := strconv.ParseInt(parts[2], 10, 64)
+				if err1 == nil && id1 > 0 {
+					_ = service.PublishDownlink(ctx, id1, "call:end", rawJSON(data), nil)
 				}
-			} else if updated.CallerDevice != nil {
-				peerDevice = *updated.CallerDevice
+				if err2 == nil && id2 > 0 && id2 != id1 {
+					_ = service.PublishDownlink(ctx, id2, "call:end", rawJSON(data), nil)
+				}
 			}
+			return UplinkResult{Status: 204}
 		}
-		if peerDevice != "" {
-			// 精确投给对端属主设备(属主路由,callRelay.ts:121-123)
-			_ = service.PublishDownlink(ctx, peerID, "call:rejoin", rawJSON(data),
-				&service.DownlinkOpts{TargetDeviceID: peerDevice})
-		} else {
-			_ = service.PublishDownlink(ctx, peerID, "call:rejoin", rawJSON(data), nil)
-		}
-		return UplinkResult{Status: 204}
-	}
 
-	case "call:ice": {
-		metrics.CallEventsTotal.WithLabelValues("ice").Inc()
-		parts := strings.Split(callID, "_")
-		if len(parts) > 2 {
-			id1, err1 := strconv.ParseInt(parts[1], 10, 64)
-			id2, err2 := strconv.ParseInt(parts[2], 10, 64)
-			if err1 == nil && id1 > 0 {
-				_ = service.PublishDownlink(ctx, id1, "call:ice", rawJSON(data),
-					&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+	case "call:rejoin":
+		{
+			metrics.CallEventsTotal.WithLabelValues("rejoin").Inc()
+			s, err := service.GetCallSession(ctx, callID)
+			if err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
 			}
-			if err2 == nil && id2 > 0 && id2 != id1 {
-				_ = service.PublishDownlink(ctx, id2, "call:ice", rawJSON(data),
-					&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+			if s == nil {
+				// 会话已不存在:让重连方干净收场(callRelay.ts:113-116)
+				return UplinkResult{Status: 200, Body: map[string]any{"type": "call:end", "data": map[string]any{"callId": callID}}}
 			}
+			side := "callee"
+			peerID := s.CallerID
+			if uctx.UserID == s.CallerID {
+				side = "caller"
+				peerID = s.CalleeID
+			}
+			updated, err := service.MarkRejoined(ctx, callID, side, uctx.DeviceID)
+			if err != nil {
+				return UplinkResult{Status: 500, Body: map[string]any{"type": "call:error", "message": "信令处理失败"}}
+			}
+			peerDevice := ""
+			if updated != nil {
+				if side == "caller" {
+					if updated.CalleeDevice != nil {
+						peerDevice = *updated.CalleeDevice
+					}
+				} else if updated.CallerDevice != nil {
+					peerDevice = *updated.CallerDevice
+				}
+			}
+			if peerDevice != "" {
+				// 精确投给对端属主设备(属主路由,callRelay.ts:121-123)
+				_ = service.PublishDownlink(ctx, peerID, "call:rejoin", rawJSON(data),
+					&service.DownlinkOpts{TargetDeviceID: peerDevice})
+			} else {
+				_ = service.PublishDownlink(ctx, peerID, "call:rejoin", rawJSON(data), nil)
+			}
+			return UplinkResult{Status: 204}
 		}
-		return UplinkResult{Status: 204}
-	}
+
+	case "call:ice":
+		{
+			metrics.CallEventsTotal.WithLabelValues("ice").Inc()
+			parts := strings.Split(callID, "_")
+			if len(parts) > 2 {
+				id1, err1 := strconv.ParseInt(parts[1], 10, 64)
+				id2, err2 := strconv.ParseInt(parts[2], 10, 64)
+				if err1 == nil && id1 > 0 {
+					_ = service.PublishDownlink(ctx, id1, "call:ice", rawJSON(data),
+						&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+				}
+				if err2 == nil && id2 > 0 && id2 != id1 {
+					_ = service.PublishDownlink(ctx, id2, "call:ice", rawJSON(data),
+						&service.DownlinkOpts{ExceptDeviceID: uctx.DeviceID})
+				}
+			}
+			return UplinkResult{Status: 204}
+		}
 
 	default:
 		return UplinkResult{Status: 400, Body: map[string]any{"type": "message.error", "message": "不支持的上行类型: " + eventType}}
@@ -300,5 +306,5 @@ func parseNonnegAny(v any) (int64, bool) {
 	}
 }
 
-func logWarn(msg string, err error)  { slog.Default().Warn(msg, "err", err) }
-func logDownlinkWarn(err error)      { slog.Default().Warn("下行 publish 失败", "err", err) }
+func logWarn(msg string, err error) { slog.Default().Warn(msg, "err", err) }
+func logDownlinkWarn(err error)     { slog.Default().Warn("下行 publish 失败", "err", err) }

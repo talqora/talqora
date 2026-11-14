@@ -115,10 +115,10 @@ func makeAuthorizeHandler(env *HandlerEnv) gin.HandlerFunc {
 		// 2. 其余参数 → redirect 回带 error
 		failRedirect := func(err *OAuthError) {
 			Audit(map[string]any{
-				"event":     map[bool]string{true: "internal_error", false: "param_invalid"}[err.Code == ErrServerError],
-				"client_id": client.ClientID,
-				"reason":    err.Code,
-				"ip":        clientIP(c),
+				"event":      map[bool]string{true: "internal_error", false: "param_invalid"}[err.Code == ErrServerError],
+				"client_id":  client.ClientID,
+				"reason":     err.Code,
+				"ip":         clientIP(c),
 				"user_agent": c.GetHeader("User-Agent"),
 			})
 			c.Redirect(http.StatusFound, BuildRedirectError(redirectURI, err, state))
@@ -201,11 +201,11 @@ func makeAuthorizeHandler(env *HandlerEnv) gin.HandlerFunc {
 		}
 
 		Audit(map[string]any{
-			"event":     "code_issued",
-			"client_id": client.ClientID,
-			"user_id":   claims.ID,
-			"scope":     scope,
-			"ip":        clientIP(c),
+			"event":      "code_issued",
+			"client_id":  client.ClientID,
+			"user_id":    claims.ID,
+			"scope":      scope,
+			"ip":         clientIP(c),
 			"user_agent": c.GetHeader("User-Agent"),
 		})
 
@@ -594,12 +594,12 @@ func makeRevokeHandler(env *HandlerEnv) gin.HandlerFunc {
 				jti, _ := claims["jti"].(string)
 				if revoked, err := RevokeRefreshTokenByJti(ctx, jti, "logout"); err == nil && revoked {
 					Audit(map[string]any{
-						"event":     "token_revoked",
-						"jti":       jti,
-						"user_id":   claims["sub"],
-						"client_id": client.ClientID,
-						"reason":    "logout",
-						"ip":        clientIP(c),
+						"event":      "token_revoked",
+						"jti":        jti,
+						"user_id":    claims["sub"],
+						"client_id":  client.ClientID,
+						"reason":     "logout",
+						"ip":         clientIP(c),
 						"user_agent": c.GetHeader("User-Agent"),
 					})
 				}
@@ -748,11 +748,11 @@ func makeAgentTokenHandler(env *HandlerEnv) gin.HandlerFunc {
 			return
 		}
 		Audit(map[string]any{
-			"event":     "agent_token_issued",
-			"client_id": "our-chat-web",
-			"user_id":   userID,
-			"scope":     agentScope,
-			"ip":        clientIP(c),
+			"event":      "agent_token_issued",
+			"client_id":  "our-chat-web",
+			"user_id":    userID,
+			"scope":      agentScope,
+			"ip":         clientIP(c),
 			"user_agent": c.GetHeader("User-Agent"),
 		})
 		c.Header("Cache-Control", "no-store")
