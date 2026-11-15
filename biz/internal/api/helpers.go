@@ -62,3 +62,19 @@ func toFloat(v any) float64 {
 		return 0
 	}
 }
+
+// deref 把 *string 安全转成 string(nil → "")。
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// optStr 空串转 nil(可空列写入用)。
+func optStr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}

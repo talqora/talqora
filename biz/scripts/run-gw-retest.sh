@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 优化版重测:只跑过载敏感场景(S3 + tp_r20/r25/r30),3 轮取中位。
-# 数据落 docs/监测设施/测试报告/26-9-16-gobiz/data/opt_<key>_gateway.json(与旧二进制区分)。
+# 数据落 docs/监测设施/测试报告/26-9-17-业务层Go重写与发号INCR/data/opt_<key>_gateway.json(与旧二进制区分)。
 set -u
 cd "$(dirname "$0")/../../perf"
 ROUNDS="${ROUNDS:-3}"
-OUT_SUBDIR="${OUT_SUBDIR:-26-9-16-gobiz}"
+OUT_SUBDIR="${OUT_SUBDIR:-26-9-17-业务层Go重写与发号INCR}"
 
 run_scenario() {
   local key="$1" conns="$2" rate="$3" dur="$4" ramp="$5" r
@@ -16,7 +16,7 @@ run_scenario() {
   ROUNDS="$ROUNDS" OUT_SUBDIR="$OUT_SUBDIR" node -e '
     const fs = require("fs");
     const n = parseInt(process.env.ROUNDS || "3", 10);
-    const sub = process.env.OUT_SUBDIR || "26-9-16-gobiz";
+    const sub = process.env.OUT_SUBDIR || "26-9-17-业务层Go重写与发号INCR";
     const key = process.argv[1];
     const rounds = [];
     for (let r = 1; r <= n; r++) {

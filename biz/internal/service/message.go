@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/our-chat/biz/internal/repo"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,31 +12,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // message.go:落库 + 发号 + 幂等去重(语义对齐 server/src/services/message.ts)。
 
 // Message 消息主体(Prisma Message 对齐;BigInt→int64 JSON 输出 number,JSONB 原样透传)。
-type Message struct {
-	ID             int64           `json:"id"`
-	ConversationID string          `json:"conversationId"`
-	SenderID       int64           `json:"senderId"`
-	Seq            int64           `json:"seq"`
-	ClientMsgID    *string         `json:"clientMsgId"`
-	Content        string          `json:"content"`
-	Type           string          `json:"type"`
-	Status         string          `json:"status"`
-	Mentions       json.RawMessage `json:"mentions"`
-	IsEdited       bool            `json:"isEdited"`
-	IsDeleted      bool            `json:"isDeleted"`
-	Extra          json.RawMessage `json:"extra"`
-	FileInfo       json.RawMessage `json:"fileInfo"`
-	EditHistory    json.RawMessage `json:"editHistory"`
-	Timestamp      JSONTime        `json:"timestamp"`
-	CreatedAt      JSONTime        `json:"createdAt"`
-	UpdatedAt      JSONTime        `json:"updatedAt"`
-}
+type Message = repo.Message
 
 // PersistMessageInput 落库入参(message.ts:5-16)。
 type PersistMessageInput struct {
@@ -79,7 +62,7 @@ func ensureConversation(ctx context.Context, convID string) error {
 	if strings.HasPrefix(convID, "group_") {
 		convType = "group"
 	}
-	if _, err := store.PG().Exec(ctx,
+	if _, err := db.PG().Exec(ctx,
 		"INSERT INTO conversations (id, conv_type) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
 		convID, convType); err != nil {
 		return err
@@ -121,7 +104,7 @@ func PersistMessage(ctx context.Context, input PersistMessageInput) (*PersistMes
 	}
 
 	// 4. 事务:INSERT message + 参与者关系行(撞唯一约束 → 查已有返回 deduped)
-	tx, err := store.PG().Begin(ctx)
+	tx, err := db.PG().Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +173,7 @@ var errUnexpectedIdemMiss = errors.New("幂等命中但首次消息缺失")
 // findByIdemKey 按幂等三元组查首次落库消息。
 func findByIdemKey(ctx context.Context, convID string, senderID int64, clientMsgID string) *Message {
 	var m Message
-	err := store.PG().QueryRow(ctx, `
+	err := db.PG().QueryRow(ctx, `
 		SELECT id, conversation_id, sender_id, seq, client_msg_id, content, type, status,
 			mentions, is_edited, is_deleted, extra, file_info, edit_history, timestamp, created_at, updated_at
 		FROM messages WHERE conversation_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
@@ -218,7 +201,7 @@ func GetConversationMembers(ctx context.Context, convID string, senderID int64) 
 	parts := strings.Split(convID, "_")
 	if parts[0] == "group" && len(parts) > 1 && digitRe.MatchString(parts[1]) {
 		groupID, _ := strconv.ParseInt(parts[1], 10, 64)
-		rows, err := store.RO().Query(ctx,
+		rows, err := db.RO().Query(ctx,
 			"SELECT user_id FROM group_members WHERE group_id = $1", groupID)
 		if err != nil {
 			return nil, err
@@ -266,7 +249,7 @@ func MarkMentions(ctx context.Context, convID string, seq int64, mentionedIDs []
 	if len(mentionedIDs) == 0 {
 		return nil
 	}
-	_, err := store.PG().Exec(ctx, `
+	_, err := db.PG().Exec(ctx, `
 		UPDATE user_conversations SET mention_seq = $3
 		WHERE conversation_id = $1 AND user_id = ANY($2::bigint[]) AND mention_seq < $3`,
 		convID, mentionedIDs, seq)

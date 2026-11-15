@@ -1,6 +1,6 @@
 // 单次运行编排器:跑 gateway harness,运行中采样 Prometheus 资源指标,
 // 结束后解析 harness 统计 + 查询消息时延分位,产出结构化 JSON 落盘到 测试报告/<期目录>/data/。
-// 期目录用 env OUT_SUBDIR 指定(默认 26-9-16,与归档规范一致)。
+// 期目录用 env OUT_SUBDIR 指定(默认 26-9-16-Go网关HTTP接入,与归档规范一致)。
 // 用法:node ab-run.mjs gateway <label> [CONNS] [RATE] [DURATION] [RAMP]
 //   第一个位置参数保留为 gateway(既有脚本与 SOP 均以该形式调用);Node/socket.io 路径已随业务层 Go 化下线。
 import { spawn, execSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16', 'data');
+const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', process.env.OUT_SUBDIR || '26-9-16-Go网关HTTP接入', 'data');
 const PROM = process.env.PROM || 'http://localhost:9090';
 
 const [mode, label, CONNS = '100', RATE = '10', DURATION = '20', RAMP = '25'] = process.argv.slice(2);

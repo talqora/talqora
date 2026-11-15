@@ -11,18 +11,20 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
+
+	"errors"
 
 	"github.com/our-chat/biz/internal/config"
-	"github.com/our-chat/biz/internal/storage"
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/repo"
+	"github.com/our-chat/biz/internal/service"
+	"github.com/our-chat/biz/internal/blob"
 )
 
 // mountUploadRoutes 挂载图片上传(/user/uploads/uploadImg)与高级上传(/api/upload/*)。
 // 语义对齐 routes/upload.ts + routes/uploadAdvanced.ts(服务端中转上传,非 presigned 直传)。
 func mountUploadRoutes(r *gin.Engine, cfg *config.Config) {
-	storage.Init(cfg.S3)
-	storage.InitMultipart(cfg.S3)
+	blob.Init(cfg.S3)
+	blob.InitMultipart(cfg.S3)
 	img := r.Group("/user/uploads")
 	img.POST("/uploadImg", AuthenticateToken(), handleUploadImg)
 
@@ -78,27 +80,23 @@ func persistBuffer(c *gin.Context, buffer []byte, originalName, mimeType string)
 	md5Str = hex.EncodeToString(sum[:])
 	ctx := c.Request.Context()
 
-	var objectKey string
-	err = store.RO().QueryRow(ctx,
-		"SELECT object_key FROM uploaded_files WHERE md5 = $1", md5Str).Scan(&objectKey)
+	objectKey, err := service.ObjectKeyByMD5(ctx, md5Str)
 	if err == nil {
-		return storage.PublicURL(objectKey), md5Str, len(buffer), nil
+		return blob.PublicURL(objectKey), md5Str, len(buffer), nil
 	}
-	if err != nil && !isNoRows(err) {
+	if !errors.Is(err, repo.ErrNotFound) {
 		return "", "", 0, err
 	}
 
-	key := storage.BuildObjectKey(originalName, md5Str)
-	if err := storage.PutObject(ctx, key, buffer, mimeType); err != nil {
+	key := blob.BuildObjectKey(originalName, md5Str)
+	if err := blob.PutObject(ctx, key, buffer, mimeType); err != nil {
 		return "", "", 0, err
 	}
 	// upsert 语义(并发重复上传幂等,uploadAdvanced.ts:34-38)
-	if _, err := store.PG().Exec(ctx, `
-		INSERT INTO uploaded_files (md5, object_key, size, mime_type) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (md5) DO NOTHING`, md5Str, key, len(buffer), mimeType); err != nil {
+	if err := service.SaveUploadedFile(ctx, md5Str, key, len(buffer), mimeType); err != nil {
 		return "", "", 0, err
 	}
-	return storage.PublicURL(key), md5Str, len(buffer), nil
+	return blob.PublicURL(key), md5Str, len(buffer), nil
 }
 
 // handleUploadImg 头像等图片上传(upload.ts:11-31)。
@@ -112,12 +110,12 @@ func handleUploadImg(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "文件超过大小限制"})
 		return
 	}
-	key := storage.BuildObjectKey(name, "")
-	if err := storage.PutObject(c.Request.Context(), key, buffer, mime); err != nil {
+	key := blob.BuildObjectKey(name, "")
+	if err := blob.PutObject(c.Request.Context(), key, buffer, mime); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"url": storage.PublicURL(key)}})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"url": blob.PublicURL(key)}})
 }
 
 // handleUploadSingle 单文件上传(uploadAdvanced.ts:44-61)。
@@ -186,17 +184,15 @@ func handleUploadCheck(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少文件MD5"})
 		return
 	}
-	var objectKey string
-	err := store.RO().QueryRow(c.Request.Context(),
-		"SELECT object_key FROM uploaded_files WHERE md5 = $1", body.FileMD5).Scan(&objectKey)
+	objectKey, err := service.ObjectKeyByMD5(c.Request.Context(), body.FileMD5)
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"data":    gin.H{"exists": true, "url": storage.PublicURL(objectKey), "message": "文件已存在，秒传成功"},
+			"data":    gin.H{"exists": true, "url": blob.PublicURL(objectKey), "message": "文件已存在，秒传成功"},
 		})
 		return
 	}
-	if !isNoRows(err) {
+	if !errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -215,17 +211,14 @@ type uploadSessionRow struct {
 
 // findUploadSession 查分片会话。
 func findUploadSession(c *gin.Context, fileID string) (*uploadSessionRow, error) {
-	var s uploadSessionRow
-	err := store.PG().QueryRow(c.Request.Context(), `
-		SELECT object_key, upload_id, file_name FROM upload_sessions WHERE file_id = $1`, fileID,
-	).Scan(&s.ObjectKey, &s.UploadID, &s.FileName)
-	if isNoRows(err) {
+	sess, err := service.UploadSession(c.Request.Context(), fileID)
+	if errors.Is(err, repo.ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &s, nil
+	return &uploadSessionRow{ObjectKey: sess.ObjectKey, UploadID: sess.UploadID, FileName: sess.FileName}, nil
 }
 
 // handleUploadChunk 分片上传(uploadAdvanced.ts:109-144):首片初始化 multipart 会话。
@@ -251,23 +244,21 @@ func handleUploadChunk(c *gin.Context) {
 		return
 	}
 	if session == nil {
-		key := storage.BuildObjectKey(fileName, "")
-		uploadID, err := storage.CreateMultipartUpload(c.Request.Context(), key, mime)
+		key := blob.BuildObjectKey(fileName, "")
+		uploadID, err := blob.CreateMultipartUpload(c.Request.Context(), key, mime)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 			return
 		}
 		total, _ := strconv.Atoi(totalChunks)
-		if _, err := store.PG().Exec(c.Request.Context(), `
-			INSERT INTO upload_sessions (file_id, upload_id, object_key, file_name, mime_type, total_chunks)
-			VALUES ($1, $2, $3, $4, $5, $6)`, fileID, uploadID, key, fileName, mime, total); err != nil {
+		if err := service.SaveUploadSession(c.Request.Context(), fileID, uploadID, key, fileName, mime, total); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 			return
 		}
 		session = &uploadSessionRow{ObjectKey: key, UploadID: uploadID, FileName: fileName}
 	}
 
-	if _, err := storage.UploadPart(c.Request.Context(), session.ObjectKey, session.UploadID, chunkIndex+1, buffer); err != nil {
+	if _, err := blob.UploadPart(c.Request.Context(), session.ObjectKey, session.UploadID, chunkIndex+1, buffer); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -298,7 +289,7 @@ func handleUploadMerge(c *gin.Context) {
 		return
 	}
 
-	parts, err := storage.ListUploadedParts(c.Request.Context(), session.ObjectKey, session.UploadID)
+	parts, err := blob.ListUploadedParts(c.Request.Context(), session.ObjectKey, session.UploadID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -312,18 +303,17 @@ func handleUploadMerge(c *gin.Context) {
 		return
 	}
 
-	if err := storage.CompleteMultipartUpload(c.Request.Context(), session.ObjectKey, session.UploadID, parts); err != nil {
+	if err := blob.CompleteMultipartUpload(c.Request.Context(), session.ObjectKey, session.UploadID, parts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	if _, err := store.PG().Exec(c.Request.Context(),
-		"DELETE FROM upload_sessions WHERE file_id = $1", body.FileID); err != nil {
+	if err := service.DeleteUploadSession(c.Request.Context(), body.FileID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    gin.H{"url": storage.PublicURL(session.ObjectKey), "fileName": session.FileName, "message": "文件合并成功"},
+		"data":    gin.H{"url": blob.PublicURL(session.ObjectKey), "fileName": session.FileName, "message": "文件合并成功"},
 	})
 }
 
@@ -334,19 +324,19 @@ func handleUploadStream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少文件名"})
 		return
 	}
-	key := storage.BuildObjectKey(fileName, "")
+	key := blob.BuildObjectKey(fileName, "")
 	ctx := c.Request.Context()
-	if err := storage.PutObjectStream(ctx, key, c.Request.Body, c.Request.ContentLength, c.GetHeader("Content-Type")); err != nil {
+	if err := blob.PutObjectStream(ctx, key, c.Request.Body, c.Request.ContentLength, c.GetHeader("Content-Type")); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	var size int64
-	if info, err := storage.HeadObject(ctx, key); err == nil && info != nil {
+	if info, err := blob.HeadObject(ctx, key); err == nil && info != nil {
 		size = info.Size
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    gin.H{"url": storage.PublicURL(key), "fileName": fileName, "size": size, "message": "流式上传成功"},
+		"data":    gin.H{"url": blob.PublicURL(key), "fileName": fileName, "size": size, "message": "流式上传成功"},
 	})
 }
 
@@ -410,7 +400,7 @@ func handleUploadResume(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"uploadedChunks": []int{}}})
 		return
 	}
-	parts, err := storage.ListUploadedParts(c.Request.Context(), session.ObjectKey, session.UploadID)
+	parts, err := blob.ListUploadedParts(c.Request.Context(), session.ObjectKey, session.UploadID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -421,5 +411,3 @@ func handleUploadResume(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"uploadedChunks": chunks}})
 }
-
-var _ = pgx.ErrNoRows

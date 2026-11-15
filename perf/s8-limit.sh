@@ -15,7 +15,7 @@
 set -u
 cd "$(dirname "$0")"
 
-OUT_SUBDIR="${OUT_SUBDIR:-26-11-15}"
+OUT_SUBDIR="${OUT_SUBDIR:-26-11-15-全Go体系V3基线}"
 MODE="${MODE:-conns}"                 # conns | rate
 DURATION="${DURATION:-60}"            # 每级稳态时长(秒),SOP 要求 ≥60
 RAMP="${RAMP:-50}"                    # 爬坡速率(条/秒)

@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // ratelimit.go:会话热点限流(V3 §4.3「单会话消息率超限时按会话限流」)。
@@ -50,7 +50,7 @@ func CheckConvRate(ctx context.Context, convID string) bool {
 		return false
 	}
 	win := convRateWindowSec.Load()
-	n, err := convRateLua.Run(ctx, store.Redis(), []string{convRateKey(convID)}, win).Int()
+	n, err := convRateLua.Run(ctx, db.Redis(), []string{convRateKey(convID)}, win).Int()
 	if err != nil {
 		return false
 	}

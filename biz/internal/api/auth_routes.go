@@ -15,12 +15,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/our-chat/biz/internal/config"
+	"github.com/our-chat/biz/internal/repo"
 	"github.com/our-chat/biz/internal/service"
-	"github.com/our-chat/biz/internal/store"
 )
 
 // mountAuthRoutes 挂载 /api 面的认证与注册路由(app.ts:91-95:registerRouter/loginRouter/turnRouter)。
@@ -132,30 +131,17 @@ func handleRegister(c *gin.Context) {
 		nickname = b.Username
 	}
 
-	var (
-		id        int64
-		username  string
-		email     string
-		phone     *string
-		status    string
-		createdAt service.JSONTime
-		insertErr error
-	)
-	var phoneVal any
-	if b.Phone == "" {
-		phoneVal = nil
-	} else {
-		phoneVal = b.Phone
+	var phoneVal *string
+	if b.Phone != "" {
+		phoneVal = &b.Phone
 	}
-	insertErr = store.PG().QueryRow(c.Request.Context(), `
-		INSERT INTO users (username, email, phone, password, nickname, avatar, bio, status, last_seen)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'online', now())
-		RETURNING id, username, email, phone, status, created_at`,
-		b.Username, b.Email, phoneVal, hashed, nickname, b.Avatar, b.Bio,
-	).Scan(&id, &username, &email, &phone, &status, &createdAt.Time)
-	if insertErr != nil {
+	created, err := service.CreateUser(c.Request.Context(), repo.NewUser{
+		Username: b.Username, Email: b.Email, Phone: phoneVal, Password: hashed,
+		Nickname: &nickname, Avatar: optStr(b.Avatar), Bio: optStr(b.Bio),
+	})
+	if err != nil {
 		// 唯一约束兜底(并发预检 race,register.ts:102-111):409
-		if isUniqueViolation(insertErr) {
+		if errors.Is(err, repo.ErrConflict) {
 			c.JSON(http.StatusConflict, gin.H{
 				"success": false,
 				"message": "用户信息已存在，请检查用户名、邮箱或手机号",
@@ -165,6 +151,10 @@ func handleRegister(c *gin.Context) {
 		serverError(c)
 		return
 	}
+	id, username, status := created.ID, created.Username, created.Status
+	email := deref(created.Email)
+	phone := created.Phone
+	createdAt := service.JSONTime{Time: created.CreatedAt}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -260,16 +250,16 @@ func handleCheckPhone(c *gin.Context) {
 
 // userExistsBy 唯一性查询(列名白名单内,由调用方保证)。
 func userExistsBy(c *gin.Context, col, val string) (bool, error) {
-	var one int64
-	err := store.RO().QueryRow(c.Request.Context(),
-		"SELECT id FROM users WHERE "+col+" = $1", val).Scan(&one)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+	ctx := c.Request.Context()
+	switch col {
+	case "username":
+		return service.UserExists(ctx, "username", val)
+	case "email":
+		return service.UserExists(ctx, "email", val)
+	case "phone":
+		return service.UserExists(ctx, "phone", val)
 	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return false, errors.New("column not allowed")
 }
 
 // ==================== 登录(login.ts:17-51) ====================

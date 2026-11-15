@@ -35,8 +35,8 @@ gin / pgx-v5+手写SQL / golang-migrate（存量一次性转换+force基线）/ 
 | P5 OAuth | 8 路由 + PKCE + rotation + jwx RSA/JWKS + seed client + 清理任务 | 授权码全流程 curl + 单测 |
 | P6 测试闭环 | 单元测试补全、go vet、冒烟（colima 三件套+gateway+gw-probe+harness-gw 20×5×10） | 全绿、零错误 |
 | P7 双跑对比 | Go:3009 vs Node:3007 逐接口字段级 diff 脚本 | 差异清单收敛 |
-| P8 压测复测 | S0~S7 + r10~r30 全套 ≥3 轮取中位，OUT_SUBDIR=26-9-16-gobiz | p99 50~150ms、错误率<5% |
-| P9 报告 | 三方对比表、发号归因、CPU/内存收益、失败模式、遗留问题；HTML 深色模式自检 | 归档 `docs/监测设施/测试报告/26-9-16-gobiz/` |
+| P8 压测复测 | S0~S7 + r10~r30 全套 ≥3 轮取中位，OUT_SUBDIR=26-9-17-业务层Go重写与发号INCR | p99 50~150ms、错误率<5% |
+| P9 报告 | 三方对比表、发号归因、CPU/内存收益、失败模式、遗留问题；HTML 深色模式自检 | 归档 `docs/监测设施/测试报告/26-9-17-业务层Go重写与发号INCR/` |
 
 ## 硬约束自查
 

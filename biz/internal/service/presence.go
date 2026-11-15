@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // presence.go:连接注册表读侧(写侧在 gateway,键结构与 server/src/realtime/presence.ts 完全一致):
@@ -34,7 +34,7 @@ func FilterOnline(ctx context.Context, userIDs []int64) (map[int64]bool, error) 
 	if len(userIDs) == 0 {
 		return online, nil
 	}
-	rdb := store.Redis()
+	rdb := db.Redis()
 	now := strconv.FormatInt(unixMilli(), 10)
 	pipe := rdb.Pipeline()
 	for _, uid := range userIDs {
@@ -56,7 +56,7 @@ func FilterOnline(ctx context.Context, userIDs []int64) (map[int64]bool, error) 
 // GetDevices 枚举一个用户当前在线的全部设备(presence.ts:61-89):
 // 读取前惰性摘除已过期项,再解析 meta 返回活跃设备。
 func GetDevices(ctx context.Context, userID int64) ([]DeviceEntry, error) {
-	rdb := store.Redis()
+	rdb := db.Redis()
 	zkey := presenceZKey(userID)
 	mkey := zkey + ":meta"
 	now := unixMilli()
@@ -105,7 +105,7 @@ func GetDevices(ctx context.Context, userID int64) ([]DeviceEntry, error) {
 // ReplicaOf 单用户在线副本定位(定向下行用):取任一在线设备的 replica id。
 // 轻量路径(不做惰性摘除——摘除是 gateway 侧职责,过期数据由 pub/sub 兜底)。
 func ReplicaOf(ctx context.Context, userID int64) (string, error) {
-	rdb := store.Redis()
+	rdb := db.Redis()
 	now := strconv.FormatInt(unixMilli(), 10)
 	alive, err := rdb.ZRangeByScore(ctx, presenceZKey(userID), &redis.ZRangeBy{Min: now, Max: "+inf", Count: 1}).Result()
 	if err != nil || len(alive) == 0 {
@@ -129,7 +129,7 @@ func ReplicaOfBatch(ctx context.Context, userIDs []int64) (map[int64]string, err
 	if len(userIDs) == 0 {
 		return out, nil
 	}
-	rdb := store.Redis()
+	rdb := db.Redis()
 	now := strconv.FormatInt(unixMilli(), 10)
 
 	pipe := rdb.Pipeline()

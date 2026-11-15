@@ -14,7 +14,7 @@ import (
 
 	"github.com/our-chat/biz/internal/config"
 	"github.com/our-chat/biz/internal/service"
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // handlers.go:8 个 OAuth 路由 handler(对齐 server/src/oauth/ 各端点)。
@@ -536,7 +536,7 @@ func handleRefreshToken(c *gin.Context, env *HandlerEnv, client *OAuthClient, bo
 
 // tryRotateInTransaction 事务保证 rotation + insert 原子(token.ts:300-338)。
 func tryRotateInTransaction(ctx context.Context, oldJti, newJti, familyID, clientID string, userID int64, scope string, expiresAt time.Time) (bool, error) {
-	tx, err := store.PG().Begin(ctx)
+	tx, err := db.PG().Begin(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -844,7 +844,7 @@ type userProfileRow struct {
 
 func findUserProfile(ctx context.Context, userID int64) (*userProfileRow, error) {
 	var u userProfileRow
-	err := store.RO().QueryRow(ctx, `
+	err := db.RO().QueryRow(ctx, `
 		SELECT id, username, nickname, email, avatar FROM users WHERE id = $1`, userID,
 	).Scan(&u.ID, &u.Username, &u.Nickname, &u.Email, &u.Avatar)
 	if isNoRowsErr(err) {

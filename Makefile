@@ -13,7 +13,7 @@ ENV_DEBUG   := docker/.env.debug
 # 可用 `make COMPOSE="docker compose" dev` 显式覆盖。
 COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
-.PHONY: dev middleware down env keys deps proto proto-check
+.PHONY: dev middleware down env keys deps proto proto-check arch-check
 
 # 一键起全部:env/密钥/依赖就绪 → 起中间件 → 等 PG → 并发跑三个服务(Ctrl-C 一起退出)
 dev: env keys deps middleware
@@ -70,3 +70,7 @@ proto-check:
 			gateway/internal/contracts/gen \
 			biz/internal/contracts/gen \
 			mobile-swift/Sources/Contracts/Gen
+
+# 架构守卫:biz 的 api 层不得直接连库/写 SQL,service 层不得出现 HTTP 概念
+arch-check:
+	@./biz/scripts/arch-check.sh

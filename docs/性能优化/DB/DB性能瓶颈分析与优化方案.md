@@ -1,6 +1,6 @@
 # DB 层性能瓶颈深度分析与优化方案
 
-> 分支 `feat/perf-monitoring`。本文基于 26-9-14 纯 Node 压测基线（`docs/监测设施/测试报告/26-9-14/`）的实测数据，
+> 分支 `feat/perf-monitoring`。本文基于 26-9-14 纯 Node 压测基线（`docs/监测设施/测试报告/26-9-14-纯Node性能基线/`）的实测数据，
 > 定位 DB 层是实时消息吞吐的**第一瓶颈**，给出证据链、根因分层、优化方案与验证方法。
 > 结论速读：**DB 单条查询并不慢（p50≈3ms），慢的是"排队"——同会话发号行锁把每条消息事务串行化，
 > 加上 Prisma 连接池默认值偏小，在 1500~2000 msg/s 之间触发断崖式饱和。**
@@ -11,7 +11,7 @@
 
 ### 1.1 吞吐饱和曲线：断崖式，无中间态
 
-固定 100 连接、每连接消息速率(RATE)递增扫描（`26-9-14/data/tp_r10~r30.json`）：
+固定 100 连接、每连接消息速率(RATE)递增扫描（`26-9-14-纯Node性能基线/data/tp_r10~r30.json`）：
 
 | 目标吞吐 | 发送/ack | 失败率 | RTT p50 / p99 | 服务内处理 p50 / p99 |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@
 
 ### 1.3 查询侧的一个独立问题
 
-HTTP 压测（`26-9-14/data/http_bench.json`）：`GET /user/messages` 仅 **73 rps**、p50=268ms/p99=484ms。
+HTTP 压测（`26-9-14-纯Node性能基线/data/http_bench.json`）：`GET /user/messages` 仅 **73 rps**、p50=268ms/p99=484ms。
 EXPLAIN 显示 PG 端执行仅 20ms（5220 行，走索引），端到端却 268ms——差在**无 limit 全量返回 + 大响应体序列化/传输**（压测大会话已有 5220 条消息）。
 
 ---
@@ -216,7 +216,7 @@ colima 默认 PG 参数偏保守（`shared_buffers` 等）；独立环境按规�
 
 | 证据 | 出处 |
 |---|---|
-| 吞吐断崖曲线、失败率、RTT | `docs/监测设施/测试报告/26-9-14/data/tp_r10~r30.json`、`纯Node性能基线报告.html` §3.1 |
+| 吞吐断崖曲线、失败率、RTT | `docs/监测设施/测试报告/26-9-14-纯Node性能基线/data/tp_r10~r30.json`、`纯Node性能基线报告.html` §3.1 |
 | DB 查询时延健康（p50≈3ms） | `tp_*.json` 的 `dbDurationMs` 字段 |
 | 发号行锁代码 | `server/src/services/message.ts:42-47` |
 | 事务四语句 | `server/src/services/message.ts:30-75` |

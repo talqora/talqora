@@ -2,15 +2,18 @@ package api
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/our-chat/biz/internal/repo"
 	"github.com/our-chat/biz/internal/service"
-	"github.com/our-chat/biz/internal/store"
 )
+
+// friendSvc 好友域用例(见 internal/service/friend.go);handler 只做传输层的事。
+var friendSvc = service.NewFriendService(repo.NewFriendRepo())
 
 // mountFriendRoutes 挂载 /user 面的好友路由(friend.ts 全部端点)。
 func mountFriendRoutes(r *gin.Engine) {
@@ -23,155 +26,75 @@ func mountFriendRoutes(r *gin.Engine) {
 	g.PUT("/replyFriendReq", AuthenticateToken(), handleReplyFriendReq)
 }
 
-// handleGetFriendList 好友列表(friend.ts:10-50)。注意:错误路径无显式状态码 → 200。
+// pageOf 解析键集分页参数;limit=0 表示「全量」旧语义。
+func pageOf(c *gin.Context) repo.Page {
+	var p repo.Page
+	if v := c.Query("limit"); v != "" {
+		p.Limit, _ = strconv.Atoi(v)
+		if p.Limit > 200 {
+			p.Limit = 200
+		}
+	}
+	if v := c.Query("after"); v != "" {
+		p.After, _ = strconv.ParseInt(v, 10, 64)
+	}
+	return p
+}
+
+// handleGetFriendList 好友列表;带 limit 时按 friend_id 键集分页并返回 hasMore/nextAfter。
 func handleGetFriendList(c *gin.Context) {
 	id := c.Param("id")
 	if strconvFormatInt(CurrentUser(c).ID) != id {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权访问其他用户的好友列表"})
 		return
 	}
-	ctx := c.Request.Context()
-	// 可选分页:不传 limit = 旧行为(全量,兼容旧客户端);传了就按 friend_id 键集分页。
-	limit := 0
-	if v := c.Query("limit"); v != "" {
-		limit, _ = strconv.Atoi(v)
-		if limit <= 0 || limit > 200 {
-			limit = 200
-		}
-	}
-	after := int64(0)
-	if v := c.Query("after"); v != "" {
-		after, _ = strconv.ParseInt(v, 10, 64)
-	}
-	q := "SELECT friend_id, remark FROM friendships WHERE user_id = $1"
-	args := []any{id}
-	if after > 0 {
-		q += " AND friend_id > $2"
-		args = append(args, after)
-	}
-	q += " ORDER BY friend_id"
-	if limit > 0 {
-		q += " LIMIT " + strconv.Itoa(limit+1) // 多取 1 条判断 hasMore
-	}
-	rows, err := store.RO().Query(ctx, q, args...)
+	uid, _ := strconv.ParseInt(id, 10, 64)
+	p := pageOf(c)
+	res, err := friendSvc.ListFriends(c.Request.Context(), uid, p)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
 		return
 	}
-	defer rows.Close()
-	var friendIDs []int64
-	remarks := map[string]*string{}
-	for rows.Next() {
-		var fid int64
-		var remark *string
-		if err := rows.Scan(&fid, &remark); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
-			return
-		}
-		friendIDs = append(friendIDs, fid)
-		remarks[strconv.FormatInt(fid, 10)] = remark
+	ids := map[string]*string{}
+	infos := map[string]gin.H{}
+	for _, f := range res.Items {
+		key := strconvFormatInt(f.UserID)
+		ids[key] = f.Remark
+		infos[key] = gin.H{"username": f.Username, "avatar": f.Avatar, "gender": f.Gender}
 	}
-	if rows.Err() != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
-		return
+	data := gin.H{"friendId": ids, "friendInfo": infos}
+	if p.Limit > 0 {
+		data["hasMore"] = res.HasMore
+		data["nextAfter"] = res.Next
 	}
-
-	// 多取的那一条不进结果,只用来置 hasMore
-	hasMore := false
-	if limit > 0 && len(friendIDs) > limit {
-		friendIDs = friendIDs[:limit]
-		hasMore = true
-	}
-	nextAfter := int64(0)
-	if len(friendIDs) > 0 {
-		nextAfter = friendIDs[len(friendIDs)-1]
-	}
-
-	friendList := gin.H{"friendId": gin.H{}, "friendInfo": gin.H{}}
-	if len(friendIDs) > 0 {
-		urows, err := store.RO().Query(ctx,
-			"SELECT id, username, avatar, gender FROM users WHERE id = ANY($1::bigint[])", friendIDs)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
-			return
-		}
-		defer urows.Close()
-		friendIDMap := map[string]*string{}
-		infoMap := map[string]gin.H{}
-		for _, fid := range friendIDs {
-			friendIDMap[strconv.FormatInt(fid, 10)] = remarks[strconv.FormatInt(fid, 10)]
-		}
-		for urows.Next() {
-			var uid int64
-			var username string
-			var avatar, gender *string
-			if err := urows.Scan(&uid, &username, &avatar, &gender); err != nil {
-				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
-				return
-			}
-			infoMap[strconv.FormatInt(uid, 10)] = gin.H{"username": username, "avatar": avatar, "gender": gender}
-		}
-		friendList = gin.H{"friendId": friendIDMap, "friendInfo": infoMap}
-	}
-	if limit > 0 {
-		friendList["hasMore"] = hasMore
-		friendList["nextAfter"] = nextAfter
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": friendList})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
-// handleSearchUser 查询用户(friend.ts:53-94)。OR: id/phone/username 取第一条。
+// handleSearchUser 查询用户(id/手机号/用户名取第一条)并给出与我的关系。
 func handleSearchUser(c *gin.Context) {
 	keyword := c.Query("keyword")
-	_ = c.Query("userId") // 仅 Node 侧取(匹配后查关系);Go 侧身份以 token 为准但保留参数兼容
-	ctx := c.Request.Context()
-
-	var idKw any
-	if n, err := strconv.ParseInt(keyword, 10, 64); err == nil {
-		idKw = n
-	}
-	var (
-		matchedID      int64
-		matchedUsr     string
-		avatar, gender *string
-	)
-	err := store.RO().QueryRow(ctx, `
-		SELECT id, username, avatar, gender FROM users
-		WHERE ($1::bigint IS NOT NULL AND id = $1) OR phone = $2 OR username = $2
-		LIMIT 1`, idKw, keyword,
-	).Scan(&matchedID, &matchedUsr, &avatar, &gender)
+	_ = c.Query("userId") // 兼容旧参数,身份以 token 为准
+	u, isFriend, err := friendSvc.Search(c.Request.Context(), CurrentUser(c).ID, keyword)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "查询用户信息失败"})
 		return
 	}
-	matched := gin.H{"id": matchedID, "avatar": avatar, "username": matchedUsr, "gender": gender}
-
-	// 查询当前用户与目标的关系(以 token 身份为准)
-	user := CurrentUser(c)
-	var existingID int64
-	err = store.RO().QueryRow(ctx, `
-		SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2`,
-		user.ID, matchedID).Scan(&existingID)
-	relationExists := err == nil
-	if err != nil && !isNoRows(err) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "查询用户信息失败"})
-		return
-	}
-	if relationExists {
+	info := gin.H{"id": u.ID, "avatar": u.Avatar, "username": u.Username, "gender": u.Gender}
+	if isFriend {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "已经是好友",
-			"data":    gin.H{"exist": true, "isFriend": true, "friendInfo": matched},
+			"data":    gin.H{"exist": true, "isFriend": true, "friendInfo": info},
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    gin.H{"exist": true, "isFriend": false, "friendInfo": matched},
+		"data":    gin.H{"exist": true, "isFriend": false, "friendInfo": info},
 	})
 }
 
-// handleAddFriend 发起好友请求(friend.ts:97-140):双向写入 + 推 receiveFriendReq。
+// handleAddFriend 发起好友请求(双向写入 + 推送接收方)。
 func handleAddFriend(c *gin.Context) {
 	var body struct {
 		UserID   string `json:"userId"`
@@ -182,46 +105,20 @@ func handleAddFriend(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权代替其他用户发起好友请求"})
 		return
 	}
-	ctx := c.Request.Context()
-	friendID, _ := strconv.ParseInt(body.FriendID, 10, 64)
-	userID, _ := strconv.ParseInt(body.UserID, 10, 64)
-
-	if _, err := store.PG().Exec(ctx, `
-		INSERT INTO friendships (user_id, friend_id, status) VALUES
-			($1, $2, 'sent'), ($2, $1, 'pending')`,
-		userID, friendID); err != nil {
-		// 撞唯一约束等:与 Node createMany 异常一致,默认 200 信封(friend.ts:136-139)
+	fid, _ := strconv.ParseInt(body.FriendID, 10, 64)
+	uid, _ := strconv.ParseInt(body.UserID, 10, 64)
+	if err := friendSvc.AddFriend(c.Request.Context(), uid, fid); err != nil {
+		// 撞唯一约束等:与 Node createMany 异常一致,默认 200 信封
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "发起好友请求失败"})
 		return
 	}
-
-	// 推好友请求给接收方(best-effort,friend.ts:110-130)
-	var username string
-	var avatar *string
-	if err := store.RO().QueryRow(ctx,
-		"SELECT username, avatar FROM users WHERE id = $1", userID).Scan(&username, &avatar); err == nil {
-		now := nowISOString()
-		service.EmitToUser(ctx, friendID, "receiveFriendReq", gin.H{
-			"id":        0,
-			"userId":    friendID,
-			"friendId":  userID,
-			"status":    "pending",
-			"remark":    nil,
-			"createdAt": now,
-			"updatedAt": now,
-			"username":  username,
-			"avatar":    avatar,
-		})
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "发起好友请求成功",
-		"data":    gin.H{"isFriend": false, "friendId": friendID},
+		"success": true, "message": "发起好友请求成功",
+		"data": gin.H{"isFriend": false, "friendId": fid},
 	})
 }
 
-// handleUpdateRemark 更新备注(friend.ts:143-163,显式 500)。
+// handleUpdateRemark 更新备注(空串/全空白 → 清空)。
 func handleUpdateRemark(c *gin.Context) {
 	var body struct {
 		UserID   string `json:"userId"`
@@ -233,142 +130,49 @@ func handleUpdateRemark(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权修改其他用户的好友备注"})
 		return
 	}
-	var remark any
-	if trimmed := trimSpace(body.Remark); trimmed != "" {
-		remark = trimmed
-	} else {
-		remark = nil
+	fid, _ := strconv.ParseInt(body.FriendID, 10, 64)
+	uid, _ := strconv.ParseInt(body.UserID, 10, 64)
+	var remark *string
+	if trimmed := strings.TrimSpace(body.Remark); trimmed != "" {
+		remark = &trimmed
 	}
-	if _, err := store.PG().Exec(c.Request.Context(), `
-		UPDATE friendships SET remark = $3 WHERE user_id = $1 AND friend_id = $2`,
-		body.UserID, body.FriendID, remark); err != nil {
+	if err := friendSvc.SetRemark(c.Request.Context(), uid, fid, remark); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "更新好友备注失败"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// handleGetFriendReqs 收到的好友请求(friend.ts:166-196)。
+// handleGetFriendReqs 收到的好友请求;带 limit 时按 id 倒序键集分页(hasMore/nextBefore)。
 func handleGetFriendReqs(c *gin.Context) {
 	userID := c.Query("userId")
 	if strconvFormatInt(CurrentUser(c).ID) != userID {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权访问其他用户的好友请求"})
 		return
 	}
-	ctx := c.Request.Context()
-	// 可选分页:不传 limit = 旧行为(全量);传了就按 id 倒序键集分页(最新的在前)。
-	limit := 0
-	if v := c.Query("limit"); v != "" {
-		limit, _ = strconv.Atoi(v)
-		if limit <= 0 || limit > 200 {
-			limit = 200
-		}
-	}
-	before := int64(0)
-	if v := c.Query("before"); v != "" {
-		before, _ = strconv.ParseInt(v, 10, 64)
-	}
-	q := `SELECT id, user_id, friend_id, status, remark, created_at, updated_at
-		FROM friendships WHERE user_id = $1`
-	args := []any{userID}
-	if before > 0 {
-		q += " AND id < $2"
-		args = append(args, before)
-	}
-	q += " ORDER BY id DESC"
-	if limit > 0 {
-		q += " LIMIT " + strconv.Itoa(limit+1) // 多取 1 条判断 hasMore
-	}
-	rows, err := store.RO().Query(ctx, q, args...)
+	uid, _ := strconv.ParseInt(userID, 10, 64)
+	p := pageOf(c)
+	res, err := friendSvc.ListReqs(c.Request.Context(), uid, p)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
 		return
 	}
-	defer rows.Close()
-	type rowT struct {
-		ID        int64
-		UserID    int64
-		FriendID  int64
-		Status    string
-		Remark    *string
-		CreatedAt service.JSONTime
-		UpdatedAt service.JSONTime
-	}
-	var rowsList []rowT
-	requesterIDs := []int64{}
-	for rows.Next() {
-		var r rowT
-		if err := rows.Scan(&r.ID, &r.UserID, &r.FriendID, &r.Status, &r.Remark,
-			&r.CreatedAt.Time, &r.UpdatedAt.Time); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
-			return
-		}
-		rowsList = append(rowsList, r)
-		requesterIDs = append(requesterIDs, r.FriendID)
-	}
-
-	// 多取的那一条不进结果,只用来置 hasMore
-	hasMore := false
-	if limit > 0 && len(rowsList) > limit {
-		rowsList = rowsList[:limit]
-		hasMore = true
-	}
-	nextBefore := int64(0)
-	if len(rowsList) > 0 {
-		nextBefore = rowsList[len(rowsList)-1].ID
-	}
-
-	requesterMap := map[string]gin.H{}
-	if len(requesterIDs) > 0 {
-		urows, err := store.RO().Query(ctx,
-			"SELECT id, username, avatar FROM users WHERE id = ANY($1::bigint[])", requesterIDs)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
-			return
-		}
-		defer urows.Close()
-		for urows.Next() {
-			var uid int64
-			var username string
-			var avatar *string
-			if err := urows.Scan(&uid, &username, &avatar); err != nil {
-				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
-				return
-			}
-			requesterMap[strconv.FormatInt(uid, 10)] = gin.H{"username": username, "avatar": avatar}
+	out := gin.H{}
+	for _, r := range res.Items {
+		out[strconvFormatInt(r.FriendID)] = gin.H{
+			"id": r.ID, "userId": r.UserID, "friendId": r.FriendID, "status": r.Status,
+			"remark": r.Remark, "createdAt": r.CreatedAt, "updatedAt": r.UpdatedAt,
+			"username": r.Username, "avatar": r.Avatar,
 		}
 	}
-
-	result := gin.H{}
-	for _, r := range rowsList {
-		key := strconv.FormatInt(r.FriendID, 10)
-		u := requesterMap[key]
-		var username any
-		var avatar any
-		if u != nil {
-			username = u["username"]
-			avatar = u["avatar"]
-		}
-		result[key] = gin.H{
-			"id":        r.ID,
-			"userId":    r.UserID,
-			"friendId":  r.FriendID,
-			"status":    r.Status,
-			"remark":    r.Remark,
-			"createdAt": r.CreatedAt,
-			"updatedAt": r.UpdatedAt,
-			"username":  username,
-			"avatar":    avatar,
-		}
+	if p.Limit > 0 {
+		out["hasMore"] = res.HasMore
+		out["nextBefore"] = res.Next
 	}
-	if limit > 0 {
-		result["hasMore"] = hasMore
-		result["nextBefore"] = nextBefore
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
 }
 
-// handleReplyFriendReq 回复好友请求(friend.ts:199-261)。
+// handleReplyFriendReq 同意/拒绝好友请求(双向改状态 + 通知 + 自动招呼语)。
 func handleReplyFriendReq(c *gin.Context) {
 	var body struct {
 		UserID   string `json:"userId"`
@@ -376,83 +180,22 @@ func handleReplyFriendReq(c *gin.Context) {
 		Status   string `json:"status"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	user := CurrentUser(c)
-	if strconvFormatInt(user.ID) != body.UserID {
+	if strconvFormatInt(CurrentUser(c).ID) != body.UserID {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "无权代替其他用户回复好友请求"})
 		return
 	}
-	ctx := c.Request.Context()
-	userID, _ := strconv.ParseInt(body.UserID, 10, 64)
-	friendID, _ := strconv.ParseInt(body.FriendID, 10, 64)
-
-	if body.Status == "accepted" {
-		convID := singleConvID(userID, friendID)
-		// 会话已存在则跳过(friend.ts:207-210,P2002 忽略语义)
-		if _, err := store.PG().Exec(ctx,
-			"INSERT INTO conversations (id, conv_type) VALUES ($1, 'single') ON CONFLICT (id) DO NOTHING",
-			convID); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "回复好友请求失败"})
-			return
-		}
-	}
-	// 双向状态更新
-	if _, err := store.PG().Exec(ctx, `
-		UPDATE friendships SET status = $3 WHERE user_id = $1 AND friend_id = $2`,
-		userID, friendID, body.Status); err != nil {
+	uid, _ := strconv.ParseInt(body.UserID, 10, 64)
+	fid, _ := strconv.ParseInt(body.FriendID, 10, 64)
+	if err := friendSvc.Reply(c.Request.Context(), uid, fid, body.Status); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "回复好友请求失败"})
 		return
 	}
-	if _, err := store.PG().Exec(ctx, `
-		UPDATE friendships SET status = $3 WHERE user_id = $1 AND friend_id = $2`,
-		friendID, userID, body.Status); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "回复好友请求失败"})
-		return
-	}
-
-	// 副作用(best-effort):通知双方 + 微信式自动消息(friend.ts:222-254)
-	if body.Status == "accepted" {
-		convID := singleConvID(userID, friendID)
-		service.EmitToUser(ctx, userID, "friendListChanged", gin.H{"peerId": friendID})
-		service.EmitToUser(ctx, friendID, "friendListChanged", gin.H{"peerId": userID})
-
-		var requesterName string
-		_ = store.RO().QueryRow(ctx,
-			"SELECT username FROM users WHERE id = $1", friendID).Scan(&requesterName)
-
-		if _, err := service.PersistAndBroadcastMessage(ctx, service.PersistMessageInput{
-			ConversationID: convID,
-			SenderID:       friendID,
-			ClientMsgID:    randomUUID(),
-			Content:        "我是" + requesterName,
-			Type:           "text",
-		}); err != nil {
-			slogWarn("好友通过后自动消息失败", err)
-		}
-		if _, err := service.PersistAndBroadcastMessage(ctx, service.PersistMessageInput{
-			ConversationID: convID,
-			SenderID:       userID,
-			ClientMsgID:    randomUUID(),
-			Content:        "我通过了你的朋友验证请求，现在我们可以开始聊天了",
-			Type:           "text",
-		}); err != nil {
-			slogWarn("好友通过后自动消息失败", err)
-		}
-	} else {
-		service.EmitToUser(ctx, friendID, "friendListChanged", gin.H{"peerId": userID})
-	}
-
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "回复好友请求成功"})
 }
 
-// singleConvID 单聊会话 id:single_<min>_<max>(friend.ts:206 同构)。
-func singleConvID(a, b int64) string {
-	if a > b {
-		a, b = b, a
-	}
-	return "single_" + strconv.FormatInt(a, 10) + "_" + strconv.FormatInt(b, 10)
-}
+// singleConvID / randomUUID 保留在本包:已有单测直接引用它们。
+func singleConvID(a, b int64) string { return service.SingleConvID(a, b) }
 
-// randomUUID 生成 UUIDv4(clientMsgId 幂等键,与 Node randomUUID 对齐)。
 func randomUUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -460,6 +203,15 @@ func randomUUID() string {
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
-	s := hex.EncodeToString(b)
-	return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32]
+	return strings.ToLower(
+		hex4(b[0:4]) + "-" + hex4(b[4:6]) + "-" + hex4(b[6:8]) + "-" + hex4(b[8:10]) + "-" + hex4(b[10:16]))
+}
+
+func hex4(b []byte) string {
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, 0, len(b)*2)
+	for _, v := range b {
+		out = append(out, hexdigits[v>>4], hexdigits[v&0x0f])
+	}
+	return string(out)
 }

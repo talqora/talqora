@@ -5,7 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/our-chat/biz/internal/store"
+	"errors"
+
+	"github.com/our-chat/biz/internal/service"
 )
 
 // mountUserRoutes 挂载 /user 面的用户资料路由(user.ts:仅 profile/update 两端点)。
@@ -13,18 +15,6 @@ func mountUserRoutes(r *gin.Engine) {
 	g := r.Group("/user")
 	g.GET("/profile", AuthenticateToken(), handleProfile)
 	g.POST("/update", AuthenticateToken(), handleUserUpdate)
-}
-
-// allowedFields 白名单(user.ts:11-20,含 last_seen→lastSeen 双写兼容)。
-var allowedFields = map[string]string{
-	"email":     "email",
-	"phone":     "phone",
-	"nickname":  "nickname",
-	"avatar":    "avatar",
-	"bio":       "bio",
-	"gender":    "gender",
-	"last_seen": "last_seen",
-	"lastSeen":  "last_seen",
 }
 
 // handleProfile 当前登录用户资料(user.ts:24-26,直接回中间件挂上的现值)。
@@ -52,36 +42,11 @@ func handleUserUpdate(c *gin.Context) {
 		return
 	}
 
-	updates := map[string]any{}
-	for k, v := range body {
-		if k == "id" {
-			continue
+	if err := service.UpdateUserProfile(c.Request.Context(), user.ID, body); err != nil {
+		if errors.Is(err, service.ErrNoFields) {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "没有可更新的字段"})
+			return
 		}
-		if col, ok := allowedFields[k]; ok {
-			updates[col] = v
-		}
-	}
-	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "没有可更新的字段"})
-		return
-	}
-
-	// 逐字段生成 SET 子句(列名来自白名单,安全)
-	sql := "UPDATE users SET "
-	args := []any{}
-	i := 1
-	for k, v := range updates {
-		if i > 1 {
-			sql += ", "
-		}
-		sql += k + " = $" + itoa(i)
-		args = append(args, v)
-		i++
-	}
-	sql += " WHERE id = $" + itoa(i)
-	args = append(args, user.ID)
-
-	if _, err := store.PG().Exec(c.Request.Context(), sql, args...); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "更新失败"})
 		return
 	}

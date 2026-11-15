@@ -23,7 +23,7 @@ import (
 	"github.com/our-chat/biz/internal/oauth"
 	"github.com/our-chat/biz/internal/realtime"
 	"github.com/our-chat/biz/internal/service"
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 func main() {
@@ -43,21 +43,21 @@ func run(logger *slog.Logger) error {
 	ctx := context.Background()
 
 	// 数据层三件套:PG / Redis / MinIO。任一失败 fail-fast。
-	pool, err := store.NewPG(ctx, cfg.DatabaseURL)
+	pool, err := db.NewPG(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 	// 只读副本(未配置回退写库);副本池独立生命周期,关闭独立于写池。
-	if roPool, rerr := store.NewRO(ctx, cfg.ReadOnlyDatabaseURL); rerr != nil {
+	if roPool, rerr := db.NewRO(ctx, cfg.ReadOnlyDatabaseURL); rerr != nil {
 		return rerr
 	} else if roPool != pool {
 		defer roPool.Close()
 	}
-	if _, err := store.NewRedis(ctx, cfg.RedisURL); err != nil {
+	if _, err := db.NewRedis(ctx, cfg.RedisURL); err != nil {
 		return err
 	}
-	if _, err := store.NewS3(cfg.S3); err != nil {
+	if _, err := db.NewS3(cfg.S3); err != nil {
 		return err
 	}
 	logger.Info("数据层连接就绪", "pg", cfg.DatabaseURL, "redis", cfg.RedisURL)
@@ -136,7 +136,7 @@ func run(logger *slog.Logger) error {
 		edgeSrv.GracefulStop()
 	}
 	realtime.FinalCheckpoint(context.Background(), logger)
-	if rdb := store.Redis(); rdb != nil {
+	if rdb := db.Redis(); rdb != nil {
 		_ = rdb.Close()
 	}
 	logger.Info("已优雅关闭,退出")

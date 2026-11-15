@@ -3,7 +3,7 @@
 # 数据落 docs/监测设施/测试报告/<OUT_SUBDIR>/data/(node 工具读 OUT_SUBDIR env,必须 export)。
 set -u
 cd "$(dirname "$0")/../../perf"
-export OUT_SUBDIR="${OUT_SUBDIR:-26-9-18}"
+export OUT_SUBDIR="${OUT_SUBDIR:-26-9-18-第一批优化验收}"
 DATA_DIR="../docs/监测设施/测试报告/${OUT_SUBDIR}/data"
 
 echo "=== S6 连接爬坡:START=2000 STEP=2000 MAX=10000 HOLD_MS=5000 ==="
@@ -18,7 +18,7 @@ for r in 1 2 3; do
 done
 OUT_SUBDIR="$OUT_SUBDIR" node -e '
   const fs = require("fs");
-  const sub = process.env.OUT_SUBDIR || "26-9-16-gobiz";
+  const sub = process.env.OUT_SUBDIR || "26-9-17-业务层Go重写与发号INCR";
   const key = "s7_storm_gateway";
   const rounds = [];
   for (let r = 1; r <= 3; r++) {
@@ -44,7 +44,7 @@ for r in 1 2 3; do
 done
 OUT_SUBDIR="$OUT_SUBDIR" node -e '
   const fs = require("fs");
-  const sub = process.env.OUT_SUBDIR || "26-9-16-gobiz";
+  const sub = process.env.OUT_SUBDIR || "26-9-17-业务层Go重写与发号INCR";
   const key = "fanout_bench_gateway";
   const rounds = [];
   for (let r = 1; r <= 3; r++) {

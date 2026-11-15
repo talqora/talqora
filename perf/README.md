@@ -9,7 +9,7 @@
 
 协议严格对齐 `web/src/ws/wsClient.ts`：信封 `{type, data}`、`message.send` → `message.ack` 按 `clientMsgId` 匹配计 RTT、5s 超时同键重发上限 3 次、25s 心跳续约 presence、指数退避断线重连。**不是裸发帧。**
 
-> 历史说明：Node + Socket.io 业务层已于 2026-09 下线，对应的 `harness.mjs` / `node-run.mjs` / `ramp-probe.mjs` / `storm-reconnect.mjs` / `fanout-bench.mjs` / `err-probe.mjs` / `gen-node-report.mjs` / `gen-report.mjs` / `artillery-socketio.yml` 已删除。历史数据与报告仍归档在 `docs/监测设施/测试报告/26-9-14/`，但**不再参与任何新测与分析口径**。
+> 历史说明：Node + Socket.io 业务层已于 2026-09 下线，对应的 `harness.mjs` / `node-run.mjs` / `ramp-probe.mjs` / `storm-reconnect.mjs` / `fanout-bench.mjs` / `err-probe.mjs` / `gen-node-report.mjs` / `gen-report.mjs` / `artillery-socketio.yml` 已删除。历史数据与报告仍归档在 `docs/监测设施/测试报告/26-9-14-纯Node性能基线/`，但**不再参与任何新测与分析口径**。
 
 ## 前置条件
 

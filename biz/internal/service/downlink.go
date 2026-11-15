@@ -6,7 +6,7 @@ import (
 
 	edgev1 "github.com/our-chat/biz/internal/contracts/gen/ourchat/edge/v1"
 	"github.com/our-chat/biz/internal/metrics"
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // downlink.go:下行投递双通道(V3 §4.3 定向下行落地):
@@ -85,7 +85,7 @@ func PublishDownlink(ctx context.Context, userID int64, typ string, data any, op
 	if err != nil {
 		return err
 	}
-	return store.Redis().Publish(ctx, DownlinkChannel, raw).Err()
+	return db.Redis().Publish(ctx, DownlinkChannel, raw).Err()
 }
 
 // FanoutDownlink 把同一帧批量投给多个用户(群扇出/单聊双方)。
@@ -116,7 +116,7 @@ func FanoutDownlink(ctx context.Context, userIDs []int64, typ string, data any) 
 	}
 	metrics.DownlinkFallbackTotal.Add(float64(len(fallback)))
 
-	rdb := store.Redis()
+	rdb := db.Redis()
 	pipe := rdb.Pipeline()
 	for _, uid := range fallback {
 		payload := downlinkPayload{UserID: uid, Frame: DownlinkFrame{Type: typ, Data: data}}

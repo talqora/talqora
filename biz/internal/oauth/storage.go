@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // storage.go:oauth_codes / oauth_refresh_tokens CRUD,核心是 RT rotation + reuse 检测
@@ -72,7 +72,7 @@ func CreateCode(ctx context.Context, input struct {
 }) (string, error) {
 	code := generateOpaqueID()
 	expiresAt := time.Now().Add(time.Duration(input.TTLSec) * time.Second)
-	_, err := store.PG().Exec(ctx, `
+	_, err := db.PG().Exec(ctx, `
 		INSERT INTO oauth_codes
 			(code, client_id, user_id, redirect_uri, code_challenge, code_challenge_method, scope, nonce, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -83,7 +83,7 @@ func CreateCode(ctx context.Context, input struct {
 
 // ConsumeCode 原子「取出 + 标 used」(storage.ts:71-79):WHERE used=false 防并发重放。
 func ConsumeCode(ctx context.Context, code string) (*OAuthCode, error) {
-	tag, err := store.PG().Exec(ctx,
+	tag, err := db.PG().Exec(ctx,
 		"UPDATE oauth_codes SET used = true WHERE code = $1 AND used = false", code)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func ConsumeCode(ctx context.Context, code string) (*OAuthCode, error) {
 		return nil, nil
 	}
 	var c OAuthCode
-	err = store.PG().QueryRow(ctx, `
+	err = db.PG().QueryRow(ctx, `
 		SELECT code, client_id, user_id, redirect_uri, code_challenge, code_challenge_method,
 			scope, nonce, expires_at, used
 		FROM oauth_codes WHERE code = $1`, code,
@@ -107,7 +107,7 @@ func ConsumeCode(ctx context.Context, code string) (*OAuthCode, error) {
 // FindRefreshToken 按 jti 查 RT(storage.ts:99-102)。
 func FindRefreshToken(ctx context.Context, jti string) (*OAuthRefreshToken, error) {
 	var rt OAuthRefreshToken
-	err := store.PG().QueryRow(ctx, `
+	err := db.PG().QueryRow(ctx, `
 		SELECT jti, family_id, client_id, user_id, scope, issued_at, expires_at,
 			revoked, rotated_to, rotated_at, revoke_reason
 		FROM oauth_refresh_tokens WHERE jti = $1`, jti,
@@ -121,7 +121,7 @@ func FindRefreshToken(ctx context.Context, jti string) (*OAuthRefreshToken, erro
 
 // InsertRefreshToken 登记 RT(storage.ts:104-122)。
 func InsertRefreshToken(ctx context.Context, jti, familyID, clientID string, userID int64, scope string, expiresAt time.Time) error {
-	_, err := store.PG().Exec(ctx, `
+	_, err := db.PG().Exec(ctx, `
 		INSERT INTO oauth_refresh_tokens (jti, family_id, client_id, user_id, scope, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
 		jti, familyID, clientID, userID, scope, expiresAt)
@@ -131,7 +131,7 @@ func InsertRefreshToken(ctx context.Context, jti, familyID, clientID string, use
 // RotateRefreshToken 原子 rotation(storage.ts:126-135):
 // WHERE rotatedTo IS NULL AND revoked=false,影响 0 行 = 并发被抢 = 重用攻击。
 func RotateRefreshToken(ctx context.Context, oldJti, newJti string) (bool, error) {
-	tag, err := store.PG().Exec(ctx, `
+	tag, err := db.PG().Exec(ctx, `
 		UPDATE oauth_refresh_tokens SET rotated_to = $2, rotated_at = now(), revoke_reason = 'rotation'
 		WHERE jti = $1 AND rotated_to IS NULL AND revoked = false`,
 		oldJti, newJti)
@@ -143,7 +143,7 @@ func RotateRefreshToken(ctx context.Context, oldJti, newJti string) (bool, error
 
 // InvalidateFamily 家族撤销(storage.ts:137-143)。
 func InvalidateFamily(ctx context.Context, familyID, reason string) (int, error) {
-	tag, err := store.PG().Exec(ctx, `
+	tag, err := db.PG().Exec(ctx, `
 		UPDATE oauth_refresh_tokens SET revoked = true, revoke_reason = $2
 		WHERE family_id = $1 AND revoked = false`, familyID, reason)
 	return int(tag.RowsAffected()), err
@@ -151,7 +151,7 @@ func InvalidateFamily(ctx context.Context, familyID, reason string) (int, error)
 
 // RevokeRefreshTokenByJti 按 jti 撤销(storage.ts:145-154)。
 func RevokeRefreshTokenByJti(ctx context.Context, jti, reason string) (bool, error) {
-	tag, err := store.PG().Exec(ctx, `
+	tag, err := db.PG().Exec(ctx, `
 		UPDATE oauth_refresh_tokens SET revoked = true, revoke_reason = $2
 		WHERE jti = $1 AND revoked = false`, jti, reason)
 	return tag.RowsAffected() == 1, err
@@ -161,7 +161,7 @@ func RevokeRefreshTokenByJti(ctx context.Context, jti, reason string) (bool, err
 func CleanupExpiredCodes(ctx context.Context) (int, error) {
 	now := time.Now()
 	oneDayAgo := now.Add(-24 * time.Hour)
-	tag, err := store.PG().Exec(ctx, `
+	tag, err := db.PG().Exec(ctx, `
 		DELETE FROM oauth_codes
 		WHERE (used = false AND expires_at < $1) OR (used = true AND expires_at < $2)`,
 		now, oneDayAgo)
@@ -172,7 +172,7 @@ func CleanupExpiredCodes(ctx context.Context) (int, error) {
 func CleanupExpiredRefreshTokens(ctx context.Context) (int, error) {
 	now := time.Now()
 	sevenDaysAgo := now.Add(-7 * 24 * time.Hour)
-	tag, err := store.PG().Exec(ctx, `
+	tag, err := db.PG().Exec(ctx, `
 		DELETE FROM oauth_refresh_tokens
 		WHERE (revoked = false AND expires_at < $1) OR (revoked = true AND issued_at < $2)`,
 		now, sevenDaysAgo)

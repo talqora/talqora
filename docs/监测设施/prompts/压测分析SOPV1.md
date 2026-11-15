@@ -31,7 +31,7 @@ web/压测客户端 → gateway(Go, :8090, /ws + /healthz + /metrics)
   - gateway 每连接 readLoop 串行等待上行回包（`conn.go:79-85`）→ 高负载下客户端 RTT 排队恶化（25-9-16 实测 tp_r25 RTT p99=2802ms 而单次上行仅 98ms）。
   - gateway 错误帧不含 clientMsgId（`conn.go:149`）→ 客户端无法收敛 pending，只能等超时重发。
   - server 幂等只覆盖"先落库后重发"，重发撞在途插入会触发 unique constraint 500（竞态）。
-- 演进方向参考：`docs/监测设施/测试报告/26-9-16/连接层业务层通信架构演进方案-RPC改造.md`（gRPC 双向流改造方案，若已完成改造需重新核对链路再测）。
+- 演进方向参考：`docs/监测设施/测试报告/26-9-16-Go网关HTTP接入/连接层业务层通信架构演进方案-RPC改造.md`（gRPC 双向流改造方案，若已完成改造需重新核对链路再测）。
 
 ## 三、客户端协议契约（压测客户端必须实现的语义）
 
@@ -81,7 +81,7 @@ cd perf && npm install && node gw-probe.mjs   # 冒烟:uplink→downlink→ack �
 | 群扇出 | 100 成员在线,1 人发 20 条 ×3 | `node gw-fanout-bench.mjs 100 20 9000002` |
 | HTTP API 层 | 7 接口并发 20 × 10s(直连 server) | `node http-bench.mjs 20 10` 后拷贝归档 |
 
-- 若对比基线：把 `26-9-14/data/*.json` 复制改名为 `*_socketio.json` 放入当期 data 目录（加 source 字段标注来源）。
+- 若对比基线：把 `26-9-14-纯Node性能基线/data/*.json` 复制改名为 `*_socketio.json` 放入当期 data 目录（加 source 字段标注来源）。
 - 资源采样：RSS 用 `ps`（macOS 上 Go 进程无 process_cpu_seconds_total，CPU 用 `ps -o time`）；服务内直方图事后用 Prometheus `histogram_quantile` 查窗口分位。
 - 可选：大连接规模（2~5 万）探 gateway 上限（`GATEWAY_MAX_CONNS=50000`，可调 env）。
 
@@ -90,7 +90,7 @@ cd perf && npm install && node gw-probe.mjs   # 冒烟:uplink→downlink→ack �
 REPORT_SUBDIR=<日期> node perf/gen-report.mjs    # 生成 A/B HTML(深色兼容,自检三样)
 ```
 - md 报告放同期目录，至少含：逐场景 A/B 表（吞吐/RTT 分位/错误率/每连接内存/CPU）、归因分析（用 eventloop lag / GC 时长 / 服务内直方图支撑，不得拍脑袋）、单机极限、与基线结论逐条对照、明确回答"快/省多少、拐点在哪、是否达预期"。
-- **归档结构**（每期必遵守）：`docs/监测设施/测试报告/<日期>/` 内放 `data/*.json`（含原始轮次 `*_rN.json`）、md 报告、`性能对比报告.html`。工具 env：输出数据用 `OUT_SUBDIR`，生成报告用 `REPORT_SUBDIR`（默认均为 `26-9-16`，新一期记得显式指定）。
+- **归档结构**（每期必遵守）：`docs/监测设施/测试报告/<日期>/` 内放 `data/*.json`（含原始轮次 `*_rN.json`）、md 报告、`性能对比报告.html`。工具 env：输出数据用 `OUT_SUBDIR`，生成报告用 `REPORT_SUBDIR`（默认均为历史期，新一期记得显式指定）。
 - 数据文件命名约定：`<key>_socketio.json`（基线）/ `<key>_gateway.json`（新测）；key ∈ {s0..s5, tp_r10..r30, s6_ramp, s7_storm, fanout, http}。
 
 ## 五、已知坑（全部实测积累，务必避开）
@@ -139,4 +139,4 @@ lsof -nP -iTCP:<port> -sTCP:LISTEN -t; ps -o rss=,time= -p <pid>
 
 - **26-9-14 纯 Node(socket.io)**：吞吐拐点 1500~2000 msg/s（DB 发号行锁）；≤1500 msg/s 零错误（S1 RTT p50=33/p99=57ms）；10K 连接 RSS 332MB；扇出 span p99=3ms；惊群 100% 成功。
 - **26-9-16 gateway 接入后**：≤600 msg/s 与基线同档（多一跳 +5~47ms p99）；≈1000 msg/s 起 dial 耗尽（12.8% 失败）；过载时"排队而非拒绝"（tp_r25 0 错误但 RTT p99=2.8s）；连接层更优（突发建连 2.3×、惊群重连 1.7×、10K 连接 gateway RSS 315.5MB/eventloop 11ms）。
-- 详细数据：`docs/监测设施/测试报告/26-9-14/` 与 `26-9-16/`（含报告与全量 JSON）。
+- 详细数据：`docs/监测设施/测试报告/26-9-14-纯Node性能基线/` 与 `26-9-16-Go网关HTTP接入/`（含报告与全量 JSON）。

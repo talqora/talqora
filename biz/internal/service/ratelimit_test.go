@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // TestCheckConvRateLimit 窗口内计数超限拒绝,窗口滑动后恢复(经 TTL 过期近似)。
 func TestCheckConvRateLimit(t *testing.T) {
 	rdb := newTestRedis(t)
-	store.SetRedisForTest(rdb)
+	db.SetRedisForTest(rdb)
 	SetConvRateLimit(5, time.Second)
 	t.Cleanup(func() { SetConvRateLimit(0, 0) })
 

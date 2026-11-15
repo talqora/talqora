@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // call.go:通话会话权威状态(Redis),语义对齐 server/src/services/callSession.ts。
@@ -46,7 +46,7 @@ func callUserKey(userID int64) string     { return "call:user:" + strconv.Format
 
 // GetCallSession 读取会话,无则 nil(callSession.ts:33-36)。
 func GetCallSession(ctx context.Context, callID string) (*CallSession, error) {
-	raw, err := store.Redis().Get(ctx, callSessionKey(callID)).Result()
+	raw, err := db.Redis().Get(ctx, callSessionKey(callID)).Result()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -65,12 +65,12 @@ func putCallSession(ctx context.Context, s *CallSession) error {
 	if err != nil {
 		return err
 	}
-	return store.Redis().Set(ctx, callSessionKey(s.CallID), raw, SessionTTL*time.Second).Err()
+	return db.Redis().Set(ctx, callSessionKey(s.CallID), raw, SessionTTL*time.Second).Err()
 }
 
 // GetUserCall 用户当前通话索引,无则空(callSession.ts:43-45)。
 func GetUserCall(ctx context.Context, userID int64) (string, error) {
-	v, err := store.Redis().Get(ctx, callUserKey(userID)).Result()
+	v, err := db.Redis().Get(ctx, callUserKey(userID)).Result()
 	if err == redis.Nil {
 		return "", nil
 	}
@@ -97,7 +97,7 @@ func TryCreateSession(ctx context.Context, s *CallSession) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	res, err := tryCreateLua.Run(ctx, store.Redis(),
+	res, err := tryCreateLua.Run(ctx, db.Redis(),
 		[]string{callUserKey(s.CalleeID), callSessionKey(s.CallID), callUserKey(s.CallerID)},
 		s.CallID, raw, SessionTTL).Int()
 	if err != nil {
@@ -143,7 +143,7 @@ func MarkRejoined(ctx context.Context, callID string, side CallSide, device stri
 	if err := putCallSession(ctx, s); err != nil {
 		return nil, err
 	}
-	rdb := store.Redis()
+	rdb := db.Redis()
 	if err := rdb.Expire(ctx, callUserKey(s.CallerID), SessionTTL*time.Second).Err(); err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func ClearSession(ctx context.Context, callID string) (*CallSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	rdb := store.Redis()
+	rdb := db.Redis()
 	if s != nil {
 		if err := rdb.Del(ctx, callUserKey(s.CallerID)).Err(); err != nil {
 			return nil, err

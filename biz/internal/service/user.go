@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // FullUser users 表全量字段(Prisma User 对齐;BigInt→int64 JSON 输出 number)。
@@ -48,7 +48,7 @@ func (u *FullUser) WithoutPassword(token string) map[string]any {
 // FindUserByUsername 按 username 查全量用户(login.ts:25)。不存在返回 nil。
 func FindUserByUsername(ctx context.Context, username string) (*FullUser, error) {
 	var u FullUser
-	err := store.RO().QueryRow(ctx, `
+	err := db.RO().QueryRow(ctx, `
 		SELECT id, username, email, phone, password, nickname, avatar, bio, gender, status, last_seen, created_at, updated_at
 		FROM users WHERE username = $1`, username,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.Phone, &u.Password, &u.Nickname, &u.Avatar,

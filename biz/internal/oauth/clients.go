@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // clients.go:oauth_clients 查询 + client_secret 校验(对齐 server/src/oauth/clients.ts)。
@@ -31,7 +31,7 @@ func FindClient(ctx context.Context, clientID string) (*OAuthClient, error) {
 	var c OAuthClient
 	var secretHash *string
 	var redirectRaw, scopesRaw, grantsRaw []byte
-	err := store.RO().QueryRow(ctx, `
+	err := db.RO().QueryRow(ctx, `
 		SELECT client_id, client_name, client_type, client_secret_hash, redirect_uris,
 			allowed_scopes, allowed_grant_types, token_lifetime_sec, refresh_lifetime_sec,
 			require_pkce, disabled

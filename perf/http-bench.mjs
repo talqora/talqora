@@ -4,7 +4,7 @@
 // 数据落 docs/监测设施/测试报告/<OUT_SUBDIR>/data/http_bench.json。
 //
 // 用法:OUT_SUBDIR=<日期> node http-bench.mjs [CONCURRENCY=20] [DURATION=10]
-//   未指定 OUT_SUBDIR 时回落 26-9-14(仅兼容历史脚本);新一期必须显式指定,
+//   未指定 OUT_SUBDIR 时回落 26-9-14-纯Node性能基线(仅兼容历史脚本);新一期必须显式指定,
 //   否则数据会静默写进旧日期目录、污染归档。
 import { execSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT_SUBDIR = process.env.OUT_SUBDIR || '26-9-14';
+const OUT_SUBDIR = process.env.OUT_SUBDIR || '26-9-14-纯Node性能基线';
 const OUT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告', OUT_SUBDIR, 'data');
 const BASE = process.env.BASE || 'http://localhost:3007';
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '20', 10);

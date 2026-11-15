@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // seq.go:会话内 seq 发号(V3 已定稿:Redis INCR 替代 DB 行锁)。
@@ -47,7 +47,7 @@ func idemKey(convID string, senderID int64, clientMsgID string) string {
 
 // NextSeq 取会话下一个 seq(Redis INCR;键缺失时从 PG 装载;Redis 故障降级 DB 行锁)。
 func NextSeq(ctx context.Context, convID string) (int64, error) {
-	return nextSeq(ctx, store.Redis(), convID,
+	return nextSeq(ctx, db.Redis(), convID,
 		func(ctx context.Context) (int64, error) { return loadNextSeqFromPG(ctx, convID) },
 		func(ctx context.Context) (int64, error) { return bumpSeqDB(ctx, convID) },
 	)
@@ -129,7 +129,7 @@ func loadNextSeqFromPG(ctx context.Context, convID string) (int64, error) {
 	// 新发消息 seq 会与已入库消息重叠;取 DB 实际最大值保证恢复后严格单调。
 	// max(seq) 走 (conversation_id, seq) 索引,装载仅在键缺失时发生,成本可忽略。
 	var next int64
-	err := store.PG().QueryRow(ctx,
+	err := db.PG().QueryRow(ctx,
 		`SELECT GREATEST(c.next_seq, COALESCE((SELECT max(seq) FROM messages WHERE conversation_id = $1), 0))
 		 FROM conversations c WHERE c.id = $1`, convID).Scan(&next)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -141,7 +141,7 @@ func loadNextSeqFromPG(ctx context.Context, convID string) (int64, error) {
 // bumpSeqDB DB 行锁发号(降级路径,与 Node message.ts:42-47 同语义)。
 func bumpSeqDB(ctx context.Context, convID string) (int64, error) {
 	var next int64
-	err := store.PG().QueryRow(ctx,
+	err := db.PG().QueryRow(ctx,
 		"UPDATE conversations SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq",
 		convID).Scan(&next)
 	return next, err
@@ -162,7 +162,7 @@ func CheckIdempotency(ctx context.Context, convID string, senderID int64, client
 	if _, ok := idemLocal.Load(key); ok {
 		return true, nil
 	}
-	n, err := store.Redis().Exists(ctx, key).Result()
+	n, err := db.Redis().Exists(ctx, key).Result()
 	if err != nil {
 		return false, err
 	}
@@ -172,7 +172,7 @@ func CheckIdempotency(ctx context.Context, convID string, senderID int64, client
 // MarkIdempotent 写入幂等缓存(SET NX + 短 TTL;命中失败(已存在)也视为成功)。
 func MarkIdempotent(ctx context.Context, convID string, senderID int64, clientMsgID string) {
 	key := idemKey(convID, senderID, clientMsgID)
-	_ = store.Redis().SetNX(ctx, key, "1", 5*time.Minute).Err()
+	_ = db.Redis().SetNX(ctx, key, "1", 5*time.Minute).Err()
 	idemLocal.Store(key, struct{}{})
 	// 容量护栏:本地缓存过大时整体清空(回落 Redis 路径,正确性不受影响)。
 	if idemCount.Add(1) > 1_000_000 {
@@ -226,7 +226,7 @@ func StartCheckpointLoop(ctx context.Context, interval time.Duration, logger *sl
 
 // CheckpointAll 把本进程近期发过号的会话位点从 Redis 写回 PG(GREATEST 单调)。
 func CheckpointAll(ctx context.Context) error {
-	rdb := store.Redis()
+	rdb := db.Redis()
 	for _, convID := range snapshotConvs() {
 		v, err := rdb.Get(ctx, seqKey(convID)).Int64()
 		if err != nil {
@@ -235,7 +235,7 @@ func CheckpointAll(ctx context.Context) error {
 			}
 			return fmt.Errorf("读 %s: %w", seqKey(convID), err)
 		}
-		if _, err := store.PG().Exec(ctx,
+		if _, err := db.PG().Exec(ctx,
 			"UPDATE conversations SET next_seq = GREATEST(next_seq, $2) WHERE id = $1",
 			convID, v); err != nil {
 			return fmt.Errorf("checkpoint %s: %w", convID, err)

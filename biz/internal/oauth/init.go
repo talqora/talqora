@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
 // init.go:启动初始化(对齐 server/src/oauth/init.ts:seed 默认 client;
@@ -25,7 +25,7 @@ func SeedDefaultClient(ctx context.Context, c SeedClient) error {
 	redirects, _ := json.Marshal(c.RedirectURIs)
 	scopes, _ := json.Marshal(c.AllowedScopes)
 	grants, _ := json.Marshal(c.AllowedGrantTypes)
-	_, err := store.PG().Exec(ctx, `
+	_, err := db.PG().Exec(ctx, `
 		INSERT INTO oauth_clients
 			(client_id, client_name, client_type, redirect_uris, allowed_scopes, allowed_grant_types)
 		VALUES ($1, $2, $3, $4, $5, $6)

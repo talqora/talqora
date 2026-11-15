@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/our-chat/biz/internal/store"
+	"github.com/our-chat/biz/internal/db"
 )
 
-// setupTestRedis 把全局 store.Redis() 指向 miniredis(测试隔离)。
+// setupTestRedis 把全局 db.Redis() 指向 miniredis(测试隔离)。
 func setupTestRedis(t *testing.T) *miniredis.Miniredis {
 	t.Helper()
 	mr, err := miniredis.Run()
@@ -21,7 +21,7 @@ func setupTestRedis(t *testing.T) *miniredis.Miniredis {
 	t.Cleanup(mr.Close)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	store.SetRedisForTest(client)
+	db.SetRedisForTest(client)
 	return mr
 }
 

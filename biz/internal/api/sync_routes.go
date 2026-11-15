@@ -90,9 +90,7 @@ func handleSync(c *gin.Context) {
 	}
 
 	sinceSeq, _ := strconv.ParseInt(since, 10, 64)
-	messages, err := queryMessages(c,
-		"WHERE conversation_id = $1 AND seq > $2 AND is_deleted = false ORDER BY seq ASC LIMIT $3",
-		conv, sinceSeq, take)
+	messages, err := chatSvc.MessagesSince(c.Request.Context(), conv, sinceSeq, take)
 	if err != nil {
 		serverError(c)
 		return

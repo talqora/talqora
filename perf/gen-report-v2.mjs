@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPORT_DIR = join(__dir, '..', 'docs', '监测设施', '测试报告');
-const REPORT_SUBDIR = process.env.REPORT_SUBDIR || '26-9-20';
+const REPORT_SUBDIR = process.env.REPORT_SUBDIR || '26-9-20-全Go体系V2复测与监测闭环';
 const DATA = join(REPORT_DIR, REPORT_SUBDIR, 'data');
 const load = (n) => {
   const p = join(DATA, n + '.json');

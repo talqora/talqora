@@ -3,7 +3,7 @@
 # 前置:Go 业务层(:3007+3008)+ gateway(:8090)+ Prometheus 运行中。
 set -u
 cd "$(dirname "$0")/../../perf"
-export OUT_SUBDIR="${OUT_SUBDIR:-26-9-17-gobiz}"
+export OUT_SUBDIR="${OUT_SUBDIR:-26-9-17-业务层Go重写与发号INCR}"
 DATA_DIR="../docs/监测设施/测试报告/${OUT_SUBDIR}/data"
 
 echo "=== S7 惊群重连 ×3 ==="

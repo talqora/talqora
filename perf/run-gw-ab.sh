@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # gateway A/B 压测跑批:每个场景 3 轮 → 取 RTT p99 中位轮落盘为 <key>_gateway.json。
-# 参数与 26-9-14 纯 Node 基线完全一致(见 docs/监测设施/测试报告/26-9-14/README.md)。
+# 参数与 26-9-14 纯 Node 基线完全一致(见 docs/监测设施/测试报告/26-9-14-纯Node性能基线/README.md)。
 # 前置:server(REALTIME_MODE=gateway)+ gateway(:8090)+ Prometheus 已启动。
 set -u
 cd "$(dirname "$0")"
 ROUNDS="${ROUNDS:-3}"
-OUT_SUBDIR="${OUT_SUBDIR:-26-9-16}"
+OUT_SUBDIR="${OUT_SUBDIR:-26-9-16-Go网关HTTP接入}"
 
 run_scenario() { # key conns rate dur ramp
   local key="$1" conns="$2" rate="$3" dur="$4" ramp="$5" r
@@ -18,7 +18,7 @@ run_scenario() { # key conns rate dur ramp
   ROUNDS="$ROUNDS" OUT_SUBDIR="$OUT_SUBDIR" node -e '
     const fs = require("fs");
     const n = parseInt(process.env.ROUNDS || "3", 10);
-    const sub = process.env.OUT_SUBDIR || "26-9-16";
+    const sub = process.env.OUT_SUBDIR || "26-9-16-Go网关HTTP接入";
     const key = process.argv[1];
     const rounds = [];
     for (let r = 1; r <= n; r++) {
