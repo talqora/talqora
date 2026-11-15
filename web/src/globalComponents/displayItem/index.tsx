@@ -22,6 +22,8 @@ interface DisplayItemProps {
     content: string;
     time?: string; // 右上角时间(会话列表用;通讯录不传)
     isActive?: boolean;
+    // 紧凑行:通讯录用(微信通讯录行高 ~44,比会话行 64 更密)
+    compact?: boolean;
     handleClick?: (id: string) => void;
     style?: {
         width: string;
@@ -36,11 +38,11 @@ interface DisplayItemProps {
  * @param {DisplayItemProps} props - 组件属性
  * @returns {JSX.Element} - 渲染的React元素
  */
-function DisplayItem({ id, avatar, title, content, time, isActive, handleClick = () => {}, style }: DisplayItemProps) {
+function DisplayItem({ id, avatar, title, content, time, isActive, handleClick = () => {}, style, compact }: DisplayItemProps) {
     return (
         // 外层容器，根据isActive状态添加active类名
         <div
-            className={`${styles.display_item} ${isActive ? styles.active : ''}`}
+            className={`${styles.display_item} ${compact ? styles.compact : ''} ${isActive ? styles.active : ''}`}
             onClick={() => { handleClick(id); }}
             style={{backgroundColor: style?.backgroundColor}}
         >

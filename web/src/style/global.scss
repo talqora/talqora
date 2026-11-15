@@ -31,25 +31,37 @@
   --accent-hover:  #{$brand-wechat-hover};
   --accent-soft:   #{$brand-wechat-soft};
 
-  // ── 语义主题 token(浅色,默认)。色值对齐官方 WeUI(Tencent,MIT)。深色见 :root[data-theme='dark'] ──
-  --rail-bg:           #e6e6e6;
-  --rail-icon:         rgba(0, 0, 0, 0.5);
+  // ── 语义主题 token(浅色,默认)。色值取自微信 macOS 4.1.15 实机采样(见 UIUX/02-实测设计规范.md)──
+  // 关键层级:竖栏(最深) < 列表 < 聊天区(最浅);三级同色系不同明度,靠明度而非描边分区。
+  --rail-bg:           #e3e3e5;
+  --rail-icon:         rgba(0, 0, 0, 0.55);
   --rail-icon-hover:   rgba(0, 0, 0, 0.9);
-  --sidebar-bg:        #f7f7f7;
-  --sidebar-hover:     #ececec;
-  --sidebar-active:    #d9d9d9;
-  --main-bg:           #f5f5f5;
+  --sidebar-bg:        #e6e6e8;
+  --sidebar-hover:     #dfdfe1;
+  --sidebar-active:    #d8d8da;
+  // 微信「选中会话」不是灰底,而是绿色高亮(#0da769),文字转白
+  --sidebar-selected:  #0da769;
+  --sidebar-selected-text: #ffffff;
+  --main-bg:           #fafafa;
   --surface:           #ffffff;
-  --surface-2:         #f0f0f0;
+  --surface-2:         #f2f2f2;
+  // 微信专用面:列表内搜索框比列表底更浅;输入框比聊天区略深并带 1px 描边
+  --search-bg:         #fafafa;
+  --composer-bg:       #f7f7f7;
+  --composer-border:   rgba(0, 0, 0, 0.08);
+  --list-divider:      rgba(0, 0, 0, 0.06);
+  --header-divider:    rgba(0, 0, 0, 0.06);
+  --send-bg:           #ededed;
+  --send-text:         rgba(0, 0, 0, 0.3);
   --bubble-self:       #95ec69;
   --bubble-self-text:  rgba(0, 0, 0, 0.9);
   --bubble-other:      #ffffff;
   --bubble-other-text: rgba(0, 0, 0, 0.9);
   --text-1:            rgba(0, 0, 0, 0.9);
   --text-2:            rgba(0, 0, 0, 0.55);
-  --text-3:            rgba(0, 0, 0, 0.3);
-  --border:            rgba(0, 0, 0, 0.1);
-  --divider:           rgba(0, 0, 0, 0.07);
+  --text-3:            rgba(0, 0, 0, 0.35);
+  --border:            rgba(0, 0, 0, 0.08);
+  --divider:           rgba(0, 0, 0, 0.06);
   --hover:             rgba(0, 0, 0, 0.05);
   --popover-bg:        #ffffff;
   --popover-shadow:    0 8px 30px rgba(0, 0, 0, 0.16);
@@ -97,26 +109,37 @@
 // 只重定义基础 token;遗留变量在 :root 里以 var() 引用这些 token,自动随之切换。
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --rail-bg:           #2c2c2c;
+  // 深色不是浅色取反:列表是最亮的面(#3b3b3d),聊天区反而最暗(#1e1e1f)——
+  // 导航浮起、内容区下沉,减少长阅读的发光面积。数值为实机采样。
+  --rail-bg:           #26292b;
   --rail-icon:         hsla(0, 0%, 100%, 0.5);
   --rail-icon-hover:   hsla(0, 0%, 100%, 0.9);
-  --sidebar-bg:        #1e1e1e;
-  --sidebar-hover:     #292929;
-  --sidebar-active:    #313131;
-  --main-bg:           #191919;
+  --sidebar-bg:        #3b3b3d;
+  --sidebar-hover:     #46484a;
+  --sidebar-active:    #4f5153;
+  --sidebar-selected:  #0da769;
+  --sidebar-selected-text: #ffffff;
+  --main-bg:           #1e1e1f;
   --surface:           #2c2c2c;
-  --surface-2:         #202020;
-  --bubble-self:       #3eb575;
+  --surface-2:         #242426;
+  --search-bg:         #454547;
+  --composer-bg:       #202021;
+  --composer-border:   #323233;
+  --list-divider:      #414143;
+  --header-divider:    #252526;
+  --send-bg:           #3a3a3c;
+  --send-text:         rgba(255, 255, 255, 0.3);
+  --bubble-self:       #37d18c;   // 实机采样(此前推定 #3eb575 偏暗)
   --bubble-self-text:  rgba(0, 0, 0, 0.85);
   --bubble-other:      #2c2c2c;
   --bubble-other-text: hsla(0, 0%, 100%, 0.8);
-  --text-1:            hsla(0, 0%, 100%, 0.8);
-  --text-2:            hsla(0, 0%, 100%, 0.5);
-  --text-3:            hsla(0, 0%, 100%, 0.3);
+  --text-1:            hsla(0, 0%, 100%, 0.9);
+  --text-2:            hsla(0, 0%, 100%, 0.55);
+  --text-3:            hsla(0, 0%, 100%, 0.35);
   --border:            hsla(0, 0%, 100%, 0.1);
   --divider:           hsla(0, 0%, 100%, 0.07);
   --hover:             hsla(0, 0%, 100%, 0.06);
-  --popover-bg:        #2c2c2c;
+  --popover-bg:        #303030;
   --popover-shadow:    0 8px 30px rgba(0, 0, 0, 0.55);
   --input-bg:          #2c2c2c;
 }

@@ -9,7 +9,7 @@
     background-color: var(--surface);
     overflow: hidden;
 }
-// 左导航栏
+// 左导航栏(微信竖栏:60 宽,头像 36,图标热区 40,纵向节奏 52)
 .left_nav {
     background-color: var(--background-color);
     position: relative;
@@ -18,22 +18,25 @@
     align-items: center;
     justify-content: start;
     height: 100%;
-    width: 60px;
+    width: $wc-rail-w;
 }
 .left_nav_item_avatar {
-    width: 40px;
-    height: 40px;
-    margin-top: 30px;
-    margin-bottom: 20px;
+    width: $wc-rail-avatar;
+    height: $wc-rail-avatar;
+    margin-top: 24px;      // 微信是 52(给 macOS 红绿灯让位);web 无原生窗控件,收窄更自然
+    margin-bottom: 12px;
+    border-radius: 4px;
+    overflow: hidden;
     cursor: pointer;
     img {
         width: 100%;
         height: 100%;
+        object-fit: cover;
     }
 }
 // 统一icon样式
 .my_iconfont{
-        font-size: 1.4rem;
+        font-size: 22px;
         color: var(--icon-color);
         cursor: pointer;
         &:hover {
@@ -58,11 +61,10 @@
 .left_nav_item {
     width: 40px;
     height: 40px;
-    // margin-top: 10px;
+    margin-bottom: 12px;   // 40 + 12 = 52,对齐微信的 Tab 节奏
     display: flex;
     align-items: center;
     justify-content: center;
-
 }
 
 // 设置中心
@@ -133,6 +135,7 @@
         gap: 3px;
         width: auto;
         height: 100%;
+        margin-bottom: 0;  // 桌面竖栏的纵向节奏在底栏无意义
     }
     .my_iconfont { font-size: 1.35rem; }
     .tab_label {

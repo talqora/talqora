@@ -139,6 +139,7 @@ const en: LocaleSchema = {
       record: 'History',
       voice: 'Voice call',
       video: 'Video call',
+      more: 'More',
     },
     holdToTalk: 'Hold to talk',
     panel: {
@@ -166,6 +167,9 @@ const en: LocaleSchema = {
     notFound: 'No matching user found. Please double-check the ID.',
     searchPrefix: 'Search:',
     newFriend: 'New friend',
+    manage: 'Manage contacts',
+    contacts: 'Contacts',
+    noRequests: 'No new requests',
     region: 'China',
     title: {
       newFriendRequests: 'Friend requests',

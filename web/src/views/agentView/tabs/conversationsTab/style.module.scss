@@ -7,11 +7,11 @@
 
 // ── 左:对话列表 ──
 .convList {
-  width: 180px;
-  border-right: 1px solid var(--border);
+  width: $wc-list-w;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface-2);
+  background: var(--sidebar-bg);
 }
 .convHead {
   padding: $space-3 $space-3;
@@ -116,24 +116,23 @@
 }
 .msgRowSelf { justify-content: flex-end; }
 
+// 与好友聊天一致:圆角 4、内边距 8×12、自己绿底深字、对方白底(微信同一套气泡)
 .bubble {
-  max-width: 70%;
-  padding: $space-2 $space-3;
-  border-radius: $radius-md;
+  max-width: 60%;
+  padding: 8px 12px;
+  border-radius: $wc-bubble-radius;
   font-size: 0.875rem;
-  line-height: 1.55;
+  line-height: 1.5;
   word-break: break-word;
   white-space: pre-wrap;
 }
 .bubbleSelf {
-  background: var(--primary-color);
-  color: white;
-  border-bottom-right-radius: $radius-xs;
+  background: var(--bubble-self);
+  color: var(--bubble-self-text);
 }
 .bubbleOther {
-  background: var(--surface-2);
-  color: var(--text-1);
-  border-bottom-left-radius: $radius-xs;
+  background: var(--bubble-other);
+  color: var(--bubble-other-text);
 }
 .bubbleContent { min-height: 1em; }
 

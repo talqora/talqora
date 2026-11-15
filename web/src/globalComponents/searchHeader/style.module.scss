@@ -1,14 +1,16 @@
+// 列表顶部搜索区:与聊天头部同高(52),左右 10,右侧 action 槽(加好友 / 新建会话)
 .container {
-    height: 52px;
+    height: $wc-header-h;
     width: 100%;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 12px;
+    padding: 0 10px;
 }
 .action {
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
 }

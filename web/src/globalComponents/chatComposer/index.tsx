@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import Button from '@/globalComponents/button';
 import { useLang } from '@/i18n';
 import styles from './style.module.scss';
 
-// 顶部可选操作图标(表情 / 文件 / 语音 / 视频 等);agent 场景不传则不渲染头部
+// 输入区图标(表情 / 文件 / 语音 / 视频 等);不传则工具栏只留发送按钮
 export interface ComposerAction {
   label: string;
   icon: string; // iconfont class, e.g. 'icon-meh'
@@ -19,12 +18,13 @@ interface ChatComposerProps {
   leftActions?: ComposerAction[];
   rightActions?: ComposerAction[];
   onActionClick?: (method: string) => void;
-  showSend?: boolean; // 是否显示发送按钮(好友聊天像微信一样靠回车发,关掉按钮)
+  showSend?: boolean; // 是否显示发送按钮(微信桌面端始终显示,空内容时置灰)
   inputRows?: number;
 }
 
 // 全局通用聊天输入框。草稿态自管理(每次按键只重渲染本小块,不波及上层消息列表),
 // Enter 发送、Shift+Enter 换行。好友聊天 / agent 知识对话 / agent 任务共用同一套。
+// 结构对齐微信桌面端:一个描边圆角盒子,文本区在上、工具栏在盒内底部,发送按钮在右下。
 function ChatComposer({
   onSend,
   placeholder,
@@ -39,6 +39,8 @@ function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useLang();
   const [input, setInput] = useState('');
+  // 空内容不可发送:微信的发送按钮保持可见但置灰,不做显隐跳变
+  const canSend = !disabled && !sending && input.trim().length > 0;
 
   const send = () => {
     const text = input.trim();
@@ -54,35 +56,9 @@ function ChatComposer({
     }
   };
 
-  const hasHeader = (leftActions?.length ?? 0) > 0 || (rightActions?.length ?? 0) > 0;
-
   return (
     <div className={styles.composer}>
-      {hasHeader && (
-        <div className={styles.header}>
-          <div className={styles.headerSide}>
-            {leftActions?.map((it) => (
-              <i
-                key={it.label}
-                title={it.label}
-                className={`iconfont ${it.icon} ${styles.icon}`}
-                onClick={() => onActionClick?.(it.method)}
-              />
-            ))}
-          </div>
-          <div className={styles.headerSide}>
-            {rightActions?.map((it) => (
-              <i
-                key={it.label}
-                title={it.label}
-                className={`iconfont ${it.icon} ${styles.icon}`}
-                onClick={() => onActionClick?.(it.method)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      <div className={styles.body}>
+      <div className={styles.box}>
         <textarea
           className={styles.textarea}
           value={input}
@@ -92,21 +68,39 @@ function ChatComposer({
           placeholder={placeholder}
           disabled={disabled}
         />
-      </div>
-      {showSend && (
-        <div className={styles.footer}>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={send}
-            loading={sending}
-            disabled={disabled}
-            className={styles.sendBtn}
-          >
-            {sendLabel ?? t('chat.send')}
-          </Button>
+        <div className={styles.toolbar}>
+          <div className={styles.actions}>
+            {leftActions?.map((it) => (
+              <i
+                key={it.label}
+                title={it.label}
+                className={`iconfont ${it.icon} ${styles.icon}`}
+                onClick={() => onActionClick?.(it.method)}
+              />
+            ))}
+          </div>
+          <div className={styles.actions}>
+            {rightActions?.map((it) => (
+              <i
+                key={it.label}
+                title={it.label}
+                className={`iconfont ${it.icon} ${styles.icon}`}
+                onClick={() => onActionClick?.(it.method)}
+              />
+            ))}
+            {showSend && (
+              <button
+                type="button"
+                className={styles.send}
+                disabled={!canSend}
+                onClick={send}
+              >
+                {sendLabel ?? t('chat.send')}
+              </button>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -11,10 +11,12 @@ interface AddFriendModalProps {
     wxid: string;
     region: string;
     gender: string;
+    // 右侧面板内嵌:去掉 fixed 浮层定位,按普通流式卡片渲染
+    inline?: boolean;
 }
 
 const AddFriendModal = forwardRef<HTMLDivElement, AddFriendModalProps>(
-  ({ avatar, username, wxid, region, gender }, ref) => {
+  ({ avatar, username, wxid, region, gender, inline }, ref) => {
     const dispatch = useDispatch();
     const userId = useSelector((state: RootState) => state.user.id);
     const [isSent, setIsSent] = useState(false);
@@ -34,7 +36,7 @@ const AddFriendModal = forwardRef<HTMLDivElement, AddFriendModalProps>(
         setIsSent(true);
     }
     return (
-      <div ref={ref} className={styles.container}>
+      <div ref={ref} className={`${styles.container} ${inline ? styles.inline : ''}`}>
         {/* 头部 */}
         <div className={styles.header}>
           {/* 头像 */}

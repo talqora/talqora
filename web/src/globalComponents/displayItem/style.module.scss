@@ -1,17 +1,36 @@
+// 会话 / 通讯录行。微信桌面端:行高 64 + 1px 分隔线,头像 36,标题 14 / 预览 12 / 时间 11。
+// 分隔线不是通栏:左端让开「内边距 12 + 头像 36 + 间距 10」对齐标题文本,右端贴列表边缘。
 .display_item {
+    position: relative;
+    height: $wc-item-h;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: 10px;
+    padding: 0 12px;
     cursor: pointer;
     background-color: transparent;
-    transition: background-color 0.12s ease;
+    transition: background-color $dur-fast ease;
+
+    &::after {
+        content: '';
+        position: absolute;
+        left: 12px + $wc-avatar-list + 10px;
+        right: 0;
+        bottom: 0;
+        height: 1px;
+        background-color: var(--list-divider);
+    }
+    &:last-child::after {
+        display: none;
+    }
+
     &:hover {
         background-color: var(--sidebar-hover);
     }
+
     .item_avatar {
-        width: 44px;
-        height: 44px;
+        width: $wc-avatar-list;
+        height: $wc-avatar-list;
         flex-shrink: 0;
         border-radius: 4px;
         overflow: hidden;
@@ -23,23 +42,25 @@
     }
     .item_content_container {
         flex: 1;
+        min-width: 0;
         display: flex;
         flex-direction: column;
-        min-width: 0;
+        justify-content: center;
         gap: 3px;
     }
     .item_row {
         display: flex;
-        align-items: center;
+        align-items: baseline;   // 时间与标题同基线(微信把时间顶到标题行)
         justify-content: space-between;
         gap: 8px;
+        min-width: 0;
     }
     .item_title {
         flex: 1;
-        font-size: 0.9375rem;
-        font-weight: 400;
-        color: var(--text-1);
         min-width: 0;
+        font-size: 0.875rem;
+        line-height: 1.35;
+        color: var(--text-1);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -47,20 +68,42 @@
     .item_time {
         flex-shrink: 0;
         font-size: 0.6875rem;
+        line-height: 1.35;
         color: var(--text-3);
     }
     .item_content {
-        font-size: 0.8125rem;
-        color: var(--text-3);
         min-width: 0;
+        font-size: 0.75rem;
+        line-height: 1.4;
+        color: var(--text-2);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 }
+// 紧凑行:通讯录专用(行高 44、头像 32、无分隔线)
+.compact {
+    height: 44px;
+    .item_avatar {
+        width: 32px;
+        height: 32px;
+    }
+    &::after {
+        display: none;
+    }
+}
+
+// 选中会话:微信用绿色高亮整行,文字转白(不是灰底)
 .active {
-    background-color: var(--sidebar-active);
+    @include row-selected;
     &:hover {
-        background-color: var(--sidebar-active);
+        background-color: var(--sidebar-selected);
+    }
+    .item_title,
+    .item_time {
+        color: var(--sidebar-selected-text);
+    }
+    .item_content {
+        color: rgba(255, 255, 255, 0.75);
     }
 }

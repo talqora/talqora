@@ -382,12 +382,25 @@ function ChatView() {
             <div className={chatViewStyle.chat_view_right}>
                 {activeConversation ? (
                     <>
-                        {/* 会话标题:移动端为 返回 / 居中标题 / ⋯ 三段栏(桌面端隐藏返回与⋯) */}
+                        {/* 会话标题:移动端为 返回 / 居中标题 / ⋯ 三段栏(桌面端隐藏返回) */}
                         <div className={chatViewStyle.chat_header}>
                             <i className={chatViewStyle.back_btn} onClick={() => navigate('/chat')} />
                             <span className={chatViewStyle.chat_title}>{friendDisplayName(parseConversationId(activeConversation)) || ''}</span>
-                            {/* ⋯ 暂不接功能,仅占位保持微信头部布局 */}
-                            <i className={`iconfont icon-ellipsis ${chatViewStyle.more_btn}`} />
+                            {/* 右侧动作:微信桌面端的 语音通话 / 视频通话 / 更多 三件套(移动端只留 ⋯) */}
+                            <div className={chatViewStyle.header_actions}>
+                                <i
+                                    className={`iconfont icon-phone ${chatViewStyle.header_icon}`}
+                                    title={t('chat.iconLabels.voice')}
+                                    onClick={handleClickVoice}
+                                />
+                                <i
+                                    className={`iconfont icon-videocameraadd ${chatViewStyle.header_icon}`}
+                                    title={t('chat.iconLabels.video')}
+                                    onClick={handleClickVideo}
+                                />
+                                {/* ⋯ 暂不接功能,仅占位保持微信头部布局 */}
+                                <i className={`iconfont icon-ellipsis ${chatViewStyle.more_btn}`} />
+                            </div>
                         </div>
                         {/* 消息列表 */}
                         <div className={chatViewStyle.chat_body} ref={chatBodyRef}>
@@ -434,13 +447,16 @@ function ChatView() {
                                 leftActions={leftActions}
                                 rightActions={rightActions}
                                 onActionClick={handleClickHeaderIcon}
-                                showSend={false}
-                                inputRows={4}
+                                inputRows={3}
                             />
                         )}
                     </>
                 ) : (
-                    <div className={chatViewStyle.no_chat}>{t('chat.noConversation')}</div>
+                    // 空态:微信是一枚居中淡色 Logo 水印 + 下方浅灰提示,不是一句干巴文案
+                    <div className={chatViewStyle.no_chat}>
+                        <i className="iconfont icon-message-fill" />
+                        <span>{t('chat.noConversation')}</span>
+                    </div>
                 )}
                 {/* 文件上传弹窗 */}
                 {fileUploaderVisible && 

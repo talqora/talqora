@@ -9,7 +9,7 @@
     top: 80px;
     left: 50%;
     transform: translateX(-50%);
-    width: 520px;
+    width: 680px;   // 微信设置窗 ≈680×530
     display: flex;
     flex-direction: column;
     background-color: var(--surface);
@@ -48,17 +48,19 @@
         }
     }
 }
+// 微信设置窗:左右两栏贴边,左栏是略亮的导航面板,右栏是内容区
 .setting_view_body {
     width: 100%;
-    padding: 22px;
     display: flex;
-    gap: 24px;
 }
 .setting_view_left {
+    width: 168px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
+    padding: 20px 12px;
+    background-color: var(--surface-2);
     .setting_view_upload_button {
         width: 110px;
         height: 30px;
@@ -81,18 +83,17 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    background: var(--surface-2);
-    border-radius: 8px;
+    background: var(--main-bg);
     overflow: hidden;
-    align-self: flex-start;
     width: 100%;
+    padding: 8px 0;
 }
 .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 14px 16px;
+    padding: 13px 20px;
     & + & {
         border-top: 1px solid var(--divider);
     }

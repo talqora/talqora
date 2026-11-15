@@ -150,6 +150,7 @@ const zh = {
       record: '聊天记录',
       voice: '语音聊天',
       video: '视频聊天',
+      more: '更多',
     },
     holdToTalk: '按住 说话',
     panel: {
@@ -177,6 +178,9 @@ const zh = {
     notFound: '无法找到该用户,请检查你填写的账号是否正确',
     searchPrefix: '搜索:',
     newFriend: '新朋友',
+    manage: '通讯录管理',
+    contacts: '联系人',
+    noRequests: '暂无新的朋友',
     region: '中国',
     title: {
       newFriendRequests: '新的朋友',

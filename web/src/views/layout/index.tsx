@@ -88,6 +88,7 @@ function Layout() {
     // 点击设置中心
     const handleSetting = () => {
         setSettingVisible(!settingVisible);
+        setMenuVisible(false); // 微信点「设置」后菜单收起,不留在背后
     };    
     // 点击菜单栏
     const handleMenu = () => {

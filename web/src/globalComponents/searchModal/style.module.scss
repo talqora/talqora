@@ -1,45 +1,48 @@
+// 列表内搜索框。微信:高 26 / 圆角 4 / 底色比列表底更浅 / 聚焦不加主色描边。
 .container {
     width: 100%;
-    height: 30px;
+    height: 26px;
     min-width: 0;
-    padding: 0 10px;
-    background-color: var(--surface-2);
-    border-radius: 6px;
+    padding: 0 8px;
+    background-color: var(--search-bg);
+    border-radius: 4px;
     display: flex;
     align-items: center;
-    border: 1px solid transparent;
-    transition: border-color 0.15s ease;
 }
 .active {
-    border-color: var(--accent);
+    // 微信聚焦只出光标,不做描边/换色;唯一变化是放大镜略微提亮
+    .icon_search {
+        color: var(--text-2);
+    }
 }
 .icon_search {
     color: var(--text-3);
-    font-size: 15px;
-    margin-right: 6px;
+    font-size: 13px;
+    margin-right: 5px;
     flex-shrink: 0;
 }
 .icon_close {
     color: var(--text-3);
     background-color: transparent;
     cursor: pointer;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     text-align: center;
-    line-height: 18px;
+    line-height: 16px;
     border-radius: 50%;
-    font-size: 14px;
+    font-size: 12px;
     flex-shrink: 0;
     &:hover {
         background-color: var(--hover);
     }
 }
-input {
+// 收进 .container 作用域:裸 input 选择器在 CSS Modules 里是全局的,会误伤全站输入框
+.container input {
     background-color: transparent;
     flex: 1;
     min-width: 0;
     height: 100%;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-1);
     outline: none;
     &::placeholder {

@@ -10,6 +10,29 @@
     padding: 24px 32px 16px 32px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.12);
 }
+// 内嵌进右侧详情面板时:不浮动、铺满可用宽度、去掉浮层阴影
+.inline {
+    position: static;
+    width: 560px;
+    max-width: 100%;
+    background-color: transparent;
+    box-shadow: none;
+    padding: 40px 40px 0;
+    // 详情面板里是流式布局:动作按钮跟在资料下方,不居中悬浮
+    .avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 4px;
+    }
+    .footer {
+        justify-content: flex-start;
+        margin-top: 32px;
+    }
+    .button {
+        width: 116px;
+        height: 30px;
+    }
+}
 .header {
     display: flex;
     align-items: flex-start;

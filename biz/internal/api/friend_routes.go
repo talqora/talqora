@@ -31,8 +31,29 @@ func handleGetFriendList(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	rows, err := store.RO().Query(ctx,
-		"SELECT friend_id, remark FROM friendships WHERE user_id = $1", id)
+	// 可选分页:不传 limit = 旧行为(全量,兼容旧客户端);传了就按 friend_id 键集分页。
+	limit := 0
+	if v := c.Query("limit"); v != "" {
+		limit, _ = strconv.Atoi(v)
+		if limit <= 0 || limit > 200 {
+			limit = 200
+		}
+	}
+	after := int64(0)
+	if v := c.Query("after"); v != "" {
+		after, _ = strconv.ParseInt(v, 10, 64)
+	}
+	q := "SELECT friend_id, remark FROM friendships WHERE user_id = $1"
+	args := []any{id}
+	if after > 0 {
+		q += " AND friend_id > $2"
+		args = append(args, after)
+	}
+	q += " ORDER BY friend_id"
+	if limit > 0 {
+		q += " LIMIT " + strconv.Itoa(limit+1) // 多取 1 条判断 hasMore
+	}
+	rows, err := store.RO().Query(ctx, q, args...)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
 		return
@@ -53,6 +74,17 @@ func handleGetFriendList(c *gin.Context) {
 	if rows.Err() != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友列表失败"})
 		return
+	}
+
+	// 多取的那一条不进结果,只用来置 hasMore
+	hasMore := false
+	if limit > 0 && len(friendIDs) > limit {
+		friendIDs = friendIDs[:limit]
+		hasMore = true
+	}
+	nextAfter := int64(0)
+	if len(friendIDs) > 0 {
+		nextAfter = friendIDs[len(friendIDs)-1]
 	}
 
 	friendList := gin.H{"friendId": gin.H{}, "friendInfo": gin.H{}}
@@ -80,6 +112,10 @@ func handleGetFriendList(c *gin.Context) {
 			infoMap[strconv.FormatInt(uid, 10)] = gin.H{"username": username, "avatar": avatar, "gender": gender}
 		}
 		friendList = gin.H{"friendId": friendIDMap, "friendInfo": infoMap}
+	}
+	if limit > 0 {
+		friendList["hasMore"] = hasMore
+		friendList["nextAfter"] = nextAfter
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": friendList})
 }
@@ -220,9 +256,30 @@ func handleGetFriendReqs(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	rows, err := store.RO().Query(ctx, `
-		SELECT id, user_id, friend_id, status, remark, created_at, updated_at
-		FROM friendships WHERE user_id = $1 ORDER BY updated_at DESC`, userID)
+	// 可选分页:不传 limit = 旧行为(全量);传了就按 id 倒序键集分页(最新的在前)。
+	limit := 0
+	if v := c.Query("limit"); v != "" {
+		limit, _ = strconv.Atoi(v)
+		if limit <= 0 || limit > 200 {
+			limit = 200
+		}
+	}
+	before := int64(0)
+	if v := c.Query("before"); v != "" {
+		before, _ = strconv.ParseInt(v, 10, 64)
+	}
+	q := `SELECT id, user_id, friend_id, status, remark, created_at, updated_at
+		FROM friendships WHERE user_id = $1`
+	args := []any{userID}
+	if before > 0 {
+		q += " AND id < $2"
+		args = append(args, before)
+	}
+	q += " ORDER BY id DESC"
+	if limit > 0 {
+		q += " LIMIT " + strconv.Itoa(limit+1) // 多取 1 条判断 hasMore
+	}
+	rows, err := store.RO().Query(ctx, q, args...)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取好友请求失败"})
 		return
@@ -248,6 +305,17 @@ func handleGetFriendReqs(c *gin.Context) {
 		}
 		rowsList = append(rowsList, r)
 		requesterIDs = append(requesterIDs, r.FriendID)
+	}
+
+	// 多取的那一条不进结果,只用来置 hasMore
+	hasMore := false
+	if limit > 0 && len(rowsList) > limit {
+		rowsList = rowsList[:limit]
+		hasMore = true
+	}
+	nextBefore := int64(0)
+	if len(rowsList) > 0 {
+		nextBefore = rowsList[len(rowsList)-1].ID
 	}
 
 	requesterMap := map[string]gin.H{}
@@ -292,6 +360,10 @@ func handleGetFriendReqs(c *gin.Context) {
 			"username":  username,
 			"avatar":    avatar,
 		}
+	}
+	if limit > 0 {
+		result["hasMore"] = hasMore
+		result["nextBefore"] = nextBefore
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }

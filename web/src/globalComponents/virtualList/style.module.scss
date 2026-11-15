@@ -1,0 +1,12 @@
+// 虚拟列表容器:自身滚动,内容靠 spacer 撑出真实高度
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.spacer {
+  position: relative;
+  width: 100%;
+}

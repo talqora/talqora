@@ -1,48 +1,37 @@
-// 全局聊天输入框。顶部图标工具栏(可选) + 透明无边框 textarea(与父背景融合) + 可选右下发送。
+// 聊天输入区。微信桌面端结构:一个 1px 描边、6px 圆角的盒子,
+// 盒内「文本区在上、工具栏在下」,发送按钮固定右下角(空内容置灰)。
+// 盒子相对聊天区四周内缩 8(底部 12)。
 .composer {
+  flex-shrink: 0;
+  display: flex;
+  padding: $wc-composer-inset $wc-composer-inset 12px;
+}
+
+.box {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  background: transparent;
-  border-top: 1px solid var(--border);
+  background: var(--composer-bg);
+  border: 1px solid var(--composer-border);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 42px;
-  padding: 0 16px;
-  flex-shrink: 0;
-}
-.headerSide {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-.icon {
-  cursor: pointer;
-  font-size: 20px;
-  color: var(--text-2);
-  transition: color 0.15s ease;
-  &:hover {
-    color: var(--text-1);
-  }
-}
-
-.body {
-  width: 100%;
-  display: flex;
-}
 .textarea {
-  flex: 1;
+  display: block;
+  width: 100%;
+  height: 90px;       // 90 + 工具栏 40 + 2 边框 = 132,与微信输入框等高
+  min-height: 90px;
+  max-height: 200px;
   resize: none;
   border: none;
   outline: none;
   background: transparent;
   color: var(--text-1);
-  padding: 2px 18px 10px;
+  padding: 10px 12px;
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   line-height: 1.6;
   scrollbar-width: none;
   &::placeholder {
@@ -53,14 +42,60 @@
   }
 }
 
-.footer {
-  height: 50px;
-  padding: 10px 20px;
-  display: flex;
-  justify-content: flex-end;
+// 盒内底部工具栏:左功能图标、右(语音/视频 +)发送
+.toolbar {
+  height: 40px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
 }
-.sendBtn {
-  width: 70px;
-  height: 100%;
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.icon {
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--text-2);
+  transition: color $dur-fast ease;
+  &:hover {
+    color: var(--text-1);
+  }
+}
+
+.send {
+  width: $wc-send-w;
+  height: $wc-send-h;
+  flex-shrink: 0;
+  margin-left: 18px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1;
+  cursor: pointer;
+  background: var(--send-bg);
+  color: var(--send-text);
+  transition: background-color $dur-fast ease, color $dur-fast ease;
+  &:disabled {
+    cursor: default;
+  }
+  &:not(:disabled) {
+    background: $brand-wechat;
+    color: #fff;
+    &:hover {
+      background: $brand-wechat-hover;
+    }
+  }
+}
+
+// ─── 移动端:全宽铺满,去掉盒子的外内缩(聊天页本身已是全屏) ───
+@include mobile {
+  .composer {
+    padding: 6px 8px 8px;
+  }
 }

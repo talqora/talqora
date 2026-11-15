@@ -28,6 +28,26 @@ $space-9:  3rem;      // 48px
 $space-10: 4rem;      // 64px
 $space-11: 5rem;      // 80px
 
+// ╭─ 微信桌面端布局度量 ─────────────────────────────────────────────────────╮
+// 取自微信 macOS 客户端实机截图(1000×720 窗口、@2x 采样后除以 2 得逻辑 px)。
+// 这些数字决定「像不像微信」:栏宽 / 行高 / 头像尺寸 / 气泡圆角对不上时,
+// 配色再准也会一眼看出是山寨。详见 UIUX/02-实测设计规范.md。
+$wc-rail-w:        60px;  // 左侧竖栏(头像 + Tab)
+$wc-list-w:       240px;  // 会话列表 / 通讯录列表宽
+$wc-header-h:      52px;  // 列表搜索区、聊天标题栏同高
+$wc-item-h:        64px;  // 列表行高(行间 1px 分隔线另计)
+$wc-rail-avatar:   36px;  // 竖栏头像
+$wc-avatar-list:   36px;  // 列表头像
+$wc-avatar-msg:    40px;  // 消息气泡旁头像
+$wc-msg-gap:       12px;  // 头像 ↔ 气泡间距
+$wc-msg-pad-x:     20px;  // 消息区左右内边距
+$wc-bubble-radius:  4px;  // 气泡圆角
+$wc-bubble-tail:    6px;  // 气泡尾巴三角边长
+$wc-composer-inset: 8px;  // 输入框相对聊天区四周内缩
+$wc-send-w:        56px;  // 发送按钮宽
+$wc-send-h:        26px;  // 发送按钮高
+// ╰───────────────────────────────────────────────────────────────────────────╯
+
 // 圆角
 $radius-xs: 0.25rem;   //  4px
 $radius-sm: 0.375rem;  //  6px
@@ -48,6 +68,11 @@ $bp-md: 48rem;   //  768px
 $bp-lg: 64rem;   // 1024px
 $bp-xl: 80rem;   // 1280px
 $bp-2xl: 96rem;  // 1536px
+
+// 列表行选中态:会话列表、通讯录联系人、新朋友请求行 共用同一套(微信是整行绿底)
+@mixin row-selected {
+  background-color: var(--sidebar-selected);
+}
 
 // 响应式 mixin —— 移动端临界统一为 $bp-md(768px),断点单一真相源。
 // 用法:.foo { @include mobile { width: 100%; } }

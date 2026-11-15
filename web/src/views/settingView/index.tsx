@@ -74,7 +74,7 @@ function SettingView({ onClose }: { onClose: () => void }) {
                 <div className={settingStyle.setting_view_body}>
                     {/* 左侧 */}
                     <div className={settingStyle.setting_view_left}>
-                        <AntdImage width={130} src={user.avatar ? buildServerUrl(user.avatar) : defaultAvatar} />
+                        <AntdImage width={72} src={user.avatar ? buildServerUrl(user.avatar) : defaultAvatar} />
                         <input
                             ref={inputRef}
                             type="file"

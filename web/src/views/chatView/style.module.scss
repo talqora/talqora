@@ -1,17 +1,28 @@
+// 聊天页:左「会话列表 240」+ 右「聊天窗」。
+// 度量依据微信 macOS 4.1.15 实测(见 UIUX/02-实测设计规范.md):
+// 头部 52、行高 64、消息头像 40、气泡圆角 4、分隔线靠明度不靠描边。
 .chat_view_container {
     flex: 1;
     height: 100%;
+    min-width: 0;
     display: flex;
     background-color: var(--main-bg);
 }
 
+// 空态:居中淡色 Logo 水印 + 提示文字(微信未选会话时的样子)
 .no_chat {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 20px;
     color: var(--text-3);
     font-size: 0.875rem;
+    i {
+        font-size: 150px;
+        opacity: 0.14;
+    }
 }
 
 .friend_card {
@@ -21,16 +32,20 @@
 
 // 左侧
 .chat_view_left {
-    width: 260px;
+    width: $wc-list-w;
     height: 100%;
+    flex-shrink: 0;
     background-color: var(--sidebar-bg);
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--border);
+    // 微信不画分隔线:列表与聊天区靠明度差分区
     .chat_view_left_body {
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         overflow-y: auto;
+        scrollbar-width: none;
     }
 }
 
@@ -38,27 +53,45 @@
 .chat_view_right {
     position: relative;
     flex: 1;
+    min-width: 0;
     height: 100%;
     background-color: var(--main-bg);
     display: flex;
     flex-direction: column;
     .chat_header {
-        height: 55px;
+        height: $wc-header-h;
         flex-shrink: 0;
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 0 20px;
-        font-size: 1.0625rem;
+        padding: 0 16px;
+        font-size: 0.875rem;
         font-weight: 500;
         color: var(--text-1);
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid var(--header-divider);
+    }
+    // 头部右侧动作:语音通话 / 视频通话 / 更多(微信三个一组)
+    .header_actions {
+        margin-left: auto;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+    }
+    .header_icon {
+        font-size: 20px;
+        color: var(--text-2);
+        cursor: pointer;
+        transition: color $dur-fast ease;
+        &:hover {
+            color: var(--text-1);
+        }
     }
     // 消息列表
     .chat_body {
         flex: 1;
         min-height: 0; // 让内容可以收缩,防止容器撑开
-        padding: 16px 20px;
+        padding: 16px $wc-msg-pad-x 8px;
         overflow-y: auto;
         scrollbar-width: none; // 隐藏滚动条
     }
@@ -73,19 +106,19 @@
             text-align: center;
             color: var(--text-3);
             font-size: 0.75rem;
-            margin: 14px 0 10px;
+            margin: 8px 0 12px;
         }
         .self_msg, .other_msg {
             display: flex;
             align-items: flex-start;
-            gap: 10px;
-            padding: 6px 0;
+            gap: $wc-msg-gap;
+            padding: 8px 0;
         }
         .self_msg { flex-direction: row-reverse; }
         .other_msg { flex-direction: row; }
         .msg_avatar {
-            width: 38px;
-            height: 38px;
+            width: $wc-avatar-msg;
+            height: $wc-avatar-msg;
             border-radius: 4px;
             object-fit: cover;
             flex-shrink: 0;
@@ -95,9 +128,9 @@
         .bubble {
             position: relative;
             max-width: 60%;
-            padding: 9px 13px;
-            border-radius: 6px;
-            font-size: 0.9375rem;
+            padding: 8px 12px;
+            border-radius: $wc-bubble-radius;
+            font-size: 0.875rem;
             line-height: 1.5;
             word-break: break-word;
             white-space: pre-wrap;
@@ -105,7 +138,7 @@
                 content: '';
                 position: absolute;
                 top: 12px;
-                border: 6px solid transparent;
+                border: $wc-bubble-tail solid transparent;
             }
         }
         .bubbleSelf {
@@ -125,68 +158,41 @@
             }
         }
     }
-    // 输入框
-    .input_area_container {
-        display: flex;
-        align-items: center;
-        flex-direction: column;
-        border-top: 1px solid var(--border);
-        .input_area_header {
-            background-color: var(--surface);
-            display: flex;
-            justify-content: space-between;
-            height: 30px;
-            width: 100%;
-            padding: 0 20px;
-            .input_area_header_left {
-                display: flex;
-                gap: 15px;
-            }   
-            .input_area_header_right {
-                display: flex;
-                gap: 15px;
-            }
-            .input_area_icon {
-                cursor: pointer;
-                font-size: 22px;
-                color: var(--text-2);
-            }
-        }
-        .input_area_body {
-            width: 100%;
-            display: flex;
-            align-items: center;
 
-            .input_textarea {
-                flex: 1;
-                resize: none;
-                scrollbar-width: none;
-                border: none;
-                padding: 0 20px;
-            }
-            // 去除antD自带样式
-            :global(.ant-input-outlined:focus),
-            :global(.ant-input-outlined:focus-within) {
-              border-color: transparent !important;
-              box-shadow: none !important;
-              outline: none !important;
-              background-color: transparent !important;
-            }
-        }
-        .input_area_footer {
-            background-color: var(--surface);
-            height: 50px;
-            width: 100%;
-            padding: 10px 20px;
-            display: flex;
-            justify-content: end;
-            .send_button {
-                width: 70px;
-                height: 100%;
-            }                  
+    // 文件消息:微信是「内容卡片」,图片直接铺、文件带文件名/大小
+    .file_message {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-width: 220px;
+        padding: 10px;
+        border-radius: $wc-bubble-radius;
+        background: var(--bubble-other);
+        color: var(--bubble-other-text);
+        img {
+            max-width: 200px;
+            max-height: 150px;
+            border-radius: 4px;
+            cursor: pointer;
         }
     }
-
+    .file_info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 0.75rem;
+        color: var(--text-2);
+        word-break: break-all;
+    }
+    .file_icon {
+        color: var(--text-2);
+    }
+    .download_btn {
+        align-self: flex-start;
+        font-size: 0.75rem;
+        color: var(--accent);
+        &:hover { color: var(--accent-hover); }
+    }
 }
 
 .file_uploader_container {
@@ -241,13 +247,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-// ⋯ 更多:桌面隐藏,仅移动端头部栏显示
+// ⋯ 更多:桌面与移动端都显示(移动端只保留这一个动作)
 .more_btn {
-    display: none;
     flex-shrink: 0;
-    font-size: 1.3rem;
+    font-size: 20px;
     color: var(--text-2);
     cursor: pointer;
+    &:hover {
+        color: var(--text-1);
+    }
 }
 
 // ─── 移动端(≤768px):列表↔详情单屏切换(微信手机布局) ───
@@ -259,7 +267,6 @@
     }
     .chat_view_left {
         width: 100%;
-        border-right: none;
     }
     // 聊天窗默认收起(列表占满);选中会话时由 .has_active 覆盖到整屏
     .chat_view_right {
@@ -285,9 +292,9 @@
     .chat_title {
         text-align: center;
     }
-    .more_btn {
-        display: inline-flex;
-        align-items: center;
+    // 移动端微信头部只有一个 ⋯,语音/视频通话收进 ＋ 面板
+    .header_icon {
+        display: none;
     }
     // 文件上传弹层:固定 270 → 近全宽(留边距)
     .file_uploader_container {
