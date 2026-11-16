@@ -7,6 +7,7 @@ import DisplayItem from '@/globalComponents/displayItem';
 import SearchHeader from '@/globalComponents/searchHeader';
 import { searchUser, replyFriendReq, getFriendListPage, getFriendReqsPage } from '@/globalApi/friendApi';
 import VirtualList from '@/globalComponents/virtualList';
+import CreateGroupModal from '@/globalComponents/createGroupModal';
 import AddFriendModal from '@/globalComponents/addFriendModal';
 import { setFriendReqStatus } from '@/store/friendStore';
 import { wsClient } from '@/ws/wsClient';
@@ -46,6 +47,10 @@ function DirectoryView() {
     }
     // 添加好友
     const [isAddingFriend, setIsAddingFriend] = useState(false);
+    // 发起群聊弹层(微信:通讯录「+」→ 发起群聊)
+    const [groupModalOpen, setGroupModalOpen] = useState(false);
+    // 左上「+」下拉菜单(微信:发起群聊 / 添加朋友)
+    const [addMenuOpen, setAddMenuOpen] = useState(false);
     const handleClickAddFriend = () => {
         setIsAddingFriend(!isAddingFriend);
     }
@@ -231,10 +236,34 @@ function DirectoryView() {
                     onSearchChange={handleSearchChange}
                     placeholder={isAddingFriend ? t('directory.addSearchPlaceholder') : t('directory.searchPlaceholder')}
                     action={
-                        <div className={directoryViewStyle.left_header_add_user_container} onClick={handleClickAddFriend}>
-                            {isAddingFriend
-                                ? <p style={{ fontSize: '11px' }}>{t('directory.cancel')}</p>
-                                : <i className={`iconfont icon-adduser ${directoryViewStyle.left_header_add_user}`}></i>}
+                        <div className={directoryViewStyle.header_actions}>
+                            <div
+                                className={directoryViewStyle.left_header_add_user_container}
+                                onClick={() => setAddMenuOpen((v) => !v)}
+                            >
+                                <i className={`iconfont icon-adduser ${directoryViewStyle.left_header_add_user}`}></i>
+                            </div>
+                            {addMenuOpen && (
+                                <>
+                                    <div className={directoryViewStyle.menuMask} onClick={() => setAddMenuOpen(false)} />
+                                    <div className={directoryViewStyle.add_menu}>
+                                        <button
+                                            className={directoryViewStyle.add_menu_item}
+                                            onClick={() => { setAddMenuOpen(false); setGroupModalOpen(true); }}
+                                        >
+                                            <i className="iconfont icon-contacts-fill" />
+                                            <span>{t('group.entrance')}</span>
+                                        </button>
+                                        <button
+                                            className={directoryViewStyle.add_menu_item}
+                                            onClick={() => { setAddMenuOpen(false); handleClickAddFriend(); }}
+                                        >
+                                            <i className="iconfont icon-adduser" />
+                                            <span>{t('directory.addFriend')}</span>
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     }
                 />
@@ -454,6 +483,18 @@ function DirectoryView() {
                     </div>
                 )}
             </div>
+            {/* 发起群聊(勾选好友 → 建群 → 进入群会话) */}
+            <CreateGroupModal
+                open={groupModalOpen}
+                userId={userId as number}
+                friends={contacts.map((c) => ({
+                    id: c.id,
+                    name: c.remark || c.username,
+                    avatar: c.avatar ? buildServerUrl(c.avatar) : defaultAvatar,
+                }))}
+                onClose={() => setGroupModalOpen(false)}
+                onCreated={(convId) => { window.location.href = `/chat/${convId}`; }}
+            />
         </div>
     )
 }

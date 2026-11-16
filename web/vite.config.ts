@@ -51,6 +51,11 @@ export default defineConfig(({ command }) => ({
         target: 'http://127.0.0.1:3007',
         changeOrigin: true,
       },
+      // 群聊接口(同源 cookie 鉴权)
+      '/group': {
+        target: 'http://127.0.0.1:3007',
+        changeOrigin: true,
+      },
       // 实时:原生 WS 走 /ws → gateway:8090
       '/ws': {
         target: 'http://127.0.0.1:8090',

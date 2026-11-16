@@ -54,6 +54,7 @@ func NewRouter(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	mountUserRoutes(r)               // /user: profile/update
 	mountFriendRoutes(r)             // /user: friend 全部
 	mountChatRoutes(r)               // /user: userConversations/conversations/messages/updateConversationTime/lastMessages
+	mountGroupRoutes(r)              // /group: create/info/rename/addMembers
 	mountSyncRoutes(r)               // /user: sync/read/mentions/readCount
 	mountUploadRoutes(r, cfg)        // /user/uploads/uploadImg + /api/upload/*
 	mountInternalRoutes(r, cfg)      // /internal: gateway/uplink、gateway/disconnect

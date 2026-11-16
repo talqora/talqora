@@ -127,7 +127,7 @@
         // 气泡(带指向头像的小尾巴)
         .bubble {
             position: relative;
-            max-width: 60%;
+            max-width: 100%;
             padding: 8px 12px;
             border-radius: $wc-bubble-radius;
             font-size: 0.875rem;
@@ -306,4 +306,18 @@
         right: auto;
         transform: translateX(-50%);
     }
+}
+
+// 群聊:他人消息在气泡上方显示发送者昵称(微信样式:12px 灰字,左对齐)
+.msg_main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 60%;   // 气泡宽度约束上移到这一层,内部气泡吃满
+}
+.msg_sender {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    color: var(--text-3);
+    margin-bottom: 4px;
 }

@@ -8,7 +8,7 @@ import chatViewStyle from './style.module.scss';
 import { wsClient } from '@/ws/wsClient';
 import { reportRealtimeRtt } from '@/rum';
 import { getConversationMessages } from '@/globalApi/chatApi';
-import { initGlobalMessages, initActiveConversation } from '@/store/chatStore';
+import { initGlobalMessages, initActiveConversation, addConversation } from '@/store/chatStore';
 import type { ApiResponse } from '@/globalType/apiResponse';
 import type { RootState } from '@/store/rootStore';
 import DisplayItem from '@/globalComponents/displayItem';
@@ -25,6 +25,8 @@ import ActionSheet from '@/globalComponents/actionSheet';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLang } from '@/i18n';
 import ProfileCard from '@/globalComponents/profileCard';
+import { getGroupInfo, type GroupInfo } from '@/globalApi/groupApi';
+import GroupInfoPanel from '@/globalComponents/groupInfoPanel';
 
 function ChatView() {
 
@@ -81,6 +83,23 @@ function ChatView() {
         const tp = conversationId.split('_');
         return parseInt(tp[1]===userId?.toString() ? tp[2] : tp[1]);
     };
+    // 群聊:convId 形如 group_<id>;单聊沿用 single_<a>_<b>
+    const isGroupConv = (id: string) => id.startsWith('group_');
+    const groupIdOf = (id: string) => Number(id.split('_')[1]);
+    const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
+    // 右侧群资料面板(微信:头部「⋯」展开)
+    const [infoOpen, setInfoOpen] = useState(false);
+
+    useEffect(() => {
+        if (!activeConversation || !isGroupConv(activeConversation)) {
+            setGroupInfo(null);
+            return;
+        }
+        getGroupInfo(groupIdOf(activeConversation))
+            .then((res) => setGroupInfo(res.data ?? null))
+            .catch(() => setGroupInfo(null));
+    }, [activeConversation]);
+
     // 是否在该消息前显示时间分隔(首条 or 与上一条间隔 > 5 分钟)
     const msgTime = (m: Message) => new Date(m.timestamp || m.createdAt || '').getTime();
     const shouldShowTime = (msgs: Message[], i: number) => {
@@ -329,13 +348,7 @@ function ChatView() {
         { label: t('chat.iconLabels.emoji'),      icon: 'icon-meh',            method: 'handleClickEmoji' },
         { label: t('chat.iconLabels.file'),       icon: 'icon-folder',         method: 'handleClickFile' },
         { label: t('chat.iconLabels.screenshot'), icon: 'icon-scissor',        method: 'handleClickScreenshot' },
-        { label: t('chat.iconLabels.record'),     icon: 'icon-comment',        method: 'handleClickChatRecord' },
     ];
-    const rightActions: ComposerAction[] = [
-        { label: t('chat.iconLabels.voice'),      icon: 'icon-phone',          method: 'handleClickVoice' },
-        { label: t('chat.iconLabels.video'),      icon: 'icon-videocameraadd', method: 'handleClickVideo' },
-    ];
-
     // 移动端 ＋ 面板(微信式 2×4 宫格);只有相册/视频通话接真实功能,其余占位
     const mobilePanelActions: PanelAction[] = [
         { label: t('chat.panel.album'),     icon: 'icon-image',            method: 'album' },
@@ -362,20 +375,27 @@ function ChatView() {
             <div className={chatViewStyle.chat_view_left}>
                 <SearchHeader onSearchChange={handleSearchChange} placeholder={t('chat.searchPlaceholder')} />
                 <div className={chatViewStyle.chat_view_left_body}>
-                        {Object.values(globalConversations).map((item: Conversation) => (
-                            <DisplayItem
-                                key={item.id}
-                                id={item.id}
-                                avatar={globalFriendInfoList[parseConversationId(item.id)]?.avatar
-                                    ? buildServerUrl(globalFriendInfoList[parseConversationId(item.id)]?.avatar ?? '')
-                                    : defaultAvatar}
-                                title={friendDisplayName(parseConversationId(item.id))}
-                                content={lastMessages[item.id]?.content || ''}
-                                time={lastMessages[item.id] ? formatMsgTime(lastMessages[item.id]) : undefined}
-                                isActive={activeConversation === item.id}
-                                handleClick={handleClickConversation}
-                            />
-                    ))}
+                        {Object.values(globalConversations).map((item: Conversation) => {
+                            const group = isGroupConv(item.id);
+                            const fid = parseConversationId(item.id);
+                            const last = lastMessages[item.id];
+                            const lastSender = last ? (globalFriendInfoList[last.senderId]?.username ?? '') : '';
+                            const friendAvatar = globalFriendInfoList[fid]?.avatar
+                                ? buildServerUrl(globalFriendInfoList[fid].avatar ?? '')
+                                : defaultAvatar;
+                            return (
+                                <DisplayItem
+                                    key={item.id}
+                                    id={item.id}
+                                    avatar={group ? defaultAvatar : friendAvatar}
+                                    title={group ? (item.title || t('group.defaultName')) : friendDisplayName(fid)}
+                                    content={group && lastSender ? `${lastSender}: ${last?.content ?? ''}` : (last?.content ?? '')}
+                                    time={last ? formatMsgTime(last) : undefined}
+                                    isActive={activeConversation === item.id}
+                                    handleClick={handleClickConversation}
+                                />
+                            );
+                        })}
                 </div>
             </div>
             {/* 右侧：聊天窗口 */}
@@ -385,7 +405,17 @@ function ChatView() {
                         {/* 会话标题:移动端为 返回 / 居中标题 / ⋯ 三段栏(桌面端隐藏返回) */}
                         <div className={chatViewStyle.chat_header}>
                             <i className={chatViewStyle.back_btn} onClick={() => navigate('/chat')} />
-                            <span className={chatViewStyle.chat_title}>{friendDisplayName(parseConversationId(activeConversation)) || ''}</span>
+                            <span className={chatViewStyle.chat_title}>
+                                {isGroupConv(activeConversation)
+                                    ? (() => {
+                                        const base = globalConversations[activeConversation]?.title
+                                            || groupInfo?.name
+                                            || t('group.defaultName');
+                                        // 群名里已带 (N) 时不再重复拼人数(历史群名兼容)
+                                        return /\(\d+\)$/.test(base) || !groupInfo ? base : `${base}(${groupInfo.memberCount})`;
+                                    })()
+                                    : (friendDisplayName(parseConversationId(activeConversation)) || '')}
+                            </span>
                             {/* 右侧动作:微信桌面端的 语音通话 / 视频通话 / 更多 三件套(移动端只留 ⋯) */}
                             <div className={chatViewStyle.header_actions}>
                                 <i
@@ -398,8 +428,11 @@ function ChatView() {
                                     title={t('chat.iconLabels.video')}
                                     onClick={handleClickVideo}
                                 />
-                                {/* ⋯ 暂不接功能,仅占位保持微信头部布局 */}
-                                <i className={`iconfont icon-ellipsis ${chatViewStyle.more_btn}`} />
+                                {/* ⋯ 展开右侧群资料面板(群聊);单聊暂不接功能 */}
+                                <i
+                                    className={`iconfont icon-ellipsis ${chatViewStyle.more_btn}`}
+                                    onClick={() => setInfoOpen((v) => !v)}
+                                />
                             </div>
                         </div>
                         {/* 消息列表 */}
@@ -409,10 +442,13 @@ function ChatView() {
                                 dataSource={messages}
                                 renderItem={(msg: Message, index: number) => {
                                     const isSelf = msg.senderId === userId;
+                                    const inGroup = isGroupConv(activeConversation!);
                                     const friendId = parseConversationId(activeConversation!);
+                                    // 群聊:头像取「发送者」的;单聊取会话对方的
+                                    const peerId = inGroup ? msg.senderId : friendId;
                                     const avatarSrc = isSelf
                                         ? (userAvatar ? buildServerUrl(userAvatar) : defaultAvatar)
-                                        : (globalFriendInfoList[friendId]?.avatar ? buildServerUrl(globalFriendInfoList[friendId].avatar) : defaultAvatar);
+                                        : (globalFriendInfoList[peerId]?.avatar ? buildServerUrl(globalFriendInfoList[peerId].avatar) : defaultAvatar);
                                     return (
                                         <List.Item className={chatViewStyle.msg_item}>
                                             {shouldShowTime(messages, index) && (
@@ -423,9 +459,16 @@ function ChatView() {
                                                     className={chatViewStyle.msg_avatar}
                                                     src={avatarSrc}
                                                     alt=""
-                                                    onClick={isSelf ? undefined : (e) => openFriendCard(friendId, e)}
+                                                    onClick={isSelf || inGroup ? undefined : (e) => openFriendCard(friendId, e)}
                                                 />
-                                                {renderMessageContent(msg, isSelf)}
+                                                <div className={chatViewStyle.msg_main}>
+                                                    {isGroupConv(activeConversation!) && !isSelf && (
+                                                        <div className={chatViewStyle.msg_sender}>
+                                                            {globalFriendInfoList[msg.senderId]?.username ?? ''}
+                                                        </div>
+                                                    )}
+                                                    {renderMessageContent(msg, isSelf)}
+                                                </div>
                                             </div>
                                         </List.Item>
                                     )
@@ -445,7 +488,6 @@ function ChatView() {
                                 onSend={sendMessage}
                                 placeholder=""
                                 leftActions={leftActions}
-                                rightActions={rightActions}
                                 onActionClick={handleClickHeaderIcon}
                                 inputRows={3}
                             />
@@ -474,6 +516,19 @@ function ChatView() {
                 </div>
                 }
             </div>
+            {/* 群资料面板:仅群聊且有会话时展示 */}
+            {activeConversation && isGroupConv(activeConversation) && infoOpen && (
+                <GroupInfoPanel
+                    groupId={groupIdOf(activeConversation)}
+                    userId={userId}
+                    onRenamed={(n) => {
+                        // 改名是"一名多处":同步 Redux 里的会话标题,列表/头部一起变
+                        const conv = globalConversations[activeConversation!];
+                        if (conv) dispatch(addConversation({ ...conv, title: n }));
+                        setGroupInfo((prev) => (prev ? { ...prev, name: n } : prev));
+                    }}
+                />
+            )}
             {/* 视频/语音通话选择弹层(移动端点击 ＋面板「视频通话」弹出) */}
             <ActionSheet
                 open={callSheetOpen}

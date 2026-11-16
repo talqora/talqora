@@ -78,6 +78,17 @@ func ensureConversation(ctx context.Context, convID string) error {
 //  3. INSERT message 撞 uniq_msg_idem → 取首次结果返回(deduped=true,不重复扇出);
 //  4. 确保参与者 user_conversations 行存在(ON CONFLICT DO NOTHING)。
 func PersistMessage(ctx context.Context, input PersistMessageInput) (*PersistMessageResult, error) {
+	// 0. 群消息:发送者必须是群成员(单聊沿用既有行为,避免影响历史数据)
+	if gid, ok := ParseGroupConvID(input.ConversationID); ok {
+		member, err := groupRepo.IsMember(ctx, gid, input.SenderID)
+		if err != nil {
+			return nil, err
+		}
+		if !member {
+			return nil, ErrNotGroupMember
+		}
+	}
+
 	// 1. 会话兜底创建(消息先到也能建会话;convType 按前缀推断,message.ts:35-39)
 	if err := ensureConversation(ctx, input.ConversationID); err != nil {
 		return nil, err

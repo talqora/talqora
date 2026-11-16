@@ -62,7 +62,11 @@ type friendRepo struct{}
 func NewFriendRepo() FriendRepo { return friendRepo{} }
 
 func (friendRepo) ListFriends(ctx context.Context, uid int64, p Page) (Result[Friend], error) {
-	p = p.Normalize(50, 200)
+	// limit=0 表示「全量」旧语义,不能被默认值覆盖(登录时拉全量好友依赖它)
+	// limit 缺省不全量查询好友信息会导致ID 靠后的好友查不到名字
+	if p.Limit > 0 {
+		p = p.Normalize(50, 200)
+	}
 	q := "SELECT f.friend_id, u.username, u.avatar, u.gender, f.remark FROM friendships f " +
 		"JOIN users u ON u.id = f.friend_id WHERE f.user_id = $1"
 	args := []any{uid}
@@ -70,7 +74,10 @@ func (friendRepo) ListFriends(ctx context.Context, uid int64, p Page) (Result[Fr
 		q += " AND f.friend_id > $2"
 		args = append(args, p.After)
 	}
-	q += " ORDER BY f.friend_id LIMIT " + itoa(p.Limit+1)
+	q += " ORDER BY f.friend_id"
+	if p.Limit > 0 {
+		q += " LIMIT " + itoa(p.Limit+1)
+	}
 
 	rows, err := db.RO().Query(ctx, q, args...)
 	if err != nil {
@@ -89,7 +96,9 @@ func (friendRepo) ListFriends(ctx context.Context, uid int64, p Page) (Result[Fr
 }
 
 func (friendRepo) ListReqs(ctx context.Context, uid int64, p Page) (Result[FriendReq], error) {
-	p = p.Normalize(30, 200)
+	if p.Limit > 0 {
+		p = p.Normalize(30, 200)
+	}
 	q := "SELECT f.id, f.user_id, f.friend_id, f.status::text, f.remark, f.created_at, f.updated_at, " +
 		"u.username, u.avatar FROM friendships f LEFT JOIN users u ON u.id = f.friend_id WHERE f.user_id = $1"
 	args := []any{uid}
@@ -97,7 +106,10 @@ func (friendRepo) ListReqs(ctx context.Context, uid int64, p Page) (Result[Frien
 		q += " AND f.id < $2"
 		args = append(args, p.After)
 	}
-	q += " ORDER BY f.id DESC LIMIT " + itoa(p.Limit+1)
+	q += " ORDER BY f.id DESC"
+	if p.Limit > 0 {
+		q += " LIMIT " + itoa(p.Limit+1)
+	}
 
 	rows, err := db.RO().Query(ctx, q, args...)
 	if err != nil {
