@@ -29,6 +29,7 @@
 | [07-跨期可比性与机器资源一致性](./问题分析/07-跨期可比性与机器资源一致性.md) | 工作机干扰有多大、怎么判定 | P1 |
 | [08-L14-OAuth与JWKS补测](./问题分析/08-L14-OAuth与JWKS补测.md) | 1.1 万 rps 通过；3 条配置风险 | 通过 |
 | [09-机器真实资源实测与采集方法](./问题分析/09-机器真实资源实测与采集方法.md) | Swap 45 GB、空闲页 80 MB、磁盘 I/O ×15 | P1 |
+| [10-吞吐提升验收方案与压测口径](./问题分析/10-吞吐提升验收方案与压测口径.md) | 优化后怎么验收：必测指标、分阶段阈值、新增 S9–S12 场景 | P1 |
 
 ## 二、方法与前提
 
@@ -277,7 +278,7 @@ if _, ok := seqInitialized.Load(convID); ok {
 
 | # | 缺口 | 影响 | 建议 |
 |---|---|---|---|
-| 1 | `db_query_duration_seconds` 是 **Summary**，无 bucket | `histogram_quantile()` 永远返回空，DB 分位无数据 | 改 Histogram 或改用 `_sum/_count` 算均值并显式说明 |
+| 1 | `db_query_duration_seconds` 分位查询取不到值 | `histogram_quantile()` 返回空，DB 分位无数据 | **代码侧已是 Histogram**（`metrics.go:91`），故属查询写法/抓取目标问题：用 `histogram_quantile(0.99, sum by (le) (rate(db_query_duration_seconds_bucket[1m])))` 复核（详见 §十二 更正与分册 10 §三） |
 | 2 | 无连接池指标 | 池等待时间无法直接观测，只能靠 `pg_stat_activity` 侧证 | 加 `db_pool_acquired/idle/wait_seconds` |
 | 3 | Grafana 无 image-renderer | `/render` 返回 478×208 占位图 | 本轮改用 `shots/prometheus_snapshot.json`（93 个采样点、10 组序列） |
 | 4 | `s8-limit.sh` 首版阈值未 export | 停止判据静默失效，多跑了一级 | 已修（`export STOP_* NCPU`） |
@@ -313,8 +314,11 @@ if _, ok := seqInitialized.Load(convID); ok {
 
 后续优化: `/user/messages` 改默认 `limit` —— **已做 A/B 实测**：同一端点不传 limit 是 7.1 rps / p99 4,474 ms，传 `limit=50` 是 3,964 rps / p99 12 ms（558×）。修复只需把默认路径指向已有的分页分支，改完按 3,964 rps 验收（P1）。
 
-后续优化: 连接侧 CPU 成本 —— 1 万连接耗 16 核，而消息侧 2800 msg/s 仅 1.9 核。需定位是心跳续约、presence 写入还是 goroutine 调度的开销；若为每连接轮询，改为事件驱动可显著降低（P1）。
+后续优化: 连接侧 CPU 成本 —— 原判"1 万连接耗 16 核"已更正为 bcrypt 登录脉冲（见分册 04），**连接维持成本本轮没有干净样本**，需按分册 04 §六 的"准备/建连/维持"三段式采样重测（P1）。
 
 后续优化: 补齐未覆盖链路 —— L10 热点限流、L11 Redis 降级、L12 慢消费者、L15 上传、L17 通话信令，按 SOP §5.1 缺口逐项补场景；L14 OAuth/JWKS 已于本轮补测关闭（P2）。
 
-后续优化: 观测补齐 —— `db_query_duration` 改 Histogram、增加连接池等待指标、给 Grafana 装 image-renderer 或改为面板数据导出（P2）。
+后续优化: 观测补齐 —— 增加连接池等待指标与 Redis 命令级指标、给 Grafana 装 image-renderer 或改为面板数据导出（P2）。
+`db_query_duration_seconds` 已是 `HistogramVec`（`biz/internal/metrics/metrics.go:91`，2026-09-18 起），不是 Summary：本轮取不到分位属**查询写法/抓取目标**问题（需 `sum by (le)`），不要按"改指标类型"去改代码。
+
+后续优化: 吞吐上限的系统性提升 —— 三级台阶（省往返 2.5× → 组提交 4–7× → 扩副本线性）与分析见 `docs/IM/消息链路/2026.11/00-消息吞吐上限分析与提升技术方案.md`；每级的验收口径见分册 10。
